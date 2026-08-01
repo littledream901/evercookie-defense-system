@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  lint:
+    name: Lint & Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Run ruff check
+        run: ruff check .
+
+      - name: Run ruff format check
+        run: ruff format --check .
+
+  unit-tests:
+    name: Unit Tests (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [shared, admin, gateway]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio
+          pip install -e ./shared
+          if [ "${{ matrix.service }}" = "admin" ]; then
+            pip install -e ./admin-api
+          elif [ "${{ matrix.service }}" = "gateway" ]; then
+            pip install -e ./gateway-api
+          elif [ "${{ matrix.service }}" = "worker" ]; then
+            pip install -e ./worker
+          fi
+
+      - name: Run unit tests
+        run: |
+          if [ "${{ matrix.service }}" = "shared" ]; then
+            python -m pytest tests/shared -q
+          elif [ "${{ matrix.service }}" = "admin" ]; then
+            python -m pytest tests/admin -q
+          elif [ "${{ matrix.service }}" = "gateway" ]; then
+            python -m pytest tests/gateway -q
+          elif [ "${{ matrix.service }}" = "worker" ]; then
+            python -m pytest tests/worker -q
+          fi
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio httpx
+          pip install -e ./shared
+          pip install -e ./admin-api
+          pip install -e ./gateway-api
+
+      - name: Start test stack
+        run: |
+          cd tests/integration
+          docker compose -f docker-compose.test.yml up -d
+          sleep 30
+
+      - name: Wait for services
+        run: |
+          timeout 90 bash -c 'until nc -z 127.0.0.1 33306; do sleep 2; done'
+          timeout 90 bash -c 'until nc -z 127.0.0.1 36379; do sleep 2; done'
+          timeout 90 bash -c 'until curl -sf http://127.0.0.1:38123/ping; do sleep 2; done'
+
+      - name: Run integration tests
+        run: python -m pytest tests/integration -v --tb=short
+        env:
+          SKIP_INTEGRATION: ""
+
+      - name: Tear down
+        if: always()
+        run: |
+          cd tests/integration
+          docker compose -f docker-compose.test.yml down -v
+
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./dashboard-ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-dist
+          path: dashboard-ui/dist
+          retention-days: 7

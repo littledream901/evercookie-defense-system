@@ -1,0 +1,46 @@
+groups:
+  - name: fangyu.gateway.recording
+    interval: 30s
+    rules:
+      - record: fangyu:gateway_request_rate:5m
+        expr: sum by (service) (rate(fangyu_http_requests_total[5m]))
+
+      - record: fangyu:gateway_error_rate:5m
+        expr: |
+          sum by (service) (rate(fangyu_http_requests_total{status=~"5..|4.."}[5m]))
+          /
+          clamp_min(sum by (service) (rate(fangyu_http_requests_total[5m])), 1)
+
+      - record: fangyu:gateway_latency_p99:5m
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le, service) (rate(fangyu_http_request_duration_seconds_bucket[5m]))
+          )
+
+      - record: fangyu:decision_action_ratio:5m
+        expr: |
+          sum by (action) (rate(fangyu_decision_requests_total[5m]))
+          /
+          clamp_min(sum(rate(fangyu_decision_requests_total[5m])), 1)
+
+  - name: fangyu.worker.recording
+    interval: 30s
+    rules:
+      - record: fangyu:worker_consume_rate:5m
+        expr: sum by (stream, consumer_group) (rate(fangyu_stream_events_consumed_total[5m]))
+
+      - record: fangyu:worker_write_rate:5m
+        expr: sum by (stream, consumer_group) (rate(fangyu_stream_events_processed_total{status="success"}[5m]))
+
+      - record: fangyu:worker_dlq_rate:5m
+        expr: sum by (stream) (rate(fangyu_stream_dead_letter_total[5m]))
+
+      - record: fangyu:worker_lag_seconds
+        expr: max by (stream, consumer_group) (fangyu_stream_lag)
+
+  - name: fangyu.admin.recording
+    interval: 30s
+    rules:
+      - record: fangyu:admin_login_failure_rate:5m
+        expr: sum by (service) (rate(fangyu_admin_login_failure_total[5m]))

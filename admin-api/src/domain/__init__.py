@@ -1,0 +1,1 @@
+"""Admin domain 层。"""

@@ -1,0 +1,50 @@
+[project]
+name = "fangyu-admin-api"
+version = "2.0.0"
+description = "Evercookie Defense System - Admin API"
+requires-python = ">=3.11"
+dependencies = [
+    "fangyu-shared",
+    "fastapi>=0.109",
+    "uvicorn[standard]>=0.27",
+    "gunicorn>=21.2",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.1",
+    "sqlalchemy[asyncio]>=2.0",
+    "aiomysql>=0.2",
+    "alembic>=1.13",
+    "bcrypt>=4.1",
+    "pyjwt>=2.8",
+    "orjson>=3.9",
+    "python-multipart>=0.0.9",
+    "apscheduler>=3.10",
+    "opentelemetry-api>=1.24,<2",
+    "opentelemetry-sdk>=1.24,<2",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.24,<2",
+    "opentelemetry-instrumentation-fastapi>=0.45b0,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=4.1",
+    "httpx>=0.26",
+    "ruff>=0.3",
+    "mypy>=1.9",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true

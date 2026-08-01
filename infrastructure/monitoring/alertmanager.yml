@@ -1,0 +1,61 @@
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: "smtp.internal.example.com:587"
+  smtp_from:      "alert@fangyu.example.com"
+  smtp_auth_username: "alert@fangyu.example.com"
+  smtp_auth_password: "REPLACE_ME"
+  smtp_require_tls:   true
+
+route:
+  receiver: default-team
+  group_by: [alertname, service, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 3h
+  routes:
+    - matchers:
+        - severity="critical"
+      receiver: oncall
+      continue: true
+    - matchers:
+        - component="gateway-api"
+      receiver: gateway-team
+    - matchers:
+        - component=~"worker|clickhouse"
+      receiver: data-team
+    - matchers:
+        - component=~"admin-api|mysql"
+      receiver: admin-team
+
+inhibit_rules:
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: [alertname, service, pod]
+
+receivers:
+  - name: default-team
+    email_configs:
+      - to: "sre@fangyu.example.com"
+        send_resolved: true
+
+  - name: oncall
+    webhook_configs:
+      - url: "http://oncall-bot.monitoring.svc.cluster.local/notify"
+        send_resolved: true
+
+  - name: gateway-team
+    email_configs:
+      - to: "gateway-oncall@fangyu.example.com"
+        send_resolved: true
+
+  - name: data-team
+    email_configs:
+      - to: "data-oncall@fangyu.example.com"
+        send_resolved: true
+
+  - name: admin-team
+    email_configs:
+      - to: "admin-oncall@fangyu.example.com"
+        send_resolved: true

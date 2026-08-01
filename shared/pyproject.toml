@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fangyu-shared"
+version = "2.0.0"
+description = "Evercookie Defense System V2 - 跨服务共享库"
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "Proprietary" }
+authors = [{ name = "Fangyu Team" }]
+dependencies = [
+    "pydantic>=2.6,<3",
+    "pydantic-settings>=2.2,<3",
+    "redis[hiredis]>=5.0,<6",
+    "clickhouse-driver>=0.2.9,<1",
+    "aiochclient>=2.5,<3",
+    "structlog>=24.1,<25",
+    "prometheus-client>=0.20,<1",
+    "fastapi>=0.109,<1",
+    "starlette>=0.36,<1",
+    "httpx>=0.27,<1",
+    "python-dateutil>=2.9,<3",
+    "opentelemetry-api>=1.24,<2",
+    "opentelemetry-sdk>=1.24,<2",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.24,<2",
+    "opentelemetry-instrumentation-fastapi>=0.45b0,<1",
+    "opentelemetry-instrumentation-redis>=0.45b0,<1",
+    "opentelemetry-propagator-b3>=1.24,<2",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0,<9",
+    "pytest-asyncio>=0.23,<1",
+    "pytest-cov>=5.0,<6",
+    "pytest-mock>=3.12,<4",
+    "fakeredis>=2.21,<3",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+fangyu_shared = ["py.typed"]

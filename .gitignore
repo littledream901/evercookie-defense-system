@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# 环境
+.env
+.env.local
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 前端
+node_modules/
+dashboard-ui/dist/
+dashboard-ui/.pnpm-debug.log
+client-sdk/dist/
+client-sdk/node_modules/
+web/dist/
+web/.pnpm-debug.log
+
+# 参考模板（自带独立 git 仓库，不纳入本仓库）
+art-design-pro/
+
+# Claude Code 工作区（内含外层仓库的 worktree 检出）
+.claude/
+
+# 数据
+*.mmdb
+data/
+
+# 日志
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db

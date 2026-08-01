@@ -1,0 +1,151 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fangyu-common-config
+  namespace: fangyu
+  labels:
+    app.kubernetes.io/part-of: fangyu
+data:
+  FANGYU_ENV: "production"
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
+  PROMETHEUS_ENABLED: "true"
+
+  REDIS_HOST: "redis-master.data.svc.cluster.local"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  REDIS_MAX_CONNECTIONS: "200"
+  REDIS_SOCKET_TIMEOUT: "1.0"
+  REDIS_STREAM_MAXLEN: "1000000"
+
+  CLICKHOUSE_HOST: "clickhouse-headless.data.svc.cluster.local"
+  CLICKHOUSE_PORT: "8123"
+  CLICKHOUSE_DATABASE: "fangyu"
+  CLICKHOUSE_USER: "fangyu_writer"
+
+  MYSQL_HOST: "mysql-primary.data.svc.cluster.local"
+  MYSQL_PORT: "3306"
+  MYSQL_DATABASE: "fangyu_admin"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-api-config
+  namespace: fangyu
+  labels:
+    app.kubernetes.io/name: gateway-api
+    app.kubernetes.io/part-of: fangyu
+data:
+  GATEWAY_HOST: "0.0.0.0"
+  GATEWAY_PORT: "8080"
+  GATEWAY_WORKERS: "4"
+  DECISION_CACHE_TTL: "60"
+  PROFILE_CACHE_TTL: "300"
+  RULE_CACHE_TTL: "30"
+  DECISION_STREAM_NAME: "fangyu:decision:events"
+  MMDB_COUNTRY_PATH: "/etc/fangyu/mmdb/GeoLite2-Country.mmdb"
+  MMDB_ASN_PATH: "/etc/fangyu/mmdb/GeoLite2-ASN.mmdb"
+  RISK_WEIGHT_IP: "0.30"
+  RISK_WEIGHT_PROXY: "0.20"
+  RISK_WEIGHT_UA: "0.15"
+  RISK_WEIGHT_DEVICE: "0.20"
+  RISK_WEIGHT_BEHAVIOR: "0.15"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: admin-api-config
+  namespace: fangyu
+  labels:
+    app.kubernetes.io/name: admin-api
+    app.kubernetes.io/part-of: fangyu
+data:
+  ADMIN_HOST: "0.0.0.0"
+  ADMIN_PORT: "8081"
+  ADMIN_WORKERS: "2"
+  JWT_ALGORITHM: "HS256"
+  JWT_ACCESS_TTL_SECONDS: "1800"
+  JWT_REFRESH_TTL_SECONDS: "604800"
+  PERMISSION_CACHE_TTL: "300"
+  RULE_CACHE_TTL: "60"
+  CORS_ORIGINS: "https://dashboard.fangyu.example.com"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: worker-config
+  namespace: fangyu
+  labels:
+    app.kubernetes.io/name: worker
+    app.kubernetes.io/part-of: fangyu
+data:
+  WORKER_HEALTH_PORT: "9100"
+  WORKER_CONSUMER_GROUP: "fangyu-worker"
+  WORKER_CONSUMER_PREFIX: "worker"
+  WORKER_STREAM_NAME: "fangyu:decision:events"
+  WORKER_BLOCK_MS: "2000"
+  WORKER_BATCH_SIZE: "500"
+  WORKER_FLUSH_INTERVAL_MS: "1000"
+  WORKER_CLAIM_INTERVAL_MS: "30000"
+  WORKER_CLAIM_MIN_IDLE_MS: "60000"
+  WORKER_MAX_RETRIES: "5"
+  WORKER_DLQ_STREAM: "fangyu:decision:events:dlq"
+  WORKER_TARGET_TABLE: "decision_events"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-ui-nginx
+  namespace: fangyu
+  labels:
+    app.kubernetes.io/name: dashboard-ui
+    app.kubernetes.io/part-of: fangyu
+data:
+  default.conf: |
+    server {
+        listen       80;
+        server_name  _;
+        server_tokens off;
+        root  /usr/share/nginx/html;
+        index index.html;
+
+        gzip on;
+        gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+
+        add_header X-Frame-Options        "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff"    always;
+        add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
+
+        location = /healthz {
+            access_log off;
+            return 200 "ok\n";
+            add_header Content-Type text/plain;
+        }
+
+        location /api/admin/ {
+            proxy_pass         http://admin-api.fangyu.svc.cluster.local:8081/;
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_set_header   X-Request-Id      $request_id;
+        }
+
+        location /api/gateway/ {
+            proxy_pass         http://gateway-api.fangyu.svc.cluster.local:8080/;
+            proxy_http_version 1.1;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        }
+
+        location ~* \.(?:js|css|woff2?|ttf|otf|eot|ico|png|jpg|jpeg|gif|svg|webp|avif|map)$ {
+            expires 7d;
+            access_log off;
+        }
+
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+    }

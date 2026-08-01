@@ -1,0 +1,169 @@
+groups:
+  - name: fangyu.gateway.alerts
+    rules:
+      - alert: GatewayHighErrorRate
+        expr: fangyu:gateway_error_rate:5m > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: gateway-api
+        annotations:
+          summary: "gateway-api 错误率超过 5%"
+          description: "{{ $labels.service }}/{{ $labels.pod }} 最近 5 分钟错误率 {{ $value | humanizePercentage }}，请立即排查。"
+          runbook: "https://ops.fangyu.example.com/runbooks/gateway-high-error-rate"
+
+      - alert: GatewayLatencyP99High
+        expr: fangyu:gateway_latency_p99:5m > 0.15
+        for: 10m
+        labels:
+          severity: warning
+          component: gateway-api
+        annotations:
+          summary: "gateway-api P99 延迟高于 150ms"
+          description: "服务 {{ $labels.service }} 当前 P99 = {{ $value | humanizeDuration }}，可能存在性能退化。"
+
+      - alert: GatewayNoTraffic
+        expr: fangyu:gateway_request_rate:5m == 0
+        for: 10m
+        labels:
+          severity: warning
+          component: gateway-api
+        annotations:
+          summary: "gateway-api 无流量"
+          description: "{{ $labels.service }}/{{ $labels.pod }} 10 分钟内没有请求，可能被摘除或客户端接入异常。"
+
+      - alert: GatewayPodCrashLoop
+        expr: rate(kube_pod_container_status_restarts_total{namespace="fangyu", container="gateway-api"}[10m]) > 0
+        for: 15m
+        labels:
+          severity: critical
+          component: gateway-api
+        annotations:
+          summary: "gateway-api 容器持续重启"
+          description: "Pod {{ $labels.pod }} 在过去 10 分钟内出现重启，请检查日志。"
+
+  - name: fangyu.worker.alerts
+    rules:
+      - alert: WorkerStreamLagHigh
+        expr: fangyu:worker_lag_seconds > 60
+        for: 5m
+        labels:
+          severity: warning
+          component: worker
+        annotations:
+          summary: "worker Stream 消费滞后超过 60s"
+          description: "worker {{ $labels.pod }} 待处理最老消息年龄 {{ $value | humanizeDuration }}，扩容或排查消费者。"
+
+      - alert: WorkerDLQGrowing
+        expr: fangyu:worker_dlq_rate:5m > 1
+        for: 10m
+        labels:
+          severity: critical
+          component: worker
+        annotations:
+          summary: "worker DLQ 积累速度异常"
+          description: "worker {{ $labels.pod }} 每秒进入死信 {{ $value }} 条，检查上游数据格式或 ClickHouse 写入。"
+
+      - alert: WorkerClickHouseWriteStalled
+        expr: fangyu:worker_write_rate:5m == 0 and fangyu:worker_consume_rate:5m > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: worker
+        annotations:
+          summary: "worker 消费但写入停滞"
+          description: "worker {{ $labels.pod }} 有消费但 ClickHouse 写入速率为 0，检查 ClickHouse 可用性与批量写入器。"
+
+  - name: fangyu.admin.alerts
+    rules:
+      - alert: AdminLoginFailureBurst
+        expr: fangyu:admin_login_failure_rate:5m > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: admin-api
+        annotations:
+          summary: "admin-api 登录失败速率异常"
+          description: "过去 5 分钟每秒登录失败 {{ $value }} 次，可能存在爆破攻击，建议启用二次校验或封禁来源 IP。"
+
+      - alert: AdminAPI5xx
+        expr: sum by (service) (rate(fangyu_http_requests_total{service="admin-api",status=~"5.."}[5m])) > 1
+        for: 10m
+        labels:
+          severity: critical
+          component: admin-api
+        annotations:
+          summary: "admin-api 出现持续 5xx"
+          description: "admin-api 每秒 5xx {{ $value }}，检查数据库/缓存依赖。"
+
+  - name: fangyu.infra.alerts
+    rules:
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: redis
+        annotations:
+          summary: "Redis 实例不可达"
+          description: "Redis 实例 {{ $labels.instance }} 无法采集指标，网关及缓存链路将受影响。"
+
+      - alert: RedisMemoryHigh
+        expr: (redis_memory_used_bytes / redis_memory_max_bytes) > 0.85
+        for: 15m
+        labels:
+          severity: warning
+          component: redis
+        annotations:
+          summary: "Redis 内存使用超过 85%"
+          description: "{{ $labels.instance }} 内存占用 {{ $value | humanizePercentage }}，检查大 key 和过期策略。"
+
+      - alert: ClickHouseDown
+        expr: up{job="clickhouse"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: clickhouse
+        annotations:
+          summary: "ClickHouse 实例不可达"
+          description: "ClickHouse {{ $labels.instance }} exporter 无响应，事件落库中断，worker 将无法写入。"
+
+      - alert: ClickHouseReplicationLag
+        expr: max(ClickHouseAsyncMetrics_ReplicasMaxAbsoluteDelay) > 60
+        for: 15m
+        labels:
+          severity: warning
+          component: clickhouse
+        annotations:
+          summary: "ClickHouse 复制延迟高"
+          description: "复制延迟 {{ $value }} 秒，检查副本网络与磁盘。"
+
+      - alert: MySQLDown
+        expr: mysql_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: mysql
+        annotations:
+          summary: "MySQL 不可达"
+          description: "{{ $labels.instance }} 不可达，admin-api 元数据访问将失败。"
+
+      - alert: NodeMemoryPressure
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.9
+        for: 15m
+        labels:
+          severity: warning
+          component: infra
+        annotations:
+          summary: "节点内存使用超过 90%"
+          description: "节点 {{ $labels.instance }} 剩余内存不足 10%，可能触发 OOM。"
+
+      - alert: BlackboxProbeFailed
+        expr: probe_success == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: edge
+        annotations:
+          summary: "外部探针失败"
+          description: "目标 {{ $labels.instance }} 探测失败，可能网关或前端下线。"
