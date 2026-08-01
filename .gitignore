@@ -21,6 +21,9 @@ htmlcov/
 .env.local
 .venv/
 venv/
+# 前端 .env 是构建配置（端口/权限模式/部署路径），非密钥；
+# 且 Vite 会把 VITE_* 打进客户端产物，本就无法保密。需入库。
+!dashboard-ui/.env
 
 # IDE
 .vscode/
@@ -36,9 +39,6 @@ client-sdk/dist/
 client-sdk/node_modules/
 web/dist/
 web/.pnpm-debug.log
-
-# 参考模板（自带独立 git 仓库，不纳入本仓库）
-art-design-pro/
 
 # Claude Code 工作区（内含外层仓库的 worktree 检出）
 .claude/
