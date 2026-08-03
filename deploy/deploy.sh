@@ -849,6 +849,7 @@ Evercookie Defense System V2 — 部署与运维入口
   SKIP_BACKUP=1         update 时跳过备份
   NON_INTERACTIVE=1     跳过所有交互提示
   NO_ANIMATION=1        关闭进度动画
+  DISK_MIN_GB           预检磁盘门槛，默认 50（放宽有数据丢失风险）
 
 示例：
   # 服务器上从零开始

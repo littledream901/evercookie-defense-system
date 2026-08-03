@@ -12,6 +12,12 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env.production}"
 
+# 磁盘门槛可覆盖，用于磁盘受限但已知风险的场景（如小流量试运行）：
+#   DISK_MIN_GB=20 bash deploy/deploy.sh init
+# 默认值不变，覆盖是显式行为，不影响其他人的部署检查。
+DISK_MIN_GB="${DISK_MIN_GB:-50}"
+DISK_RECOMMEND_GB="${DISK_RECOMMEND_GB:-100}"
+
 FAIL=0
 WARN=0
 
@@ -72,12 +78,14 @@ fi
 
 DISK_GB="$(df -BG --output=avail /var/lib/docker 2>/dev/null | tail -1 | tr -dc '0-9' || echo 0)"
 DISK_GB="${DISK_GB:-0}"
-if [[ "$DISK_GB" -ge 100 ]]; then
+if [[ "$DISK_GB" -ge "$DISK_RECOMMEND_GB" ]]; then
     ok "Docker 数据盘剩余 ${DISK_GB} GB"
-elif [[ "$DISK_GB" -ge 50 ]]; then
-    warn "剩余 ${DISK_GB} GB。ClickHouse 日志增长快，建议预留 100 GB 以上"
+elif [[ "$DISK_GB" -ge "$DISK_MIN_GB" ]]; then
+    warn "剩余 ${DISK_GB} GB。ClickHouse 日志增长快，建议预留 ${DISK_RECOMMEND_GB} GB 以上"
+    [[ "$DISK_MIN_GB" -lt 50 ]] && \
+        warn "磁盘门槛已被 DISK_MIN_GB=${DISK_MIN_GB} 放宽（默认 50）。ClickHouse 写满后将拒绝写入，决策日志会丢失"
 else
-    bad "剩余 ${DISK_GB} GB，低于最低要求 50 GB"
+    bad "剩余 ${DISK_GB} GB，低于最低要求 ${DISK_MIN_GB} GB"
 fi
 
 # ─────────────────────────────────────────────────────────────
