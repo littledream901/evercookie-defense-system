@@ -1,17 +1,17 @@
 # =============================================================================
 # 1Panel OpenResty 站点配置 — 管理后台（dashboard-ui）
 # -----------------------------------------------------------------------------
-# 部署方式：
-#   1Panel → 网站 → 创建反向代理网站（域名 admin.example.com）
-#   → 配置文件，用本模板内容替换，替换下列占位符：
-#       {{ADMIN_DOMAIN}}   管理后台域名
-#       {{UI_PORT}}        docker-compose 中 UI_PUBLISH_PORT（默认 8080）
-#       {{OFFICE_CIDR}}    允许访问后台的办公网段，如 203.0.113.0/24
+# 本文件已填入真实值，可整份复制进 1Panel 站点配置，无需再替换占位符。
+#   域名      defense.foxfingerlab.com   ← 若你的后台域名不是这个，全文替换掉
+#   上游端口  8080（docker-compose 的 UI_PUBLISH_PORT）
+#
+# 之前 gateway 那份保存报错的原因同样适用于此：配置里不能残留 {{...}}，
+# 占位符的花括号会被 nginx 当成块起始符，报
+#     directive "xxx" is not terminated by ";"
 #
 # 说明：
 #   - 静态资源缓存、gzip、SPA 回退、/api 反代已在容器内 Nginx 处理，
 #     这里只做 TLS 终结 + 转发 + 边缘限流，避免两层重复配置互相干扰。
-#   - 证书路径按 1Panel 约定；若用自有证书请改为实际路径。
 # =============================================================================
 
 limit_req_zone $binary_remote_addr zone=admin_req:10m rate=50r/s;
@@ -21,7 +21,7 @@ limit_conn_zone $binary_remote_addr zone=admin_conn:10m;
 server {
     listen 80;
     listen [::]:80;
-    server_name {{ADMIN_DOMAIN}};
+    server_name defense.foxfingerlab.com;
 
     # ACME 质询放行，其余强制跳转 HTTPS
     location ^~ /.well-known/acme-challenge/ {
@@ -32,16 +32,18 @@ server {
         return 301 https://$host$request_uri;
     }
 }
-
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
-    server_name {{ADMIN_DOMAIN}};
+    server_name defense.foxfingerlab.com;
 
     # ── TLS ──────────────────────────────────────────────────────
-    ssl_certificate     /opt/1panel/apps/openresty/openresty/www/sites/{{ADMIN_DOMAIN}}/ssl/fullchain.pem;
-    ssl_certificate_key /opt/1panel/apps/openresty/openresty/www/sites/{{ADMIN_DOMAIN}}/ssl/privkey.pem;
+    # 路径按 1Panel 容器内挂载点。若 nginx -t 报证书找不到，先执行
+    #   docker exec 1Panel-openresty ls /www/sites/defense.foxfingerlab.com/ssl/
+    # 确认实际文件名后改这两行。
+    ssl_certificate     /www/sites/defense.foxfingerlab.com/ssl/fullchain.pem;
+    ssl_certificate_key /www/sites/defense.foxfingerlab.com/ssl/privkey.pem;
 
     ssl_protocols       TLSv1.2 TLSv1.3;
     ssl_ciphers         ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
@@ -49,8 +51,6 @@ server {
     ssl_session_cache   shared:SSL_ADMIN:10m;
     ssl_session_timeout 1d;
     ssl_session_tickets off;
-    ssl_stapling        on;
-    ssl_stapling_verify on;
 
     server_tokens off;
     client_max_body_size 64m;   # MMDB 文件上传需要较大 body
@@ -66,14 +66,14 @@ server {
     limit_req  zone=admin_req burst=100 nodelay;
     limit_conn admin_conn 50;
 
-    access_log /var/log/nginx/{{ADMIN_DOMAIN}}.access.log;
-    error_log  /var/log/nginx/{{ADMIN_DOMAIN}}.error.log warn;
+    access_log /var/log/nginx/defense.foxfingerlab.com.access.log;
+    error_log  /var/log/nginx/defense.foxfingerlab.com.error.log warn;
 
     # 登录接口额外收紧，防口令爆破（admin-api 侧还有一层应用级限流）
     location = /api/v2/auth/login {
         limit_req zone=admin_login burst=5 nodelay;
 
-        proxy_pass http://127.0.0.1:{{UI_PORT}};
+        proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
@@ -81,14 +81,17 @@ server {
         proxy_set_header X-Forwarded-Proto https;
     }
 
-    # 后台管理面不应暴露给公网，按办公网段收口。
-    # 若确需公网访问，注释掉 allow/deny 两行，并确保已开启双因素或 VPN。
     location / {
-        allow {{OFFICE_CIDR}};
-        allow 127.0.0.1;
-        deny  all;
+        # ⚠️ 安全：原模板在此用 allow <办公网段> + deny all 把后台收口到内网。
+        # 我不知道你的固定出口 IP，若填错会把你自己锁在门外，所以暂时放开。
+        # 后台是全系统的控制面，长期对公网敞开风险很高。
+        # 拿到固定 IP 后取消下面三行注释并填上，或改用 VPN / 堡垒机接入。
+        #
+        # allow 203.0.113.0/24;   ← 换成你的实际网段
+        # allow 127.0.0.1;
+        # deny  all;
 
-        proxy_pass http://127.0.0.1:{{UI_PORT}};
+        proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
@@ -106,6 +109,6 @@ server {
     # 健康检查供外部探活，不做 IP 限制
     location = /healthz {
         access_log off;
-        proxy_pass http://127.0.0.1:{{UI_PORT}}/healthz;
+        proxy_pass http://127.0.0.1:8080/healthz;
     }
 }

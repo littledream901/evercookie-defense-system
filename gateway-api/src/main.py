@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from fangyu_shared.exceptions import register_exception_handlers
 from fangyu_shared.logging import RequestContextMiddleware, configure_logging, get_logger
@@ -20,6 +22,7 @@ from src.interfaces.http.dependencies import (
     build_decision_service,
     build_health_prober,
     get_app_key_resolver,
+    get_decision_service,
     get_gateway_settings,
     get_health_prober,
     get_nonce_store,
@@ -54,6 +57,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         _logger.info("gateway_shutdown")
+        # 先排空在飞的决策事件，再拆依赖、关 Redis。顺序不能换：事件发布已经
+        # 从决策关键路径挪到后台任务，此时可能还有若干 XADD 没跑完，先关连接池
+        # 等于在每次正常重启时丢掉最后一批事件。
+        try:
+            drained = await get_decision_service().drain_events()
+            if drained:
+                _logger.info("decision_events_drained", count=drained)
+        except Exception as exc:
+            # 排空失败不能挡住关闭流程，否则进程停不下来。
+            _logger.warning("decision_events_drain_failed", error=str(exc))
         reset_dependencies()
         await RedisManager.close()
 
@@ -98,8 +111,36 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     app.include_router(v2_router)
+    _mount_sdk_static(app, settings)
 
     return app
+
+
+def _mount_sdk_static(app: FastAPI, settings: GatewaySettings) -> None:
+    """把 client-sdk 构建产物挂到 ``/sdk``。
+
+    浏览器从 ``https://<网关域名>/sdk/sd-sdk.min.js`` 取 SDK，与决策接口同域，
+    省掉一次跨域预检。产物由 gateway-api.Dockerfile 的 sdk-builder 阶段编译。
+
+    这里刻意**不鉴权**：SDK 文件本身是要公开分发给任意接入站点的浏览器的，
+    加 API Key 校验等于要求页面先持密钥才能下载脚本，逻辑上不成立。
+    ``AppKeyEnforcementMiddleware`` 的保护模式全部以 ``^/v2/`` 锚定，
+    ``/sdk/`` 天然落在保护范围之外，无需额外放行。
+
+    目录缺失时只记警告不抛错：本地开发通常不预构建 SDK，
+    不应因此让网关起不来。
+    """
+    static_dir = Path(settings.sdk_static_dir)
+    if not static_dir.is_dir():
+        _logger.warning("sdk_static_dir_missing", path=str(static_dir))
+        return
+
+    app.mount(
+        "/sdk",
+        StaticFiles(directory=static_dir),
+        name="sdk",
+    )
+    _logger.info("sdk_static_mounted", path=str(static_dir))
 
 
 app = create_app()

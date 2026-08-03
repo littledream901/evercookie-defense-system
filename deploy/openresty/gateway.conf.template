@@ -1,23 +1,25 @@
 # =============================================================================
 # 1Panel OpenResty 站点配置 — 决策网关（gateway-api）
 # -----------------------------------------------------------------------------
-# 这是 SDK 上报入口，面向公网高并发，与管理后台分域名部署。
+# 本文件已填入真实值，可整份复制进 1Panel 站点配置，无需再替换占位符。
+#   域名      gateway.foxfingerlab.com
+#   上游端口  8000（docker-compose 的 GATEWAY_PUBLISH_PORT）
 #
-# 占位符：
-#   {{GATEWAY_DOMAIN}}   网关域名，需与前端 VITE_GATEWAY_URL 一致
-#   {{GATEWAY_PORT}}     docker-compose 中 GATEWAY_PUBLISH_PORT（默认 8000）
-#   {{INTERNAL_CIDR}}    允许抓取 /metrics 的内网网段
+# 之前保存报错的原因：
+#   旧版这里写的是 server 127.0.0.1:{{GATEWAY_PORT}}，占位符里的花括号被
+#   nginx 当成块起始符，于是报
+#       directive "server" is not terminated by ";"
+#   nginx 配置中任何位置都不能残留 {{...}}。
 #
 # 注意：
-#   - 决策接口是跨站调用，CORS 由 gateway-api 应用层按
-#     GATEWAY_CORS_ORIGINS 白名单处理。此处不要再加 add_header
-#     Access-Control-Allow-Origin，否则会出现重复头导致浏览器拒绝。
-#   - 不要对该域名启用防盗链（Referer 校验）：SDK 就是从第三方站点
-#     发起请求的，校验 Referer 会把正常流量全部拦掉。
+#   - 决策接口是跨站调用，CORS 由 gateway-api 应用层按 GATEWAY_CORS_ORIGINS
+#     白名单处理。此处不要再加 Access-Control-Allow-Origin，重复头会被浏览器拒绝。
+#   - 不要对该域名启用防盗链（Referer 校验）：SDK 就是从第三方站点发起请求的，
+#     校验 Referer 会把正常流量全部拦掉。
 # =============================================================================
 
 upstream fangyu_gateway {
-    server 127.0.0.1:{{GATEWAY_PORT}} max_fails=3 fail_timeout=15s;
+    server 127.0.0.1:8000 max_fails=3 fail_timeout=15s;
     keepalive 64;
 }
 
@@ -29,7 +31,7 @@ limit_conn_zone $binary_remote_addr zone=gw_conn:10m;
 server {
     listen 80;
     listen [::]:80;
-    server_name {{GATEWAY_DOMAIN}};
+    server_name gateway.foxfingerlab.com;
 
     location ^~ /.well-known/acme-challenge/ {
         root /www/server/openresty/html;
@@ -39,16 +41,19 @@ server {
         return 301 https://$host$request_uri;
     }
 }
-
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
-    server_name {{GATEWAY_DOMAIN}};
+    server_name gateway.foxfingerlab.com;
 
     # ── TLS ──────────────────────────────────────────────────────
-    ssl_certificate     /opt/1panel/apps/openresty/openresty/www/sites/{{GATEWAY_DOMAIN}}/ssl/fullchain.pem;
-    ssl_certificate_key /opt/1panel/apps/openresty/openresty/www/sites/{{GATEWAY_DOMAIN}}/ssl/privkey.pem;
+    # 路径按 1Panel 容器内挂载点。若 nginx -t 报证书找不到，先执行
+    #   docker exec 1Panel-openresty ls /www/sites/gateway.foxfingerlab.com/ssl/
+    # 确认实际文件名后改这两行。更稳的做法是在 1Panel 站点里点「HTTPS」
+    # 申请证书，由面板自动写入路径，然后只保留下面的 location 段。
+    ssl_certificate     /www/sites/gateway.foxfingerlab.com/ssl/fullchain.pem;
+    ssl_certificate_key /www/sites/gateway.foxfingerlab.com/ssl/privkey.pem;
 
     ssl_protocols       TLSv1.2 TLSv1.3;
     ssl_ciphers         ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
@@ -68,8 +73,8 @@ server {
 
     limit_conn gw_conn 200;
 
-    access_log /var/log/nginx/{{GATEWAY_DOMAIN}}.access.log;
-    error_log  /var/log/nginx/{{GATEWAY_DOMAIN}}.error.log warn;
+    access_log /var/log/nginx/gateway.foxfingerlab.com.access.log;
+    error_log  /var/log/nginx/gateway.foxfingerlab.com.error.log warn;
 
     # ── 决策主链路 ────────────────────────────────────────────────
     # 超时压得很短：决策是同步阻塞在业务页面加载路径上的，
@@ -122,11 +127,42 @@ server {
 
     # 指标含内部拓扑信息，仅内网可抓
     location = /metrics {
-        allow {{INTERNAL_CIDR}};
+        allow 172.16.0.0/12;
         allow 127.0.0.1;
         deny  all;
         access_log off;
         proxy_pass http://fangyu_gateway/v2/metrics;
+    }
+
+    # ── SDK 静态分发 ──────────────────────────────────────────────
+    # client-sdk 的构建产物随 gateway 镜像发布，由应用层 StaticFiles 挂在
+    # /sdk 上（见 gateway-api/src/main.py 的 _mount_sdk_static）。
+    #
+    # 这里不做鉴权也不限流到决策那么严：SDK 文件要公开发给任意接入站点的
+    # 浏览器，要求先持 API Key 才能下载脚本逻辑上不成立。
+    #
+    # 必须放行跨域：接入方页面在自己的域名下，用 <script src> 加载虽然不触发
+    # CORS，但 SDK 若被打包工具以 fetch/模块方式引入就会需要。统一加上。
+    location ^~ /sdk/ {
+        limit_req zone=gw_general burst=400 nodelay;
+
+        proxy_pass http://fangyu_gateway;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection        "";
+
+        proxy_connect_timeout 3s;
+        proxy_read_timeout    10s;
+
+        # 静态产物按内容寻址程度不高（文件名不带 hash），缓存 1h 折中：
+        # 既减轻回源，又让 SDK 升级能在一小时内自然收敛。
+        proxy_cache_valid 200 1h;
+        expires 1h;
+        add_header Cache-Control "public, max-age=3600" always;
+        add_header Access-Control-Allow-Origin "*" always;
     }
 
     # 未匹配路径直接拒绝，不给探测面

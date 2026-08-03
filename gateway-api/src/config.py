@@ -39,6 +39,13 @@ class GatewaySettings(BaseSettings):
     mmdb_country_path: str = "/data/mmdb/GeoLite2-Country.mmdb"
     mmdb_asn_path: str = "/data/mmdb/GeoLite2-ASN.mmdb"
 
+    # SDK 静态分发
+    # client-sdk 的构建产物由 gateway-api.Dockerfile 的 sdk-builder 阶段
+    # 编译并 COPY 到此目录，main.py 将其挂在 /sdk 路径上。
+    # 目录不存在时跳过挂载而非启动失败：本地开发常不预构建 SDK，
+    # 不该因此起不来网关。
+    sdk_static_dir: str = "/app/static/sdk"
+
     # Risk thresholds
     # 累加截顶模型下的阈值，对齐原版 30/75 口径。
     # 早期加权平均模型用的 40/70 在累加语义下会过度触发，不可沿用。
@@ -78,6 +85,21 @@ class GatewaySettings(BaseSettings):
     # Clock：频控与行为时序
     clock_enabled: bool = True
     """关闭后流水线从 CACHE 开始，完全不产生 Clock 的 Redis 开销。"""
+
+    # 规则条件命中明细（decision_traces 冷表）
+    decision_trace_enabled: bool = True
+    """是否采集规则条件命中明细。
+
+    关闭后 ``decision_traces`` 表不再有新数据，后台的「条件命中明细」排障视图
+    会一直为空——只在明确不需要这项排障能力时关闭。
+    """
+    decision_trace_sample_rate: float = Field(default=0.01, ge=0.0, le=1.0)
+    """trusted 流量的明细采样率。非 trusted 裁决不受此值影响，一律全量留痕。
+
+    默认 1%：正常流量是绝对多数，全量留痕会让这张冷表的写入量与主表持平，
+    而它只用于排障对照。要看某个具体请求的明细时，被拦的那条一定在（非 trusted
+    全量），trusted 的靠抽样覆盖。
+    """
 
     # 白名单：误封的人工兜底通道
     whitelist_enabled: bool = True

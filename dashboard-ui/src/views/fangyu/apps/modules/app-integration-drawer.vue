@@ -273,6 +273,9 @@
   const siteId = computed(() => props.app?.site_id ?? 'YOUR_SITE_ID')
   const appSecret = computed(() => props.app?.app_secret ?? 'YOUR_APP_SECRET')
   const gw = computed(() => gatewayUrl.value.replace(/\/$/, ''))
+  // SDK 的 appId 要的是数字主键（Site.id），不是 site_id 那个 site_<hex8> 字符串。
+  // 两者用途不同：site_id 走 X-App-Key header 做身份识别，id 是租户维度。
+  const numericAppId = computed(() => props.app?.id ?? 0)
 
   const REDIRECT_VARS = [
     { ph: '{url}',             desc: '访客原始 URL（明文）' },
@@ -327,14 +330,20 @@ define('FANGYU_GATEWAY_URL', '${gw.value}');
 define('FANGYU_SITE_ID',     '${siteId.value}');  // 同时用作 X-App-Key
 define('FANGYU_APP_SECRET',  '${appSecret.value}');`)
 
+  // SDK 不读任何全局配置变量，必须显式调用 SdSdk.protect()。
+  // 字段名以 client-sdk/src/config.ts 的 SdkConfig 为准：
+  // apiBase / apiKey / appId 三者是 validateConfig() 强制校验的必填项。
+  // 不能给 script 加 defer：defer 会推迟到 DOMContentLoaded 前才执行，
+  // 而下面内联的 protect() 是同步的，会先跑并报 SdSdk is not defined。
   const sdkCode = computed(() => `<!-- 客户端 SDK 模式：仅 siteId 可公开，App Secret 绝对不可出现在前端 -->
+<script src="${gw.value}/sdk/sd-sdk.min.js"><\/script>
 <script>
-window.FangyuConfig = {
-  gatewayUrl: '${gw.value}',
-  siteId:     '${siteId.value}'
-};
-<\/script>
-<script src="${gw.value}/sdk/sd-sdk.min.js" defer><\/script>`)
+  SdSdk.protect({
+    apiBase: '${gw.value}',
+    apiKey:  '${siteId.value}',
+    appId:   ${numericAppId.value}
+  });
+<\/script>`)
 
   const curlCode = computed(() => `curl -X POST ${gw.value}/v2/decide \\
   -H "Content-Type: application/json" \\
