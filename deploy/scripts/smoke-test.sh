@@ -193,7 +193,8 @@ for v in redis-data mysql-data clickhouse-data mmdb-data; do
 done
 
 # 日志轮转：未配置时单个容器日志可能撑满磁盘
-LOG_OPT="$(docker inspect -f '{{.HostConfig.LogConfig.Config.max-size}}' fangyu-gateway 2>/dev/null)"
+# Go 模板里含连字符的 key 不能用点号取（max-size 会被当作减法），必须走 index。
+LOG_OPT="$(docker inspect -f '{{index .HostConfig.LogConfig.Config "max-size"}}' fangyu-gateway 2>/dev/null)"
 [[ -n "$LOG_OPT" ]] && ok "日志轮转已配置（max-size=$LOG_OPT）" || no "未配置日志轮转"
 
 # ─────────────────────────────────────────────────────────────
