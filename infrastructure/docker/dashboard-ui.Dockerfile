@@ -6,9 +6,18 @@ ARG NGINX_VERSION=1.27
 FROM node:${NODE_VERSION}-alpine AS builder
 WORKDIR /app
 
+# pnpm 版本由 package.json 的 packageManager 字段锁定。
+# 该字段缺失时 corepack 会拉 latest，而新版 pnpm 要求 Node 22+，
+# 在 Node 20 上会以 ERR_UNKNOWN_BUILTIN_MODULE 失败 —— 故此处兜底显式指定。
+ARG PNPM_VERSION=9.15.9
+
 COPY dashboard-ui/package.json dashboard-ui/pnpm-lock.yaml* dashboard-ui/package-lock.json* ./
 RUN if [ -f pnpm-lock.yaml ]; then \
-      corepack enable && pnpm install --frozen-lockfile; \
+      corepack enable \
+      && if ! grep -q '"packageManager"' package.json; then \
+           corepack prepare "pnpm@${PNPM_VERSION}" --activate; \
+         fi \
+      && pnpm install --frozen-lockfile; \
     else \
       npm ci; \
     fi
