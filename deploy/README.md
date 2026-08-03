@@ -87,8 +87,8 @@ ClickHouse 明细数据增长快，磁盘按 90 天保留期估算。
 ## 快速部署
 
 ```bash
-export GIT_REPO=https://github.com/your-org/evercookie-system.git
-bash deploy/deploy.sh clone /opt/fangyu
+export GIT_REPO=https://github.com/littledream901/evercookie-defense-system.git
+bash deploy/deploy.sh clone /opt/fangyu-defense-system
 ```
 
 `clone` 会拉代码后自动转入 `init`。`init` 依次完成：生成凭据 → 交互式配置域名 → 环境预检 → 拉基础镜像 → 构建业务镜像 → 启动数据层并等待健康 → 启动应用层 → 数据库迁移 → 端点验收。
@@ -107,7 +107,7 @@ bash deploy/deploy.sh clone /opt/fangyu
 
 ```bash
 git clone <repo> /opt/fangyu && cd /opt/fangyu
-git checkout main
+git checkout master
 
 cp .env.production.example .env.production
 bash deploy/scripts/gen-secrets.sh    # 自动生成随机口令
