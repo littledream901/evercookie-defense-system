@@ -1,4 +1,13 @@
-/** HTTP 通信。fetch + AbortController 实现超时。 */
+/** HTTP 通信。fetch + AbortController 实现超时。
+ *
+ * 刻意不设 `credentials: 'include'`：
+ * 网关鉴权走 `X-App-Key` 头，从不下发 Cookie（gateway-api 全局无 set_cookie）；
+ * Evercookie 的 cookie 通道写的是接入方自己域名下的 document.cookie，跨域请求
+ * 网关时本就带不过去。而一旦开启 credentials 模式，浏览器会拒收
+ * `Access-Control-Allow-Origin: *` 的响应——SDK 的接入源无法预先枚举，网关
+ * 默认正是通配源，两者冲突会让所有跨站请求直接失败。
+ * 注意 curl 不模拟 credentials 模式，用 curl 测预检永远是 200，复现不出该问题。
+ */
 
 export interface HttpResponse<T = unknown> {
   ok: boolean;
@@ -66,7 +75,6 @@ export async function post<T = unknown>(
       method: 'POST',
       headers: buildHeaders(options.apiKey, true),
       body: JSON.stringify(data),
-      credentials: 'include',
     },
     options.timeout ?? DEFAULT_TIMEOUT,
   );
@@ -81,7 +89,6 @@ export async function get<T = unknown>(
     {
       method: 'GET',
       headers: buildHeaders(options.apiKey, false),
-      credentials: 'include',
     },
     options.timeout ?? DEFAULT_TIMEOUT,
   );
