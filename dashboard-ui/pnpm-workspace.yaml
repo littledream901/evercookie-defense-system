@@ -1,3 +1,9 @@
+# 本项目不是 monorepo，此文件只为声明 allowBuilds。
+# 但 pnpm 9 见到 workspace 文件即按 workspace 模式解析，
+# packages 缺失会以 "packages field missing or empty" 中止，故显式声明自身。
+packages:
+  - '.'
+
 allowBuilds:
   '@parcel/watcher': true
   '@tailwindcss/oxide': true
