@@ -13,9 +13,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY shared /build/shared
 COPY worker /build/worker
 
+# 两个包必须在同一条 pip 命令里安装。
+# 分两条会失败：--prefix=/install 的 site-packages 不在构建期 sys.path 上，
+# 第二条命令解析 worker 的裸依赖 fangyu-shared 时看不到已装的本地包，
+# 会转向 PyPI —— 而该包是 Proprietary，公网不存在。
 RUN pip install --upgrade pip \
- && pip install --prefix=/install ./shared \
- && pip install --prefix=/install ./worker
+ && pip install --prefix=/install ./shared ./worker
 
 FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app WORKER_HEALTH_PORT=9091

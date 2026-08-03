@@ -15,9 +15,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY shared /build/shared
 COPY gateway-api /build/gateway-api
 
+# 两个包必须在同一条 pip 命令里安装。
+# 分两条会失败：--prefix=/install 的 site-packages 不在构建期 sys.path 上，
+# 第二条命令解析 gateway-api 的裸依赖 fangyu-shared 时看不到已装的本地包，
+# 会转向 PyPI —— 而该包是 Proprietary，公网不存在。
 RUN pip install --upgrade pip \
- && pip install --prefix=/install ./shared \
- && pip install --prefix=/install ./gateway-api
+ && pip install --prefix=/install ./shared ./gateway-api
 
 FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -33,6 +36,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY --from=builder /install /usr/local
 COPY gateway-api/src /app/src
+
+# 与 admin-api 对称地预建 MMDB 目录并归属 fangyu。gateway 只读该卷，
+# 但两个容器都挂 mmdb-data 且无启动顺序约束：若 gateway 先挂载空卷，
+# 卷会以 root:root 初始化，admin-api（uid 1000）后续上传 MMDB 会写入失败。
+RUN mkdir -p /data/mmdb && chown -R fangyu:fangyu /data/mmdb
 
 USER fangyu
 EXPOSE 8080

@@ -1,0 +1,50 @@
+# =============================================================================
+#  Docker 构建上下文排除项
+# -----------------------------------------------------------------------------
+#  build context 是仓库根（见 deploy/docker-compose.prod.yml 的 build.context: ..）。
+#  Docker 不读 .gitignore，宿主机的 node_modules / dist 会随 COPY 进入镜像，
+#  覆盖容器内已装好的依赖。此文件是唯一的防线。
+# =============================================================================
+
+# 依赖与构建产物：必须排除，否则宿主状态污染容器
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+**/.venv
+**/venv
+
+# 版本控制与 CI
+.git
+.gitignore
+.github
+
+# 根目录的环境变量文件含明文口令，绝不进镜像。
+# 这些模式不带路径前缀，只匹配根目录，不影响 dashboard-ui/ 下的同名文件。
+/.env
+/.env.*
+!/.env.example
+!/.env.production.example
+
+# dashboard-ui 的 .env.production 是构建期必需的（vite 在 production
+# mode 下读它取 VITE_* 变量），且不含密钥，必须保留在上下文内。
+
+# 部署产物与日志
+deploy/.logs
+deploy/.deploy-state
+deploy/backups
+
+# 文档不参与生产构建。
+# 注意 tests/ 不排除：dashboard-ui 的 vite 配置会在构建期读 tests/pages
+# 拷测试页面。虽然缺失时已能跳过，但排除掉会让生产镜像永久少这些页面。
+docs
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+pytest-out.txt
+
+# 编辑器
+.vscode
+.idea
+**/.DS_Store
