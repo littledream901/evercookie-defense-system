@@ -23,7 +23,7 @@ ENV_TEMPLATE="$PROJECT_DIR/.env.production.example"
 UI_ENV_FILE="$PROJECT_DIR/dashboard-ui/.env.production"
 
 GIT_REPO="${GIT_REPO:-}"
-GIT_BRANCH="${GIT_BRANCH:-master}"
+GIT_BRANCH="${GIT_BRANCH:-main}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -844,7 +844,7 @@ Evercookie Defense System V2 — 部署与运维入口
 
 环境变量：
   GIT_REPO              clone 的仓库地址
-  GIT_BRANCH            分支，默认 master
+  GIT_BRANCH            分支，默认 main
   ENV_FILE              环境变量文件，默认 .env.production
   SKIP_BACKUP=1         update 时跳过备份
   NON_INTERACTIVE=1     跳过所有交互提示

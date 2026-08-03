@@ -107,7 +107,7 @@ bash deploy/deploy.sh clone /opt/fangyu-defense-system
 
 ```bash
 git clone <repo> /opt/fangyu && cd /opt/fangyu
-git checkout master
+git checkout main
 
 cp .env.production.example .env.production
 bash deploy/scripts/gen-secrets.sh    # 自动生成随机口令
