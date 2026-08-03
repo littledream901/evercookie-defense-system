@@ -26,8 +26,18 @@ chmod 600 "$ENV_FILE"
 
 # 只用字母数字：避开 shell 与 URL 的转义陷阱，靠长度换取强度。
 # 32 位 base62 约 190 bit 熵，远超实际需要。
+#
+# 不用 `tr < /dev/urandom | head -c N`：head 读满即退出，tr 收到 SIGPIPE
+# 返回非零，在 set -o pipefail 下会让整个脚本中止。
+# 改为一次性读取足量随机字节后过滤，全程无管道提前关闭。
 rand_alnum() {
-    LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "${1:-32}"
+    local want="${1:-32}"
+    local out=""
+    # base64 后过滤掉非字母数字，剩余长度约为原始的 3/4，多取几轮确保够用
+    while [ "${#out}" -lt "$want" ]; do
+        out+="$(LC_ALL=C head -c $((want * 2)) /dev/urandom | base64 | LC_ALL=C tr -cd 'A-Za-z0-9')"
+    done
+    printf '%s' "${out:0:want}"
 }
 
 # 就地替换占位符。值只含字母数字，无需担心 sed 分隔符冲突。
