@@ -728,10 +728,15 @@ cmd_doctor() {
 
     # 用 curl 探 TCP 可达性（镜像内确定有 curl，healthcheck 依赖它）。
     # 连不上返回 7，能连上但协议不匹配返回 52/56 —— 后两者也算网络通。
+    #
+    # --max-time 必须给：telnet:// 模式下 curl 建连后会一直等对端数据且不自行
+    # 断开，MySQL 发完握手包也不会关连接，仅有 --connect-timeout 会永久悬挂。
+    # 超时返回 28，与 7 区分即可判定网络通。
     if dc ps -q admin-api >/dev/null 2>&1 && [ -n "$(dc ps -q admin-api 2>/dev/null)" ]; then
         for target in "mysql:3306" "redis:6379" "clickhouse:8123"; do
             local code=0
-            dc exec -T admin-api curl -s --connect-timeout 3 "telnet://${target}" \
+            dc exec -T admin-api \
+                curl -s --connect-timeout 3 --max-time 5 "telnet://${target}" \
                 >/dev/null 2>&1 || code=$?
             if [ "$code" = "7" ]; then
                 echo -e "  ${RED}✗${NC} admin-api → $target 不通（连接被拒绝）"
