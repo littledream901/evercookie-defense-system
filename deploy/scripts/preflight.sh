@@ -18,6 +18,8 @@ ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env.production}"
 DISK_MIN_GB="${DISK_MIN_GB:-50}"
 DISK_RECOMMEND_GB="${DISK_RECOMMEND_GB:-100}"
 
+COMPOSE_FILE="${COMPOSE_FILE:-$REPO_ROOT/deploy/docker-compose.prod.yml}"
+
 FAIL=0
 WARN=0
 
@@ -91,14 +93,42 @@ fi
 # ─────────────────────────────────────────────────────────────
 section "3. 端口占用"
 
+# 本项目容器已发布的端口集合。首次部署中途失败后重跑时，数据层容器往往
+# 已在运行，其 docker-proxy 持有端口属预期状态，不应判为冲突。
+#
+# 直接问 compose 要自己的容器，而非猜项目名：deploy.sh 未指定
+# --project-name，compose 默认取 compose 文件所在目录名，该值会随目录
+# 改名而变，硬编码不可靠。
+OWN_PORTS=""
+if command -v docker >/dev/null 2>&1 && docker version >/dev/null 2>&1; then
+    own_cids="$(
+        docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" \
+            ps -q 2>/dev/null || true
+    )"
+    if [[ -n "$own_cids" ]]; then
+        OWN_PORTS="$(
+            docker inspect --format '{{range $p, $c := .NetworkSettings.Ports}}{{range $c}}{{.HostPort}}
+{{end}}{{end}}' $own_cids 2>/dev/null | grep -E '^[0-9]+$' | sort -u || true
+        )"
+    fi
+fi
+
 # 仅检查本项目要发布的回环端口。80/443 由 1Panel OpenResty 持有，
 # 被占用是预期状态，因此单独提示而不判失败。
 check_port() {
     local port="$1" desc="$2"
     if ss -tlnH "sport = :$port" 2>/dev/null | grep -q .; then
+        if printf '%s\n' "$OWN_PORTS" | grep -qx "$port"; then
+            ok "端口 $port（$desc）由本项目容器持有，属预期"
+            return
+        fi
         local who
         who="$(ss -tlnpH "sport = :$port" 2>/dev/null | grep -oP 'users:\(\("\K[^"]+' | head -1)"
-        bad "端口 $port（$desc）已被占用${who:+：$who}"
+        if [[ "$who" == "docker-proxy" ]]; then
+            bad "端口 $port（$desc）被其他 Docker 项目占用。查看归属：docker ps --filter publish=$port"
+        else
+            bad "端口 $port（$desc）已被占用${who:+：$who}"
+        fi
     else
         ok "端口 $port（$desc）空闲"
     fi
