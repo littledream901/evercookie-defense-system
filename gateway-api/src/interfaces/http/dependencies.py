@@ -34,6 +34,7 @@ from src.infrastructure.cache.scoring_config_cache import ScoringConfigCache
 from src.infrastructure.cache.server_session_cache import ServerSessionCache
 from src.infrastructure.clock.repository import ClockRepository
 from src.infrastructure.event_publisher.stream_publisher import StreamEventPublisher
+from src.infrastructure.health.pool_health_prober import PoolHealthProber
 from src.infrastructure.intel import IntelReader
 from src.infrastructure.mmdb.reader import MMDBReader
 from src.infrastructure.rule_repo.rule_repository import RuleRepository
