@@ -107,7 +107,8 @@ def integration_env(integration_stack: dict) -> Iterator[dict]:
         "ADMIN_DATABASE_URL": integration_stack["admin_db_url"],
         "ADMIN_REDIS_URL": integration_stack["redis_url"],
         "ADMIN_CLICKHOUSE_URL": integration_stack["clickhouse_url"],
-        "ADMIN_JWT_SECRET": "integration-test-secret",
+        # 长度需满足 AdminSettings.jwt_secret 的 min_length=32
+        "ADMIN_JWT_SECRET": "integration-test-secret-0123456789abcdef",
         "GATEWAY_REDIS_URL": integration_stack["redis_url"],
         "WORKER_REDIS_URL": integration_stack["redis_url"],
         "WORKER_CLICKHOUSE_URL": integration_stack["clickhouse_url"],

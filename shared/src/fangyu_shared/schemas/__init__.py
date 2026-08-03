@@ -43,7 +43,7 @@ from fangyu_shared.schemas.rule import (
     RuleStatus,
     ScoringRule,
 )
-from fangyu_shared.schemas.target_render import render_target
+from fangyu_shared.schemas.target_render import pick_target, render_pool, render_target
 
 __all__ = [
     "BehaviorEvent",
@@ -80,5 +80,7 @@ __all__ = [
     "TargetKind",
     "Verdict",
     "default_limits",
+    "pick_target",
+    "render_pool",
     "render_target",
 ]

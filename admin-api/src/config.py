@@ -23,7 +23,9 @@ class AdminSettings(BaseSettings):
     log_format: str = "json"
 
     # Database
-    database_url: str = "mysql+aiomysql://fangyu:fangyu@localhost:3306/fangyu"
+    # 无默认值：内置弱口令的连接串会在忘记配置 ADMIN_DATABASE_URL 时静默生效，
+    # 让服务连上一个非预期的库。缺失时直接启动失败更安全。
+    database_url: str
     database_pool_size: int = 10
     database_max_overflow: int = 20
     database_pool_recycle: int = 3600
@@ -39,7 +41,9 @@ class AdminSettings(BaseSettings):
     clickhouse_password: str = ""
 
     # JWT
-    jwt_secret: str = Field(default="please-change-me", min_length=8)
+    # 无默认值且长度下限 32：占位默认值一旦漏配就能签发出可用的管理员 token，
+    # 且 8 位密钥可离线暴破。deploy/scripts/gen-secrets.sh 生成 64 位。
+    jwt_secret: str = Field(min_length=32)
     jwt_algorithm: str = "HS256"
     jwt_ttl_seconds: int = 7200
     jwt_refresh_ttl_seconds: int = 604800
@@ -52,7 +56,9 @@ class AdminSettings(BaseSettings):
     app_key_redis_ttl_seconds: int = 0  # 0 表示永久缓存，由 admin 侧显式清除
 
     # CORS
-    cors_origins: list[str] = Field(default_factory=lambda: ["*"])
+    # 默认空列表而非 ["*"]：通配来源配合 allow_credentials=True 会被浏览器直接
+    # 拒绝，且等于放弃跨站防护。需要跨域时显式配置 ADMIN_CORS_ORIGINS（JSON 数组）。
+    cors_origins: list[str] = Field(default_factory=list)
     cors_allow_credentials: bool = True
 
     # Rate limiter

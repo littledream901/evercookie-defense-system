@@ -20,8 +20,18 @@ class DeviceProfile(BaseSchema):
     total_requests: int = Field(default=0, alias="totalRequests")
     blocked_requests: int = Field(default=0, alias="blockedRequests")
     reputation_score: float = Field(default=50.0, alias="reputationScore", ge=0.0, le=100.0)
+    reputation_samples: int = Field(default=0, alias="reputationSamples", ge=0)
+    """信誉分基于多少条样本算出。0 表示尚未评估，``reputation_score`` 是占位默认值。
+
+    没有这个字段就无法区分「算出来正好 50 分」和「没数据用了默认 50」，
+    scorer 会把后者当成真实中等风险，凭空贡献一个基线分。
+    """
     tags: list[str] = Field(default_factory=list)
     extra: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def has_reputation(self) -> bool:
+        return self.reputation_samples > 0
 
 
 class IpProfile(BaseSchema):
@@ -43,5 +53,11 @@ class IpProfile(BaseSchema):
     is_datacenter: bool = Field(default=False, alias="isDatacenter")
     is_mobile_network: bool = Field(default=False, alias="isMobileNetwork")
     reputation_score: float = Field(default=50.0, alias="reputationScore", ge=0.0, le=100.0)
+    reputation_samples: int = Field(default=0, alias="reputationSamples", ge=0)
+    """同 :attr:`DeviceProfile.reputation_samples`。0 表示未评估。"""
     total_requests: int = Field(default=0, alias="totalRequests")
     last_seen_at: datetime = Field(default_factory=datetime.utcnow, alias="lastSeenAt")
+
+    @property
+    def has_reputation(self) -> bool:
+        return self.reputation_samples > 0

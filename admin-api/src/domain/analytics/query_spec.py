@@ -7,14 +7,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional
 
 TimeGranularity = Literal["minute", "hour", "day"]
 
 
 @dataclass(frozen=True, slots=True)
 class AnalyticsQuerySpec:
-    app_id: int
+    app_id: Optional[int]
     start: datetime
     end: datetime
     filters: dict[str, str] = field(default_factory=dict)

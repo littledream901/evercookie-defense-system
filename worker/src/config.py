@@ -59,6 +59,19 @@ class WorkerSettings(BaseSettings):
     # Concurrency
     concurrency: int = Field(default=2, ge=1, le=32)
 
+    # Reputation writer（周期回流）
+    reputation_enabled: bool = True
+    reputation_sync_interval_seconds: float = 3600.0
+    """每隔多少秒触发一次声誉回流。"""
+    reputation_lookback_days: int = 7
+    """向前追溯天数，覆盖足够历史让分数更稳定。"""
+    reputation_min_samples: int = 5
+    """最少样本数门槛，样本不足的记录跳过写入。"""
+    reputation_ip_ttl: int = 86_400
+    """IP 画像在 Redis 中的过期时间（秒）。"""
+    reputation_device_ttl: int = 86_400
+    """设备画像过期时间（秒）。"""
+
 
 _settings: WorkerSettings | None = None
 

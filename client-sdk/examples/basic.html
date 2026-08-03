@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SD SDK V2 接入示例</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; line-height: 1.6; }
+    pre { background: #f6f8fa; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 13px; }
+    button { padding: 8px 16px; margin-right: 8px; cursor: pointer; }
+    .note { background: #fff8e1; border-left: 3px solid #f9a825; padding: 12px; margin: 16px 0; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h1>SD SDK V2 接入示例</h1>
+
+  <div class="note">
+    <strong>关于 appSecret：</strong>放在浏览器里等于公开。它只能防止<em>第三方</em>伪造画像，
+    无法防止本站用户伪造。真正需要保密签名的场景应走 Adapter 路径（服务端签名）。
+    站点未开启 <code>signature_required</code> 时不要填。
+  </div>
+
+  <p>
+    <button id="decide">执行决策</button>
+    <button id="fingerprint">采集指纹</button>
+    <button id="flush">上报行为事件</button>
+  </p>
+
+  <pre id="output">点击按钮开始…</pre>
+
+  <script type="module">
+    import { SdSdk } from '../dist/sd-sdk.mjs';
+
+    const output = document.getElementById('output');
+    const show = (label, value) => {
+      output.textContent = `${label}\n\n${JSON.stringify(value, null, 2)}`;
+    };
+
+    const sdk = new SdSdk({
+      apiBase: '/api',        // 反代到 gateway；直连则填 http://host:8000
+      apiKey: 'YOUR_API_KEY', // 走 X-App-Key header
+      appId: 1,
+      debug: true,
+      // 示例页手动执行处置，避免自动跳转打断演示
+      autoApply: false,
+    });
+
+    document.getElementById('decide').onclick = async () => {
+      output.textContent = '决策中…';
+      try {
+        const { decision } = await sdk.decide({ requireDetails: true });
+        show('决策结果', decision);
+      } catch (err) {
+        show('决策失败', { error: String(err) });
+      }
+    };
+
+    document.getElementById('fingerprint').onclick = async () => {
+      output.textContent = '采集中…';
+      const data = await sdk.collectFingerprint();
+      // 只展示各维度的 hash，raw 数据体积很大
+      show('指纹摘要', Object.fromEntries(
+        Object.entries(data).map(([k, v]) => [k, v.hash]),
+      ));
+    };
+
+    document.getElementById('flush').onclick = async () => {
+      const accepted = await sdk.flushBehavior();
+      show('行为上报', { accepted });
+    };
+
+    // 一行接入的写法（自动执行处置）：
+    // SdSdk.protect({ apiBase: '/api', apiKey: 'YOUR_API_KEY', appId: 1 });
+  </script>
+</body>
+</html>

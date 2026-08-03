@@ -44,7 +44,8 @@ class ClockLimits(BaseSchema):
     关心的那一档。
     """
 
-    app_id: int = Field(..., alias="appId", gt=0)
+    app_id: int = Field(..., alias="appId", ge=0)
+    """站点 ID。``0`` 表示全局阈值（不绑定具体站点）。"""
     enabled: bool = True
     windows: dict[str, int] = Field(default_factory=dict)
     ban_seconds: int = Field(

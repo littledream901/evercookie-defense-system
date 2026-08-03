@@ -32,12 +32,28 @@
  * 6. 更新本地版本号
  *
  * @module utils/sys/upgrade
- * @author Art Design Pro Team
+ * @author EverCookie Team
  */
-import { upgradeLogList } from '@/mock/upgrade/changeLog'
 import { ElNotification } from 'element-plus'
 import { useUserStore } from '@/store/modules/user'
 import { StorageConfig } from '@/utils/storage/storage-config'
+
+interface UpgradeLog {
+  version: string // 版本号
+  title: string // 更新标题
+  date: string // 更新日期
+  detail?: string[] // 更新内容
+  requireReLogin?: boolean // 是否需要重新登录
+  remark?: string // 备注
+}
+
+/**
+ * 版本更新日志
+ *
+ * 留空即不弹升级通知。需要公告时在此追加条目，
+ * 版本号需与 StorageConfig.CURRENT_VERSION 对齐才会触发。
+ */
+const upgradeLogList = ref<UpgradeLog[]>([])
 
 /**
  * 版本管理器

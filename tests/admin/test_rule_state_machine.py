@@ -19,6 +19,7 @@ class TestRuleStateMachine:
             (RuleStatus.PUBLISHED, RuleStatus.ARCHIVED),
             (RuleStatus.DISABLED, RuleStatus.PUBLISHED),
             (RuleStatus.DISABLED, RuleStatus.ARCHIVED),
+            (RuleStatus.ARCHIVED, RuleStatus.DRAFT),  # 恢复编辑
         ],
     )
     def test_allowed(self, src: RuleStatus, dst: RuleStatus):
@@ -30,7 +31,6 @@ class TestRuleStateMachine:
         [
             (RuleStatus.PUBLISHED, RuleStatus.DRAFT),
             (RuleStatus.ARCHIVED, RuleStatus.PUBLISHED),
-            (RuleStatus.ARCHIVED, RuleStatus.DRAFT),
             (RuleStatus.ARCHIVED, RuleStatus.DISABLED),
         ],
     )

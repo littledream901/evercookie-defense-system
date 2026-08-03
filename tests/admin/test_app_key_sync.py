@@ -4,11 +4,16 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+import orjson
 import pytest
 
 from src.application.services.app_service import AppService
 from src.domain.app.entities import Application, ApplicationStatus
 from src.infrastructure.cache.app_key_sync import AppKeyRedisSync
+
+
+def _parse(raw: str) -> dict:
+    return orjson.loads(raw)
 
 
 class _FakeRedis:
@@ -18,9 +23,12 @@ class _FakeRedis:
         self.store: dict[str, str] = {}
         self.calls: list[tuple[str, Any]] = []
 
-    async def set(self, key: str, value: str, ex: int | None = None) -> None:
+    async def set(self, key: str, value: str, *, nx: bool = False, ex: int | None = None) -> bool | None:
+        if nx and key in self.store:
+            return None
         self.store[key] = value
         self.calls.append(("set", (key, value, ex)))
+        return True
 
     async def get(self, key: str) -> str | None:
         self.calls.append(("get", key))
@@ -32,7 +40,7 @@ class _FakeRedis:
 
 
 class _StubRepo:
-    """AppRepository 替身。"""
+    """AppRepository 替身（与新实体契约对齐：用 site_id 替代 api_key）。"""
 
     def __init__(self) -> None:
         self._store: dict[int, Application] = {}
@@ -43,14 +51,11 @@ class _StubRepo:
         self._next_id += 1
         created = Application(
             id=app_id,
+            site_id=app.site_id or f"fangyu_test{app_id:04d}",
             name=app.name,
-            api_key=app.api_key,
+            domain=app.domain or "example.com",
+            app_secret=app.app_secret,
             owner_user_id=app.owner_user_id,
-            status=app.status,
-            description=app.description,
-            domains=list(app.domains),
-            created_at=datetime(2026, 7, 31),
-            updated_at=datetime(2026, 7, 31),
         )
         self._store[app_id] = created
         return created
@@ -58,34 +63,17 @@ class _StubRepo:
     async def get(self, app_id: int) -> Application | None:
         return self._store.get(app_id)
 
-    async def rotate_api_key(self, app_id: int, new_key: str) -> Application | None:
+    async def rotate_secret(self, app_id: int, app_secret: str) -> Application | None:
+        """site_id 不变，只更新 app_secret。"""
         existing = self._store.get(app_id)
         if existing is None:
             return None
-        existing.api_key = new_key
+        existing.app_secret = app_secret
         return existing
 
-    async def update(
-        self,
-        app_id: int,
-        *,
-        name: str | None = None,
-        description: str | None = None,
-        domains: list[str] | None = None,
-        status: ApplicationStatus | None = None,
-    ) -> Application | None:
-        existing = self._store.get(app_id)
-        if existing is None:
-            return None
-        if name is not None:
-            existing.name = name
-        if description is not None:
-            existing.description = description
-        if domains is not None:
-            existing.domains = list(domains)
-        if status is not None:
-            existing.status = status
-        return existing
+    # 向后兼容旧测试调用 rotate_api_key
+    async def rotate_api_key(self, app_id: int, new_key: str, new_secret: str | None = None) -> Application | None:
+        return await self.rotate_secret(app_id, new_secret or "")
 
     async def delete(self, app_id: int) -> bool:
         return self._store.pop(app_id, None) is not None
@@ -98,8 +86,20 @@ class _StubRepo:
 async def test_sync_bind_writes_mapping():
     redis = _FakeRedis()
     sync = AppKeyRedisSync(redis)
-    await sync.bind("fangyu_test", 42)
-    assert redis.store["fangyu:app_keys:fangyu_test"] == "42"
+    await sync.bind("fangyu_test", 42, "sec")
+    payload = _parse(redis.store["fangyu:app_keys:fangyu_test"])
+    assert payload["app_id"] == 42
+    assert payload["app_secret"] == "sec"
+
+
+@pytest.mark.asyncio
+async def test_sync_bind_without_secret_omits_field():
+    redis = _FakeRedis()
+    sync = AppKeyRedisSync(redis)
+    await sync.bind("k", 5)
+    payload = _parse(redis.store["fangyu:app_keys:k"])
+    assert payload["app_id"] == 5
+    assert "app_secret" not in payload
 
 
 @pytest.mark.asyncio
@@ -115,16 +115,18 @@ async def test_sync_bind_skips_when_invalid():
 async def test_sync_bind_with_ttl():
     redis = _FakeRedis()
     sync = AppKeyRedisSync(redis, ttl_seconds=90)
-    await sync.bind("k", 7)
+    await sync.bind("k", 7, "mysec")
     _op, (key, value, ex) = redis.calls[-1]
-    assert (key, value, ex) == ("fangyu:app_keys:k", "7", 90)
+    assert key == "fangyu:app_keys:k"
+    assert _parse(value)["app_id"] == 7
+    assert ex == 90
 
 
 @pytest.mark.asyncio
 async def test_sync_unbind_removes_mapping():
     redis = _FakeRedis()
     sync = AppKeyRedisSync(redis)
-    await sync.bind("k1", 1)
+    await sync.bind("k1", 1, "s")
     await sync.unbind("k1")
     assert "fangyu:app_keys:k1" not in redis.store
 
@@ -133,18 +135,18 @@ async def test_sync_unbind_removes_mapping():
 async def test_sync_rebind_swaps_key():
     redis = _FakeRedis()
     sync = AppKeyRedisSync(redis)
-    await sync.bind("old", 3)
-    await sync.rebind("old", "new", 3)
+    await sync.bind("old", 3, "s")
+    await sync.rebind("old", "new", 3, "s2")
     assert "fangyu:app_keys:old" not in redis.store
-    assert redis.store["fangyu:app_keys:new"] == "3"
+    assert _parse(redis.store["fangyu:app_keys:new"])["app_id"] == 3
 
 
 @pytest.mark.asyncio
 async def test_sync_rebind_same_key_only_writes():
     redis = _FakeRedis()
     sync = AppKeyRedisSync(redis)
-    await sync.rebind(None, "same", 9)
-    assert redis.store["fangyu:app_keys:same"] == "9"
+    await sync.rebind(None, "same", 9, "s")
+    assert _parse(redis.store["fangyu:app_keys:same"])["app_id"] == 9
 
 
 @pytest.mark.asyncio
@@ -169,19 +171,26 @@ async def test_sync_swallows_redis_errors():
 async def test_app_service_create_binds_key():
     redis = _FakeRedis()
     svc = AppService(_StubRepo(), app_key_sync=AppKeyRedisSync(redis))
-    app = await svc.create(name="demo", owner_user_id=1)
-    assert redis.store[f"fangyu:app_keys:{app.api_key}"] == str(app.id)
+    app = await svc.create(name="demo", owner_user_id=1, domain="example.com")
+    payload = _parse(redis.store[f"fangyu:app_keys:{app.site_id}"])
+    assert payload["app_id"] == app.id
+    assert payload.get("app_secret") == app.app_secret
 
 
 @pytest.mark.asyncio
-async def test_app_service_rotate_swaps_binding():
+async def test_app_service_rotate_keeps_site_id_updates_secret():
+    """轮换只更新 secret，site_id 不变，Redis key 不移动。"""
     redis = _FakeRedis()
     svc = AppService(_StubRepo(), app_key_sync=AppKeyRedisSync(redis))
-    app = await svc.create(name="demo", owner_user_id=1)
-    old_key = app.api_key
+    app = await svc.create(name="demo", owner_user_id=1, domain="example.com")
+    old_site_id = app.site_id
+    old_secret = app.app_secret
     rotated = await svc.rotate_api_key(app.id)  # type: ignore[arg-type]
-    assert f"fangyu:app_keys:{old_key}" not in redis.store
-    assert redis.store[f"fangyu:app_keys:{rotated.api_key}"] == str(app.id)
+    # site_id 不变，旧 Redis key 仍存在（不再删除旧 key 后重建新 key）
+    assert rotated.site_id == old_site_id
+    assert rotated.app_secret != old_secret
+    payload = _parse(redis.store[f"fangyu:app_keys:{old_site_id}"])
+    assert payload["app_id"] == app.id
 
 
 @pytest.mark.asyncio
@@ -189,47 +198,15 @@ async def test_app_service_delete_unbinds_key():
     redis = _FakeRedis()
     repo = _StubRepo()
     svc = AppService(repo, app_key_sync=AppKeyRedisSync(redis))
-    app = await svc.create(name="demo", owner_user_id=1)
-    # 直接改成非 active 才允许删除
-    await svc.update(
-        app.id,  # type: ignore[arg-type]
-        name=None,
-        description=None,
-        domains=None,
-        status=ApplicationStatus.PAUSED,
-    )
+    app = await svc.create(name="demo", owner_user_id=1, domain="example.com")
+    # 直接改成非 active 才允许删除（通过 repo 直接改，绕过 service 权限校验）
+    stored = repo._store[app.id]
+    stored.is_active = False
     await svc.delete(app.id)  # type: ignore[arg-type]
     assert redis.store == {}
 
 
-@pytest.mark.asyncio
-async def test_app_service_archive_unbinds_key():
-    redis = _FakeRedis()
-    svc = AppService(_StubRepo(), app_key_sync=AppKeyRedisSync(redis))
-    app = await svc.create(name="demo", owner_user_id=1)
-    key = app.api_key
-    await svc.update(
-        app.id,  # type: ignore[arg-type]
-        name=None,
-        description=None,
-        domains=None,
-        status=ApplicationStatus.ARCHIVED,
-    )
-    assert f"fangyu:app_keys:{key}" not in redis.store
 
 
-@pytest.mark.asyncio
-async def test_app_service_pause_keeps_binding():
-    redis = _FakeRedis()
-    svc = AppService(_StubRepo(), app_key_sync=AppKeyRedisSync(redis))
-    app = await svc.create(name="demo", owner_user_id=1)
-    key = app.api_key
-    await svc.update(
-        app.id,  # type: ignore[arg-type]
-        name=None,
-        description=None,
-        domains=None,
-        status=ApplicationStatus.PAUSED,
-    )
-    # Paused 状态是可恢复的：Redis 里映射保留
-    assert redis.store[f"fangyu:app_keys:{key}"] == str(app.id)
+
+

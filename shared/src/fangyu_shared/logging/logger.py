@@ -44,7 +44,7 @@ def configure_logging(
     if fmt == "json":
         renderer: Any = structlog.processors.JSONRenderer()
     else:
-        renderer = structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty())
+        renderer = structlog.dev.ConsoleRenderer(colors=sys.stdout.isatty())
 
     structlog.configure(
         processors=shared_processors + [renderer],

@@ -101,7 +101,7 @@
 |------|------|------|
 | GET | `/v2/rules/versions/{app_id}` | 规则版本列表 |
 | POST | `/v2/rules/versions/{app_id}/rollback` | 回滚到指定版本 |
-| GET | `/v2/rules/templates` | 规则模板库 |
+| GET | `/v2/rules/templates` | 规则模板库（26 条内置模板，条件字段见 [RULE_CONDITIONS.md](../modules/RULE_CONDITIONS.md)） |
 | POST | `/v2/rules/preview` | 规则效果预览（无需保存） |
 | GET | `/v2/analytics/realtime` | 实时统计（10s 粒度） |
 

@@ -29,7 +29,7 @@
  * - 登出时自动清理
  *
  * @module store/modules/user
- * @author Art Design Pro Team
+ * @author EverCookie Team
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
@@ -73,6 +73,29 @@ export const useUserStore = defineStore(
     const getSettingState = computed(() => useSettingStore().$state)
     // 计算属性：获取工作台状态
     const getWorktabState = computed(() => useWorktabStore().$state)
+    // 计算属性：权限码列表
+    const permissions = computed(() => info.value.permissions ?? [])
+    // 计算属性：是否为超级管理员（持有全局通配权限）
+    const isSuperAdmin = computed(() => permissions.value.includes('*'))
+
+    /**
+     * 校验是否具备某个权限码
+     *
+     * 与后端 `PermissionContext.has` 保持一致的三级匹配：
+     * 精确命中、资源级通配 `resource.*`、全局通配 `*`。
+     *
+     * @param code 权限码，形如 `app.read`；传空视为放行
+     */
+    const hasPermission = (code?: string): boolean => {
+      if (!code) return true
+
+      const list = permissions.value
+      if (list.includes('*')) return true
+      if (list.includes(code)) return true
+
+      const resource = code.split('.', 1)[0]
+      return list.includes(`${resource}.*`)
+    }
 
     /**
      * 设置用户信息
@@ -215,6 +238,9 @@ export const useUserStore = defineStore(
       getUserInfo,
       getSettingState,
       getWorktabState,
+      permissions,
+      isSuperAdmin,
+      hasPermission,
       setUserInfo,
       setLoginStatus,
       setLanguage,

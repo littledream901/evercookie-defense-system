@@ -20,40 +20,41 @@ class AnalyticsQueryService:
     def __init__(self, client: ClickHouseClient) -> None:
         self._client = client
 
-    def _build_where(self, app_id: int, start: datetime, end: datetime, filters: dict[str, str]) -> tuple[str, dict[str, Any]]:
+    def _build_where(self, app_id: int | None, start: datetime, end: datetime, filters: dict[str, str]) -> tuple[str, dict[str, Any]]:
         clauses = [
-            "app_id = %(app_id)s",
-            "occurred_at >= %(start)s",
-            "occurred_at < %(end)s",
+            "occurred_at >= toDateTime({start})",
+            "occurred_at < toDateTime({end})",
         ]
         params: dict[str, Any] = {
-            "app_id": app_id,
             "start": self._format_dt(start),
             "end": self._format_dt(end),
         }
+        if app_id is not None:
+            clauses.insert(0, "app_id = {app_id}")
+            params["app_id"] = app_id
         if filters.get("verdict"):
-            clauses.append("verdict = %(verdict)s")
+            clauses.append("verdict = {verdict}")
             params["verdict"] = filters["verdict"]
         if filters.get("mechanism"):
-            clauses.append("mechanism = %(mechanism)s")
+            clauses.append("mechanism = {mechanism}")
             params["mechanism"] = filters["mechanism"]
         if filters.get("decided_by"):
-            clauses.append("decided_by = %(decided_by)s")
+            clauses.append("decided_by = {decided_by}")
             params["decided_by"] = filters["decided_by"]
         if filters.get("device_type"):
-            clauses.append("device_type = %(device_type)s")
+            clauses.append("device_type = {device_type}")
             params["device_type"] = filters["device_type"]
         if filters.get("country"):
-            clauses.append("country = %(country)s")
+            clauses.append("country = {country}")
             params["country"] = filters["country"]
         if filters.get("fingerprint"):
-            clauses.append("fingerprint = %(fingerprint)s")
+            clauses.append("fingerprint = {fingerprint}")
             params["fingerprint"] = filters["fingerprint"]
         if filters.get("ip"):
-            clauses.append("ip = %(ip)s")
+            clauses.append("ip = {ip}")
             params["ip"] = filters["ip"]
         if filters.get("path"):
-            clauses.append("path = %(path)s")
+            clauses.append("path = {path}")
             params["path"] = filters["path"]
         return " AND ".join(clauses), params
 
@@ -117,9 +118,8 @@ class AnalyticsQueryService:
           AND {field} != ''
         GROUP BY entity
         ORDER BY count DESC
-        LIMIT %(limit)s
+        LIMIT {spec.limit}
         """
-        params["limit"] = spec.limit
         return await self._client.fetch(sql, params)
 
     @staticmethod
@@ -129,7 +129,14 @@ class AnalyticsQueryService:
 
     @staticmethod
     def _field_for_dimension(dimension: str) -> str:
-        mapping = {"ip": "ip", "device": "fingerprint", "country": "ip"}
+        mapping = {
+            "ip": "ip",
+            "device": "fingerprint",
+            "country": "country",
+            "decided_by": "decided_by",
+            "mechanism": "mechanism",
+            "verdict": "verdict",
+        }
         return mapping.get(dimension, "ip")
 
     @staticmethod

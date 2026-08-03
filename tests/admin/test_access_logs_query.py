@@ -8,6 +8,8 @@ from src.infrastructure.clickhouse.access_log_query import AccessLogQueryService
 
 
 class _FakeClickHouse:
+    database = "fangyu"
+
     def __init__(self) -> None:
         self.calls = []
 
@@ -44,7 +46,8 @@ async def test_list_paged_builds_filters():
     )
     assert total == 1
     assert rows[0]["request_id"] == "req-1"
-    assert any("request_id = %(request_id)s" in sql for sql, _ in ch.calls)
+    # ClickHouse 驱动使用 {name} 占位符风格，而非 psycopg 的 %(name)s
+    assert any("request_id = {request_id}" in sql for sql, _ in ch.calls)
     assert any(params.get("ip") == "1.1.1.1" for _, params in ch.calls)
 
 

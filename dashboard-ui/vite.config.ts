@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
+import fs from 'node:fs'
 import { fileURLToPath } from 'url'
 import vueDevTools from 'vite-plugin-vue-devtools'
 import viteCompression from 'vite-plugin-compression'
@@ -27,9 +28,11 @@ export default ({ mode }: { mode: string }) => {
     server: {
       port: Number(VITE_PORT),
       proxy: {
+        // admin-api 路由不带 /api 前缀（实际为 /v2/*），代理时需剥离
         '/api': {
           target: VITE_API_PROXY_URL,
-          changeOrigin: true
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/api/, '')
         }
       },
       host: true
@@ -97,7 +100,8 @@ export default ({ mode }: { mode: string }) => {
         threshold: 10240, // 只有大小大于该值的资源会被处理 10240B = 10KB
         deleteOriginFile: false // 压缩后是否删除原文件
       }),
-      vueDevTools()
+      vueDevTools(),
+      testPagesPlugin()
       // 打包分析
       // visualizer({
       //   open: true,
@@ -153,4 +157,38 @@ export default ({ mode }: { mode: string }) => {
 
 function resolvePath(paths: string) {
   return path.resolve(__dirname, paths)
+}
+
+function testPagesPlugin() {
+  const testPagesDir = path.resolve(__dirname, '../tests/pages')
+  const targetPublic = path.resolve(__dirname, 'public/testing-pages')
+
+  return {
+    name: 'vite-plugin-test-pages',
+    configureServer(server: any) {
+      server.middlewares.use('/testing-pages', (req: any, res: any, next: any) => {
+        const filePath = path.join(testPagesDir, req.url || '/')
+        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+          const ext = path.extname(filePath)
+          const mime: Record<string, string> = {
+            '.html': 'text/html; charset=utf-8',
+            '.js': 'application/javascript',
+            '.css': 'text/css'
+          }
+          res.setHeader('Content-Type', mime[ext] || 'application/octet-stream')
+          res.end(fs.readFileSync(filePath))
+        } else {
+          next()
+        }
+      })
+    },
+    buildStart() {
+      if (!fs.existsSync(targetPublic)) {
+        fs.mkdirSync(targetPublic, { recursive: true })
+      }
+      for (const f of fs.readdirSync(testPagesDir)) {
+        fs.copyFileSync(path.join(testPagesDir, f), path.join(targetPublic, f))
+      }
+    }
+  }
 }

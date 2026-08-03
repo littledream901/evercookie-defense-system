@@ -4,13 +4,11 @@
  * 负责菜单数据的获取、过滤和处理
  *
  * @module router/core/MenuProcessor
- * @author Art Design Pro Team
+ * @author EverCookie Team
  */
 
 import type { AppRouteRecord } from '@/types/router'
 import { useUserStore } from '@/store/modules/user'
-import { useAppMode } from '@/hooks/core/useAppMode'
-import { fetchGetMenuList } from '@/api/system-manage'
 import { asyncRoutes } from '../routes/asyncRoutes'
 import { RoutesAlias } from '../routesAlias'
 import { formatMenuTitle } from '@/utils'
@@ -20,14 +18,9 @@ export class MenuProcessor {
    * 获取菜单数据
    */
   async getMenuList(): Promise<AppRouteRecord[]> {
-    const { isFrontendMode } = useAppMode()
-
-    let menuList: AppRouteRecord[]
-    if (isFrontendMode.value) {
-      menuList = await this.processFrontendMenu()
-    } else {
-      menuList = await this.processBackendMenu()
-    }
+    // 菜单固定由前端路由配置派生：admin-api 未提供菜单接口，
+    // 权限收口在 meta.permission 上，与后端 RBAC 用同一套权限码。
+    const menuList = await this.processFrontendMenu()
 
     // 在规范化路径之前，验证原始路径配置
     this.validateMenuPaths(menuList)
@@ -45,7 +38,9 @@ export class MenuProcessor {
 
     let menuList = [...asyncRoutes]
 
-    // 根据角色过滤菜单
+    // 先按权限码过滤（本系统主用），再按角色过滤（模板既有能力，保留兼容）
+    menuList = this.filterMenuByPermissions(menuList)
+
     if (roles && roles.length > 0) {
       menuList = this.filterMenuByRoles(menuList, roles)
     }
@@ -54,11 +49,25 @@ export class MenuProcessor {
   }
 
   /**
-   * 处理后端控制模式的菜单
+   * 根据权限码过滤菜单
+   *
+   * 仅处理声明了 `meta.permission` 的菜单项，未声明视为公开。
+   * 权限匹配委托给 user store，与后端保持同一套通配规则。
    */
-  private async processBackendMenu(): Promise<AppRouteRecord[]> {
-    const list = await fetchGetMenuList()
-    return this.filterEmptyMenus(list)
+  private filterMenuByPermissions(menu: AppRouteRecord[]): AppRouteRecord[] {
+    const userStore = useUserStore()
+
+    return menu.reduce((acc: AppRouteRecord[], item) => {
+      if (userStore.hasPermission(item.meta?.permission)) {
+        const filteredItem = { ...item }
+        if (filteredItem.children?.length) {
+          filteredItem.children = this.filterMenuByPermissions(filteredItem.children)
+        }
+        acc.push(filteredItem)
+      }
+
+      return acc
+    }, [])
   }
 
   /**

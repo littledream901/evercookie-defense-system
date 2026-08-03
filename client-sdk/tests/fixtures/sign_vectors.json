@@ -1,0 +1,150 @@
+{
+  "secret": "test_secret_do_not_use_in_production",
+  "vectors": [
+    {
+      "name": "basic_sorted_keys",
+      "note": "键按字典序排列，不是插入序",
+      "params": {
+        "zebra": "z",
+        "alpha": "a",
+        "middle": "m"
+      },
+      "payload": "alpha=a&middle=m&zebra=z",
+      "sign": "dcdc9219e6adc82410520907f6ff1153edde9e91bfcaa8e6299a5810d2d7307a"
+    },
+    {
+      "name": "drops_none_and_empty_string",
+      "note": "None 与空串剔除；0 与 false 保留",
+      "params": {
+        "a": 1,
+        "b": null,
+        "c": "",
+        "d": 0,
+        "e": false
+      },
+      "payload": "a=1&d=0&e=false",
+      "sign": "654d3d7e205384bf46ff47bb87bc3f469bdecf667ddac76d12cf245bc2b67683"
+    },
+    {
+      "name": "bool_lowercase",
+      "note": "bool 转小写 true/false，不是 Python 的 True/False",
+      "params": {
+        "flag_on": true,
+        "flag_off": false
+      },
+      "payload": "flag_off=false&flag_on=true",
+      "sign": "15fb7842d7f73b39849955a70a4373f90295f79450285076e35d5d8b424b924a"
+    },
+    {
+      "name": "slash_is_encoded",
+      "note": "/ 必须编码成 %2F —— 最常见的验签失败原因",
+      "params": {
+        "visitUrl": "https://example.com/a/b?x=1&y=2"
+      },
+      "payload": "visitUrl=https%3A%2F%2Fexample.com%2Fa%2Fb%3Fx%3D1%26y%3D2",
+      "sign": "a6e0d5996a18c28d75486abfd89a997cf5c04c22019de2034236ebde6afcbf91"
+    },
+    {
+      "name": "space_is_percent20",
+      "note": "空格编码成 %20，不是 +",
+      "params": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0)"
+      },
+      "payload": "userAgent=Mozilla%2F5.0%20(Windows%20NT%2010.0)",
+      "sign": "59b2fb82434559ccdc4c97445bc60461eedac9970a27c2b057769329a36b888c"
+    },
+    {
+      "name": "nested_dict_sorted_compact_json",
+      "note": "嵌套 dict 用键排序的紧凑 JSON",
+      "params": {
+        "fp": {
+          "b": 2,
+          "a": 1,
+          "c": {
+            "z": 26,
+            "y": 25
+          }
+        }
+      },
+      "payload": "fp=%7B%22a%22%3A1%2C%22b%22%3A2%2C%22c%22%3A%7B%22y%22%3A25%2C%22z%22%3A26%7D%7D",
+      "sign": "c5a2e713c32afdd2acd043b3fce87bc980dc8c66c2507c5b04c63f349149d824"
+    },
+    {
+      "name": "nested_list_preserves_order",
+      "note": "list 保序，元素内的 dict 仍然排序",
+      "params": {
+        "events": [
+          {
+            "kind": "click",
+            "ts": 3
+          },
+          {
+            "ts": 1,
+            "kind": "scroll"
+          }
+        ]
+      },
+      "payload": "events=%5B%7B%22kind%22%3A%22click%22%2C%22ts%22%3A3%7D%2C%7B%22kind%22%3A%22scroll%22%2C%22ts%22%3A1%7D%5D",
+      "sign": "fbe7b9744f4b57acd5d030c89c47888919cfe9a9751d4109c21a1a837ac499a2"
+    },
+    {
+      "name": "sign_key_excluded",
+      "note": "sign 字段自身不参与签名",
+      "params": {
+        "a": 1,
+        "sign": "deadbeef"
+      },
+      "payload": "a=1",
+      "sign": "cc3305690141cf4c92047369d71ad44d4d2b9faf688652b6395f2cb8db6dbc26"
+    },
+    {
+      "name": "unicode_percent_encoded_utf8",
+      "note": "非 ASCII 按 UTF-8 字节百分号编码",
+      "params": {
+        "name": "防御系统",
+        "emoji": "🛡"
+      },
+      "payload": "emoji=%F0%9F%9B%A1&name=%E9%98%B2%E5%BE%A1%E7%B3%BB%E7%BB%9F",
+      "sign": "f1a5443d6fd8e7877053364152781d749852617bfab0e3c331f4da4f6dc73f0d"
+    },
+    {
+      "name": "reserved_chars_preserved",
+      "note": "-_.!~*'() 是 safe 集，保持原样",
+      "params": {
+        "token": "-_.!~*'()"
+      },
+      "payload": "token=-_.!~*'()",
+      "sign": "abf201fc5b31e43fcd40c9afe4b79b27b610fc9b9edb1fb0953ef909c8cb6c51"
+    },
+    {
+      "name": "decide_body_shape",
+      "note": "真实 /v2/decide 顶层签名参数形状",
+      "params": {
+        "context": {
+          "appId": 1,
+          "ingress": "sdk",
+          "fingerprint": "abc123",
+          "userAgent": "Mozilla/5.0",
+          "visitUrl": "https://shop.example.com/checkout",
+          "repeatKey": "_sd_0000",
+          "evercookieRestored": true,
+          "behaviorEvents": [
+            {
+              "kind": "click",
+              "clientTsMs": 1700000000000,
+              "data": {
+                "x": 10,
+                "y": 20
+              }
+            }
+          ]
+        },
+        "requireDetails": false,
+        "timestamp": 1700000000,
+        "nonce": "0123456789abcdef0123456789abcdef"
+      },
+      "payload": "context=%7B%22appId%22%3A1%2C%22behaviorEvents%22%3A%5B%7B%22clientTsMs%22%3A1700000000000%2C%22data%22%3A%7B%22x%22%3A10%2C%22y%22%3A20%7D%2C%22kind%22%3A%22click%22%7D%5D%2C%22evercookieRestored%22%3Atrue%2C%22fingerprint%22%3A%22abc123%22%2C%22ingress%22%3A%22sdk%22%2C%22repeatKey%22%3A%22_sd_0000%22%2C%22userAgent%22%3A%22Mozilla%2F5.0%22%2C%22visitUrl%22%3A%22https%3A%2F%2Fshop.example.com%2Fcheckout%22%7D&nonce=0123456789abcdef0123456789abcdef&requireDetails=false&timestamp=1700000000",
+      "sign": "430bd6b5a0571e8b8d58cdef4b823a2b3bdcbc3c3697ebbee3308f53dbf2dce1"
+    }
+  ]
+}

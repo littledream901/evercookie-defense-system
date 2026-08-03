@@ -6,7 +6,7 @@ from src.domain.app.entities import Application
 from src.domain.rbac.entities import Permission, Role
 from src.domain.user.entities import User
 
-from .schemas import AppSchema, PermissionSchema, RoleSchema, UserBriefSchema
+from .schemas import AppSchema, AppCreateResponse, PermissionSchema, RoleSchema, UserBriefSchema
 
 
 def user_to_brief(user: User) -> UserBriefSchema:
@@ -39,15 +39,30 @@ def permission_to_schema(perm: Permission) -> PermissionSchema:
     return PermissionSchema(code=perm.code, description=perm.description)
 
 
-def app_to_schema(app: Application) -> AppSchema:
+def app_to_schema(app: Application, *, rule_name: str | None = None, rule_status: str | None = None) -> AppSchema:
     return AppSchema(
-        id=app.id or 0,
+        id=app.id,
+        site_id=app.site_id,
+        app_secret=app.app_secret,
         name=app.name,
-        api_key=app.api_key,
+        domain=app.domain,
+        alt_domains=app.alt_domains,
+        access_mode=app.access_mode,
+        status=app.status,
+        sdk_version=app.sdk_version,
+        gateway_url=app.gateway_url,
+        is_active=app.is_active,
         owner_user_id=app.owner_user_id,
-        status=app.status.value,
-        description=app.description,
-        domains=list(app.domains),
+        clock_stats_enabled=app.clock_stats_enabled,
+        log_retention_days=app.log_retention_days,
+        remark=app.remark,
         created_at=app.created_at,
         updated_at=app.updated_at,
+        rule_name=rule_name,
+        rule_status=rule_status,
     )
+
+
+def app_to_schema_with_secret(app: Application) -> AppSchema:
+    """等同于 app_to_schema —— app_secret 已在基础序列化中明文回显。"""
+    return app_to_schema(app)

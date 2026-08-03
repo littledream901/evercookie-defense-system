@@ -81,6 +81,10 @@ class DecisionEvent(BaseSchema):
     crawler_category: str | None = Field(default=None, alias="crawlerCategory", max_length=32)
     crawler_vendor: str | None = Field(default=None, alias="crawlerVendor", max_length=64)
 
+    # ── 请求语言偏好 ──
+    accept_language: str | None = Field(default=None, alias="acceptLanguage", max_length=256)
+    """Accept-Language 请求头原文，落库供客户端语言分析。"""
+
     # ── 访客追踪：Evercookie 自愈是本系统的立项理由 ──
     repeat_key: str | None = Field(default=None, alias="repeatKey", max_length=128)
     repeat_value: str | None = Field(default=None, alias="repeatValue", max_length=256)

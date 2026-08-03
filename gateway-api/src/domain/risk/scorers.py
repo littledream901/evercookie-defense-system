@@ -14,14 +14,34 @@ from src.domain.profile.builder import ProfileSnapshot
 
 @dataclass(frozen=True, slots=True)
 class ScorerOutput:
+    """单个 scorer 的产出。
+
+    ``applies``
+        本次是否参与判定。**「不参与」与「判定为 0 分」是两件事**：前者表示
+        该 scorer 拿不到输入（如 IP 信誉库无此 IP），后者表示已评估且无风险。
+        混为一谈会让排障时无法区分「没查到」和「查到了是干净的」，也会让
+        缺数据源的 scorer 悄悄贡献一个虚假基线分。
+    """
+
     name: str
     score: float
     reason: str | None = None
     weight: float = 1.0
+    applies: bool = True
 
     @property
     def weighted_score(self) -> float:
         return self.score * self.weight
+
+    def with_weight(self, weight: float) -> ScorerOutput:
+        """返回替换权重后的副本，供库中 ScoringRule 覆盖类默认权重。"""
+        return ScorerOutput(
+            name=self.name,
+            score=self.score,
+            reason=self.reason,
+            weight=weight,
+            applies=self.applies,
+        )
 
 
 class RiskScorer(ABC):
@@ -31,13 +51,29 @@ class RiskScorer(ABC):
     @abstractmethod
     def score(self, snapshot: ProfileSnapshot) -> ScorerOutput: ...
 
+    def _skip(self, reason: str | None = None) -> ScorerOutput:
+        """产出「未参与」结果。分数为 0 且不计入累加。"""
+        return ScorerOutput(
+            name=self.name, score=0.0, reason=reason, weight=self.weight, applies=False
+        )
+
 
 class IpReputationScorer(RiskScorer):
+    """IP 历史信誉。数据来自 worker 的信誉回写任务。
+
+    无信誉数据时**不参与判定**，而不是拿默认 50 分当中等风险。信誉库为空的
+    环境下（新部署、回写任务未跑）每个 IP 都白拿一份基线分，会把整体分数
+    抬高一个固定量，等于变相下调了阈值。
+    """
+
     name = "ip_reputation"
     weight = 1.2
 
     def score(self, snapshot: ProfileSnapshot) -> ScorerOutput:
-        reputation = snapshot.ip.reputation_score
+        ip = snapshot.ip
+        if not ip.has_reputation:
+            return self._skip("no_reputation_data")
+        reputation = ip.reputation_score
         score = max(0.0, 100.0 - reputation)
         reason = f"ip_reputation={reputation:.1f}" if score > 30 else None
         return ScorerOutput(name=self.name, score=score, reason=reason, weight=self.weight)
@@ -168,6 +204,13 @@ class UserAgentScorer(RiskScorer):
 
 
 class DeviceScorer(RiskScorer):
+    """设备历史行为。
+
+    新设备给 25 分是**参与判定**的结论而非缺数据：首次出现本身就是弱风险信号。
+    但设备已有访问记录、仅缺信誉分时不再退回默认 50 分基线，
+    与 :class:`IpReputationScorer` 同理。
+    """
+
     name = "device"
     weight = 1.0
 
@@ -175,7 +218,7 @@ class DeviceScorer(RiskScorer):
         device = snapshot.device
         if device.total_requests == 0:
             return ScorerOutput(name=self.name, score=25.0, reason="new_device", weight=self.weight)
-        if device.blocked_requests > 0 and device.total_requests > 0:
+        if device.blocked_requests > 0:
             block_rate = device.blocked_requests / device.total_requests
             if block_rate > 0.5:
                 return ScorerOutput(
@@ -184,10 +227,11 @@ class DeviceScorer(RiskScorer):
                     reason=f"high_block_rate={block_rate:.2f}",
                     weight=self.weight,
                 )
-        reputation = device.reputation_score
+        if not device.has_reputation:
+            return self._skip("no_reputation_data")
         return ScorerOutput(
             name=self.name,
-            score=max(0.0, 100.0 - reputation),
+            score=max(0.0, 100.0 - device.reputation_score),
             weight=self.weight,
         )
 
@@ -210,3 +254,29 @@ class BehaviorScorer(RiskScorer):
             parts.append("long_path")
         reason = "+".join(parts) if parts else None
         return ScorerOutput(name=self.name, score=score, reason=reason, weight=self.weight)
+
+
+class IntelScorer(RiskScorer):
+    """消费后台维护的六类维度情报评分。
+
+    权重设为 1.0：情报是人工录入的确定性结论，risk_score 已是 0-100 量纲，
+    不需要再放大或衰减。正规爬虫（is_legitimate）不计分，避免搜索引擎被拦。
+    """
+
+    name = "intel"
+    weight = 1.0
+
+    def score(self, snapshot: ProfileSnapshot) -> ScorerOutput:
+        intel = snapshot.intel
+        if intel is None or not intel.matched:
+            return self._skip("no_intel_match")
+        if intel.is_legitimate_crawler and intel.risk_score == 0:
+            return ScorerOutput(
+                name=self.name, score=0.0, reason="legitimate_crawler", weight=self.weight
+            )
+        return ScorerOutput(
+            name=self.name,
+            score=float(intel.risk_score),
+            reason="+".join(intel.reasons),
+            weight=self.weight,
+        )

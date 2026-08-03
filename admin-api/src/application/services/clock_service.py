@@ -113,6 +113,34 @@ class ClockService:
     ) -> dict[str, Any] | None:
         return await self._sync.get_ban(app_id, dimension, value)
 
+    async def list_bans(
+        self,
+        app_id: int,
+        *,
+        dimension: ClockDimension | None = None,
+        cursor: int = 0,
+        count: int = 200,
+    ) -> dict[str, Any]:
+        """游标翻页列出封禁。
+
+        ``hasMore`` 由游标而非条目数推导：``SCAN`` 每批返回条数是近似值，
+        中间批次返回 0 条也完全正常，用条目数判断会提前截断列表。
+        """
+        next_cursor, items = await self._sync.scan_bans(
+            app_id, dimension=dimension, cursor=cursor, count=count
+        )
+        return {
+            "items": items,
+            "nextCursor": next_cursor,
+            "hasMore": next_cursor != 0,
+        }
+
+    async def unban_many(
+        self, app_id: int, items: list[tuple[ClockDimension, str]]
+    ) -> dict[str, int]:
+        removed = await self._sync.unban_many(app_id, items)
+        return {"requested": len(items), "removed": removed}
+
     @staticmethod
     def _to_limits(row: Any) -> ClockLimits:
         return ClockLimits(

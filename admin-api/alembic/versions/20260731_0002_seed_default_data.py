@@ -86,9 +86,6 @@ _ROLE_PERMISSIONS: dict[str, list[str]] = {
 _DEFAULT_ADMIN_USERNAME = "admin"
 _DEFAULT_ADMIN_EMAIL = os.getenv("ADMIN_BOOTSTRAP_EMAIL", "admin@fangyu.local")
 _DEFAULT_ADMIN_PASSWORD = os.getenv("ADMIN_BOOTSTRAP_PASSWORD", "Admin@fangyu2026")
-_DEFAULT_APP_NAME = os.getenv("APP_BOOTSTRAP_NAME", "默认应用")
-_DEFAULT_APP_API_KEY = os.getenv("APP_BOOTSTRAP_API_KEY", "dev-api-key-change-in-production")
-_DEFAULT_APP_DESCRIPTION = "系统内置默认应用，生产环境请及时轮换 API Key"
 
 
 def _hash_password(raw: str) -> str:
@@ -179,39 +176,9 @@ def upgrade() -> None:
             {"uid": admin_row.id, "rid": super_admin_id},
         )
 
-    # 内置一个默认应用，方便部署后立刻可用 gateway 端到端跑通。
-    # 生产必须通过 APP_BOOTSTRAP_API_KEY 覆盖，并在首次上线后立刻轮换。
-    if admin_row is not None:
-        biz_application = sa.table(
-            "biz_application",
-            sa.column("name", sa.String),
-            sa.column("api_key", sa.String),
-            sa.column("owner_user_id", sa.BigInteger),
-            sa.column("status", sa.String),
-            sa.column("description", sa.String),
-            sa.column("domains", sa.JSON),
-        )
-        conn.execute(
-            biz_application.insert(),
-            [
-                {
-                    "name": _DEFAULT_APP_NAME,
-                    "api_key": _DEFAULT_APP_API_KEY,
-                    "owner_user_id": admin_row.id,
-                    "status": "active",
-                    "description": _DEFAULT_APP_DESCRIPTION,
-                    "domains": [],
-                }
-            ],
-        )
-
 
 def downgrade() -> None:
     conn = op.get_bind()
-    conn.execute(
-        sa.text("DELETE FROM biz_application WHERE name = :n"),
-        {"n": _DEFAULT_APP_NAME},
-    )
     conn.execute(sa.text("DELETE FROM sys_user_role"))
     conn.execute(sa.text("DELETE FROM sys_user WHERE username = :u"), {"u": _DEFAULT_ADMIN_USERNAME})
     conn.execute(sa.text("DELETE FROM sys_role_permission"))

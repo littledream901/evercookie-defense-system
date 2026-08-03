@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fangyu V2 · 预落地页测试台</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:ui-monospace,'Cascadia Code',monospace;background:#0d1117;color:#c9d1d9;font-size:13px}
+header{background:#161b22;border-bottom:1px solid #30363d;padding:12px 20px;display:flex;align-items:center;gap:12px}
+header h1{font-size:16px;color:#f0f6fc;font-weight:600}
+.badge{background:#9e6a03;color:#fff;padding:2px 8px;border-radius:12px;font-size:11px}
+.layout{display:grid;grid-template-columns:280px 1fr;height:calc(100vh - 48px)}
+.sidebar{background:#161b22;border-right:1px solid #30363d;padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+.content{padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:16px}
+.section-title{font-size:11px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.field{display:flex;flex-direction:column;gap:4px;margin-bottom:8px}
+.field label{font-size:11px;color:#8b949e}
+.field input,.field select{background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 8px;border-radius:6px;font-family:inherit;font-size:12px;width:100%}
+.field input:focus,.field select:focus{outline:none;border-color:#1f6feb}
+.btn{padding:6px 12px;border-radius:6px;border:1px solid #30363d;background:#21262d;color:#c9d1d9;cursor:pointer;font-family:inherit;font-size:12px;transition:background .15s}
+.btn:hover{background:#30363d}
+.btn-primary{background:#1f6feb;border-color:#1f6feb;color:#fff}
+.btn-primary:hover{background:#388bfd}
+.btn-sm{padding:3px 8px;font-size:11px}
+.btn-group{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px}
+.card-title{font-size:12px;font-weight:600;color:#8b949e;margin-bottom:10px}
+pre{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px;overflow:auto;font-size:11px;max-height:200px;white-space:pre-wrap;word-break:break-all}
+.preview-frame-wrap{border:1px solid #30363d;border-radius:6px;overflow:hidden;background:#fff}
+iframe{width:100%;height:320px;border:none;display:block}
+.assert-row{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #21262d;font-size:11px}
+.assert-icon{font-size:14px;width:20px;text-align:center}
+.assert-ok  .assert-icon::before{content:'✓';color:#56d364}
+.assert-fail .assert-icon::before{content:'✗';color:#f85149}
+.assert-skip .assert-icon::before{content:'⏭';color:#8b949e}
+.test-group{margin-bottom:6px}
+.test-group-title{font-size:11px;font-weight:600;color:#c9d1d9;margin-bottom:4px}
+.summary-bar{display:flex;gap:16px;padding:8px 0;border-top:1px solid #30363d;margin-top:8px}
+.sum-stat{text-align:center}
+.sum-sv{font-size:20px;font-weight:700}
+.sum-sl{font-size:10px;color:#8b949e}
+.pool-item{display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;border-bottom:1px solid #21262d}
+.redirect-badge{padding:1px 6px;border-radius:4px;font-size:10px;background:#21262d;border:1px solid #30363d}
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡 Fangyu V2</h1>
+  <span class="badge">预落地页测试台</span>
+  <span style="margin-left:auto;color:#8b949e;font-size:11px" id="clock"></span>
+</header>
+<div class="layout">
+<aside class="sidebar">
+  <div>
+    <div class="section-title">配置</div>
+    <div class="field"><label>Gateway URL</label><input id="cfg-url" value="http://localhost:8001"></div>
+    <div class="field"><label>App ID</label><input id="cfg-appid" type="number" value="1"></div>
+    <div class="field"><label>API Key</label><input id="cfg-apikey" value=""></div>
+    <div class="field"><label>App Secret</label><input id="cfg-secret" type="password" value=""></div>
+    <div class="field"><label>IP (adapter ingress)</label><input id="cfg-ip" value="1.2.3.4"></div>
+  </div>
+  <div>
+    <div class="section-title">快速测试场景</div>
+    <div class="btn-group" style="flex-direction:column">
+      <button class="btn btn-sm btn-primary" onclick="runScenario('serve_alt_landing')">serve_alt → 落地页</button>
+      <button class="btn btn-sm btn-primary" onclick="runScenario('serve_alt_safety')">serve_alt → 安全页</button>
+      <button class="btn btn-sm" onclick="runScenario('redirect_single')">redirect → 单 URL</button>
+      <button class="btn btn-sm" onclick="runScenario('redirect_pool')">redirect → URL 池（轮询）</button>
+      <button class="btn btn-sm" onclick="runScenario('not_found')">not_found</button>
+      <button class="btn btn-sm" onclick="runScenario('page_resource')">page_resource 内容注入</button>
+      <button class="btn btn-sm" style="border-color:#da3633;color:#f85149" onclick="runAllScenarios()">全量断言测试</button>
+    </div>
+  </div>
+  <div>
+    <div class="section-title">URL 池轮询分析</div>
+    <div id="pool-list" style="font-size:11px;color:#8b949e">（运行 redirect → URL 池 场景后显示）</div>
+  </div>
+</aside>
+<div class="content">
+
+  <!-- Current request/response -->
+  <div class="card">
+    <div class="card-title">当前请求</div>
+    <pre id="req-display">（未发起请求）</pre>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <!-- Response -->
+    <div class="card">
+      <div class="card-title">响应 <span id="resp-latency" style="font-size:10px;color:#8b949e"></span></div>
+      <pre id="resp-display">（等待响应…）</pre>
+    </div>
+
+    <!-- Page content / redirect preview -->
+    <div class="card">
+      <div class="card-title">页面内容 / 重定向预览</div>
+      <div id="page-content-area">
+        <div style="color:#8b949e;font-size:11px">（serve_alt 时显示 page_content，redirect 时显示目标 URL）</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Assertions -->
+  <div class="card">
+    <div class="card-title">断言结果 <button class="btn btn-sm" onclick="clearAssertions()" style="float:right">清空</button></div>
+    <div id="assert-list"></div>
+    <div class="summary-bar" id="summary-bar" style="display:none">
+      <div class="sum-stat"><div class="sum-sv" id="sum-total">0</div><div class="sum-sl">Total</div></div>
+      <div class="sum-stat"><div class="sum-sv" id="sum-ok" style="color:#56d364">0</div><div class="sum-sl">Pass</div></div>
+      <div class="sum-stat"><div class="sum-sv" id="sum-fail" style="color:#f85149">0</div><div class="sum-sl">Fail</div></div>
+      <div class="sum-stat"><div class="sum-sv" id="sum-skip" style="color:#8b949e">0</div><div class="sum-sl">Skip</div></div>
+    </div>
+  </div>
+
+</div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+setInterval(()=>{ $('clock').textContent=new Date().toLocaleTimeString('zh-CN'); },1000);
+
+// ── Signing (same as adapter_test.html) ──
+function sortDeep(val){if(Array.isArray(val))return val.map(sortDeep);if(val!==null&&typeof val==='object'){const s={};Object.keys(val).sort().forEach(k=>{s[k]=sortDeep(val[k]);});return s;}return val;}
+function signValue(v){if(v===null||v===undefined)return null;if(typeof v==='boolean')return v?'true':'false';if(typeof v==='object')return JSON.stringify(sortDeep(v));return String(v);}
+function buildPayload(params){const parts=[];for(const key of Object.keys(params).sort()){if(key==='sign')continue;const raw=params[key];if(raw===null||raw===undefined||raw==='')continue;const v=signValue(raw);if(v===null||v==='')continue;parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(v)}`);}return parts.join('&');}
+async function computeHmac(secret,message){const enc=new TextEncoder();const key=await crypto.subtle.importKey('raw',enc.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);const sig=await crypto.subtle.sign('HMAC',key,enc.encode(message));return Array.from(new Uint8Array(sig)).map(b=>b.toString(16).padStart(2,'0')).join('');}
+function genNonce(){return Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b=>b.toString(16).padStart(2,'0')).join('');}
+function genFp(){return 'fp_'+Array.from(crypto.getRandomValues(new Uint8Array(8))).map(b=>b.toString(16).padStart(2,'0')).join('');}
+
+async function signedDecide(body){
+  const secret=$('cfg-secret').value.trim();
+  const nonce=genNonce();const timestamp=Math.floor(Date.now()/1000);
+  const payload={...body,nonce,timestamp};
+  const sign=await computeHmac(secret,buildPayload(payload));
+  return{...payload,sign};
+}
+
+async function callDecide(extraCtx={}){
+  const url=$('cfg-url').value.trim().replace(/\/$/,'')+'/v2/decide';
+  const apiKey=$('cfg-apikey').value.trim();
+  const body={
+    appId:parseInt($('cfg-appid').value),
+    ingress:'adapter',
+    fingerprint:genFp(),
+    userAgent:navigator.userAgent,
+    visitUrl:'https://example.com/',
+    ip:$('cfg-ip').value.trim(),
+    ...extraCtx,
+  };
+  const signed=await signedDecide(body);
+  $('req-display').textContent=JSON.stringify(signed,null,2);
+  const t0=performance.now();
+  const resp=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-App-Key':apiKey},body:JSON.stringify(signed)});
+  const ms=(performance.now()-t0).toFixed(0);
+  $('resp-latency').textContent=ms+'ms';
+  const data=await resp.json();
+  $('resp-display').textContent=JSON.stringify(data,null,2);
+  return{resp,data,ms:+ms};
+}
+
+// ── Assertions ──
+const _assertResults=[];
+function assert(label,pass,detail=''){
+  _assertResults.push({label,pass,detail});
+  const row=document.createElement('div');
+  row.className='assert-row '+(pass?'assert-ok':'assert-fail');
+  row.innerHTML=`<span class="assert-icon"></span><span>${label}</span>${detail?`<span style="color:#8b949e;margin-left:auto;font-size:10px">${detail}</span>`:''}`;
+  $('assert-list').appendChild(row);
+  updateSummary();
+}
+function assertSkip(label,reason=''){
+  _assertResults.push({label,pass:null});
+  const row=document.createElement('div');
+  row.className='assert-row assert-skip';
+  row.innerHTML=`<span class="assert-icon"></span><span>${label}</span>${reason?`<span style="color:#8b949e;margin-left:auto;font-size:10px">${reason}</span>`:''}`;
+  $('assert-list').appendChild(row);
+  updateSummary();
+}
+function updateSummary(){
+  const total=_assertResults.length;
+  const ok=_assertResults.filter(r=>r.pass===true).length;
+  const fail=_assertResults.filter(r=>r.pass===false).length;
+  const skip=_assertResults.filter(r=>r.pass===null).length;
+  $('sum-total').textContent=total;$('sum-ok').textContent=ok;$('sum-fail').textContent=fail;$('sum-skip').textContent=skip;
+  $('summary-bar').style.display='flex';
+}
+function clearAssertions(){_assertResults.length=0;$('assert-list').innerHTML='';$('summary-bar').style.display='none';}
+
+// ── Page content display ──
+function showPageContent(data){
+  const area=$('page-content-area');
+  if(data.mechanism==='serve_alt'&&data.page_content){
+    area.innerHTML=`<div style="font-size:11px;color:#8b949e;margin-bottom:6px">page_content（${data.page_content.length} 字节）</div><div class="preview-frame-wrap"><iframe id="pc-frame" sandbox="allow-scripts"></iframe></div>`;
+    const frame=document.getElementById('pc-frame');
+    frame.srcdoc=data.page_content;
+  }else if(data.mechanism==='redirect'&&data.targetUrl){
+    area.innerHTML=`<div style="font-size:11px;color:#8b949e;margin-bottom:6px">redirect → </div><a href="${data.targetUrl}" target="_blank" style="color:#1f6feb;font-size:12px;word-break:break-all">${data.targetUrl}</a>`;
+  }else if(data.mechanism==='not_found'){
+    area.innerHTML=`<div style="color:#f85149;font-size:12px">mechanism=not_found → adapter 返回 404</div>`;
+  }else{
+    area.innerHTML=`<div style="color:#8b949e;font-size:11px">mechanism=${data.mechanism??'?'} (无页面内容)</div>`;
+  }
+}
+
+// ── Scenarios ──
+async function runScenario(name){
+  clearAssertions();
+  $('page-content-area').innerHTML='（请求中…）';
+  try{
+    switch(name){
+      case 'serve_alt_landing': await testServeAlt('landing'); break;
+      case 'serve_alt_safety':  await testServeAlt('safety');  break;
+      case 'redirect_single':   await testRedirectSingle();    break;
+      case 'redirect_pool':     await testRedirectPool();      break;
+      case 'not_found':         await testNotFound();          break;
+      case 'page_resource':     await testPageResource();      break;
+    }
+  }catch(e){
+    assert('请求执行', false, e.message);
+  }
+}
+
+async function runAllScenarios(){
+  clearAssertions();
+  $('page-content-area').innerHTML='（全量测试中…）';
+  const banner=(title)=>{const d=document.createElement('div');d.className='test-group-title';d.style.cssText='font-size:11px;font-weight:600;color:#c9d1d9;margin:10px 0 4px';d.textContent='▸ '+title;$('assert-list').appendChild(d);};
+  try{
+    banner('serve_alt → 落地页');  await testServeAlt('landing');
+    banner('serve_alt → 安全页');  await testServeAlt('safety');
+    banner('redirect → 单 URL');  await testRedirectSingle();
+    banner('redirect → URL 池');  await testRedirectPool();
+    banner('not_found');           await testNotFound();
+    banner('page_resource 注入');  await testPageResource();
+  }catch(e){
+    assert('全量执行', false, e.message);
+  }
+}
+
+async function testServeAlt(subtype){
+  // Trigger serve_alt by using a known test fingerprint that maps to serve_alt,
+  // or by passing extra context hint (depends on gateway rule config).
+  // We test the response shape regardless.
+  const{resp,data,ms}=await callDecide({ visitUrl:'https://example.com/lp/'+subtype });
+  showPageContent(data);
+  assert(`HTTP status 2xx`, resp.status>=200&&resp.status<300, resp.status+'');
+  assert(`response.verdict 存在`, !!data.verdict, data.verdict??'missing');
+  assert(`response.mechanism 存在`, !!data.mechanism, data.mechanism??'missing');
+  if(data.mechanism==='serve_alt'){
+    assert(`serve_alt: page_content 非空`, !!(data.page_content&&data.page_content.length>0), (data.page_content||'').length+' bytes');
+    assert(`serve_alt: page_content 包含 <html 或 <!DOCTYPE`, /(<html|<!doctype)/i.test(data.page_content||''), '内容片段: '+(data.page_content||'').slice(0,40));
+    assert(`serve_alt: targetKind`, data.targetKind==='page_resource'||data.targetKind==='origin', data.targetKind??'missing');
+  }else{
+    assertSkip(`serve_alt 断言（当前 mechanism=${data.mechanism}，规则未配置 serve_alt 场景）`);
+  }
+}
+
+async function testRedirectSingle(){
+  const{resp,data,ms}=await callDecide({ visitUrl:'https://example.com/blocked-page' });
+  showPageContent(data);
+  assert(`HTTP status 2xx`, resp.status>=200&&resp.status<300, resp.status+'');
+  if(data.mechanism==='redirect'){
+    assert(`redirect: targetUrl 非空`, !!(data.targetUrl&&data.targetUrl.length>0), data.targetUrl??'missing');
+    assert(`redirect: targetUrl 是合法 URL`, isValidUrl(data.targetUrl), data.targetUrl??'');
+    assert(`redirect: targetKind = url`, data.targetKind==='url', data.targetKind??'missing');
+    assert(`redirect: httpStatus 3xx`, data.httpStatus>=300&&data.httpStatus<400, (data.httpStatus??'missing')+'');
+  }else{
+    assertSkip(`redirect 断言（mechanism=${data.mechanism}，规则未配置 redirect 场景）`);
+  }
+}
+
+// Pool test: send N requests and verify spread across pool entries
+async function testRedirectPool(){
+  const N=10;
+  const hits={};
+  const errs=[];
+  for(let i=0;i<N;i++){
+    try{
+      const{data}=await callDecide({visitUrl:'https://example.com/pool-test/'+i,fingerprint:genFp()});
+      if(data.mechanism==='redirect'&&data.targetUrl){
+        hits[data.targetUrl]=(hits[data.targetUrl]||0)+1;
+      }else{
+        assertSkip(`pool[${i}]: mechanism=${data.mechanism}（需配置 redirect 池规则）`);
+        renderPoolList(hits); return;
+      }
+    }catch(e){errs.push(e.message);}
+  }
+  renderPoolList(hits);
+  const uniqueUrls=Object.keys(hits).length;
+  assert(`URL 池：${N} 次请求覆盖 ${uniqueUrls} 个不同 URL`, uniqueUrls>=2, JSON.stringify(hits));
+  assert(`无请求错误`, errs.length===0, errs.join('; ')||'OK');
+  assert(`总请求数 = ${N}`, Object.values(hits).reduce((a,b)=>a+b,0)===N, '');
+}
+
+function renderPoolList(hits){
+  const total=Object.values(hits).reduce((a,b)=>a+b,0)||1;
+  $('pool-list').innerHTML=Object.entries(hits).map(([url,cnt])=>`
+    <div class="pool-item">
+      <span class="redirect-badge">${cnt}/${total}</span>
+      <span style="word-break:break-all">${url}</span>
+    </div>`).join('')||'（无 redirect 结果）';
+}
+
+async function testNotFound(){
+  const{resp,data,ms}=await callDecide({visitUrl:'https://example.com/not-found-test', userAgent:'python-requests/2.31.0'});
+  showPageContent(data);
+  assert(`HTTP status 2xx（网关层）`, resp.status>=200&&resp.status<300, resp.status+'');
+  if(data.mechanism==='not_found'){
+    assert(`not_found: httpStatus = 404`, data.httpStatus===404, (data.httpStatus??'missing')+'');
+    assert(`not_found: page_content 为空`, !data.page_content, (data.page_content||'(empty)').slice(0,20));
+  }else{
+    assertSkip(`not_found 断言（mechanism=${data.mechanism}，规则未配置 not_found 场景）`);
+  }
+}
+
+async function testPageResource(){
+  const{resp,data,ms}=await callDecide({visitUrl:'https://example.com/check',fingerprint:genFp()});
+  showPageContent(data);
+  assert(`HTTP status 2xx`, resp.status>=200&&resp.status<300, resp.status+'');
+  assert(`response.request_id 存在`, !!data.request_id, data.request_id??'missing');
+  assert(`response.score 为数字`, typeof data.score==='number', typeof data.score);
+  assert(`response.decidedBy 存在`, !!data.decidedBy, data.decidedBy??'missing');
+  if(data.mechanism==='serve_alt'&&data.targetKind==='page_resource'){
+    assert(`page_resource: page_content 非空`, !!(data.page_content&&data.page_content.length>0), (data.page_content||'').length+' bytes');
+    assert(`page_resource: 内容不含未替换占位符 {{`, !/{{\s*\w/.test(data.page_content||''), '');
+  }else{
+    assertSkip(`page_resource 内容注入断言（mechanism=${data.mechanism} targetKind=${data.targetKind}）`);
+  }
+}
+
+function isValidUrl(s){try{new URL(s);return true;}catch{return false;}}
+</script>
+</body>
+</html>

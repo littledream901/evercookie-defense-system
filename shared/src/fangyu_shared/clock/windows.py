@@ -92,6 +92,40 @@ def ban_key(app_id: int, dimension: ClockDimension, value: str) -> str:
     return f"{_KEY_PREFIX}:ban:{app_id}:{dimension.value}:{value}"
 
 
+def ban_scan_pattern(app_id: int, dimension: ClockDimension | None = None) -> str:
+    """``SCAN MATCH`` 用的封禁键通配模式。
+
+    与 :func:`ban_key` 放在一起，是为了让「键长什么样」只有一处定义：模式
+    与键构造不同步时，运维面板会列出空列表，而封禁其实还在生效——这种不一致
+    从日志里看不出来。
+    """
+    if dimension is None:
+        return f"{_KEY_PREFIX}:ban:{app_id}:*"
+    return f"{_KEY_PREFIX}:ban:{app_id}:{dimension.value}:*"
+
+
+def parse_ban_key(key: str) -> tuple[int, ClockDimension, str] | None:
+    """把封禁键还原成 ``(app_id, 维度, 值)``。
+
+    无法识别返回 ``None``——列表接口不能因为库里混进一条形状不符的键就整个
+    500，那样运维连清理它的入口都没有。
+
+    值本身可能含 ``:``，所以按前 5 段切分后取剩余全部作为值。
+    """
+    parts = key.split(":", 5)
+    if len(parts) < 6:
+        return None
+    ns, sub, kind, app_raw, dim_raw, value = parts
+    if f"{ns}:{sub}" != _KEY_PREFIX or kind != "ban" or not value:
+        return None
+    try:
+        app_id = int(app_raw)
+        dimension = ClockDimension(dim_raw)
+    except ValueError:
+        return None
+    return app_id, dimension, value
+
+
 def limits_key(app_id: int) -> str:
     """站点级阈值配置键。"""
     return f"{_KEY_PREFIX}:limits:{app_id}"

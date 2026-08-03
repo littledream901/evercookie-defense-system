@@ -1,0 +1,255 @@
+# =========================================================
+# Evercookie Defense System V2 — 生产环境编排
+# ---------------------------------------------------------
+# 与 1Panel OpenResty 配合使用：
+#   - 本文件不占用宿主机 80/443，由 1Panel OpenResty 持有
+#   - 所有数据面端口（MySQL/Redis/ClickHouse）仅绑定 127.0.0.1
+#   - 对外只暴露 dashboard-ui 与 gateway-api 两个回环端口，
+#     由 OpenResty 反代出去
+#
+# 用法：
+#   cd deploy
+#   docker compose -f docker-compose.prod.yml --env-file ../.env.production up -d
+# =========================================================
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
+x-common-env: &common-env
+  ENV: production
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_JSON: "true"
+  TZ: ${TZ:-Asia/Shanghai}
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    container_name: fangyu-redis
+    restart: always
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD 必须设置}
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-2gb}
+      - --maxmemory-policy
+      - allkeys-lru
+    ports: ["127.0.0.1:6379:6379"]
+    volumes: ["redis-data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging: *default-logging
+    networks: [fangyu-net]
+
+  mysql:
+    image: mysql:8.4
+    container_name: fangyu-mysql
+    restart: always
+    ports: ["127.0.0.1:3306:3306"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD 必须设置}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-fangyu_v2}
+      MYSQL_USER: ${MYSQL_USER:-fangyu}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD 必须设置}
+      TZ: ${TZ:-Asia/Shanghai}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --max-connections=500
+      - --innodb-buffer-pool-size=${MYSQL_BUFFER_POOL:-1G}
+      - --slow-query-log=1
+      - --long-query-time=2
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    logging: *default-logging
+    networks: [fangyu-net]
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: fangyu-clickhouse
+    restart: always
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+    environment:
+      # 库名固定 fangyu：analytics_query.py 等处的表前缀是硬编码的
+      CLICKHOUSE_DB: fangyu
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD 必须设置}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
+      - ../infrastructure/clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging: *default-logging
+    networks: [fangyu-net]
+
+  gateway-api:
+    image: ${IMAGE_REGISTRY:-fangyu}/gateway-api:${IMAGE_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/gateway-api.Dockerfile
+    container_name: fangyu-gateway
+    restart: always
+    # SDK 上报入口，由 OpenResty 反代到公网
+    ports: ["127.0.0.1:${GATEWAY_PUBLISH_PORT:-8000}:8080"]
+    environment:
+      <<: *common-env
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_PORT: "8080"
+      GATEWAY_WORKERS: ${GATEWAY_WORKERS:-4}
+      GATEWAY_REDIS_URL: ${GATEWAY_REDIS_URL:?必须设置}
+      GATEWAY_CLICKHOUSE_URL: http://clickhouse:8123
+      GATEWAY_CLICKHOUSE_DATABASE: fangyu
+      GATEWAY_CORS_ORIGINS: ${GATEWAY_CORS_ORIGINS:?必须设置为 JSON 数组}
+      GATEWAY_CHALLENGE_THRESHOLD: ${GATEWAY_CHALLENGE_THRESHOLD:-30.0}
+      GATEWAY_BLOCK_THRESHOLD: ${GATEWAY_BLOCK_THRESHOLD:-75.0}
+      GATEWAY_BLOCK_TOR: ${GATEWAY_BLOCK_TOR:-true}
+      GATEWAY_APP_KEY_REQUIRED: ${GATEWAY_APP_KEY_REQUIRED:-true}
+      GATEWAY_SIGNATURE_REQUIRED: ${GATEWAY_SIGNATURE_REQUIRED:-false}
+      GATEWAY_EVENT_STREAM_NAME: ${STREAM_NAME:-fangyu:events:decision}
+      GATEWAY_MMDB_COUNTRY_PATH: /data/mmdb/GeoLite2-Country.mmdb
+      GATEWAY_MMDB_ASN_PATH: /data/mmdb/GeoLite2-ASN.mmdb
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
+      TRACE_SAMPLE_RATE: ${TRACE_SAMPLE_RATE:-0.1}
+    volumes:
+      - mmdb-data:/data/mmdb
+    depends_on:
+      redis: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { cpus: "${GATEWAY_CPU_LIMIT:-2}", memory: "${GATEWAY_MEM_LIMIT:-1g}" }
+    logging: *default-logging
+    networks: [fangyu-net]
+
+  admin-api:
+    image: ${IMAGE_REGISTRY:-fangyu}/admin-api:${IMAGE_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/admin-api.Dockerfile
+    container_name: fangyu-admin
+    restart: always
+    # 不对外发布：由 dashboard-ui 容器内 Nginx 经内网 admin-api:8081 访问。
+    # 需要本机排障时可临时打开下面这行。
+    # ports: ["127.0.0.1:8001:8081"]
+    environment:
+      <<: *common-env
+      ADMIN_HOST: 0.0.0.0
+      ADMIN_PORT: "8081"
+      ADMIN_WORKERS: ${ADMIN_WORKERS:-2}
+      ADMIN_DATABASE_URL: ${ADMIN_DATABASE_URL:?必须设置}
+      ADMIN_REDIS_URL: ${ADMIN_REDIS_URL:?必须设置}
+      ADMIN_CLICKHOUSE_URL: http://clickhouse:8123
+      ADMIN_CLICKHOUSE_DATABASE: fangyu
+      ADMIN_CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      ADMIN_CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?必须设置}
+      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:?必须设置且长度 >= 32}
+      ADMIN_JWT_TTL_SECONDS: ${ADMIN_JWT_TTL_SECONDS:-7200}
+      ADMIN_JWT_REFRESH_TTL_SECONDS: ${ADMIN_JWT_REFRESH_TTL_SECONDS:-604800}
+      ADMIN_CORS_ORIGINS: ${ADMIN_CORS_ORIGINS:?必须设置为 JSON 数组}
+      ADMIN_DATABASE_POOL_SIZE: ${ADMIN_DATABASE_POOL_SIZE:-10}
+      ADMIN_DATABASE_MAX_OVERFLOW: ${ADMIN_DATABASE_MAX_OVERFLOW:-20}
+      ADMIN_LOGIN_RATE_LIMIT_PER_MINUTE: ${ADMIN_LOGIN_RATE_LIMIT_PER_MINUTE:-10}
+      MMDB_DIR: /data/mmdb
+      ABUSEIPDB_API_KEY: ${ABUSEIPDB_API_KEY:-}
+      MAXMIND_LICENSE_KEY: ${MAXMIND_LICENSE_KEY:-}
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
+      TRACE_SAMPLE_RATE: ${TRACE_SAMPLE_RATE:-0.1}
+    volumes:
+      - mmdb-data:/data/mmdb
+    depends_on:
+      redis: { condition: service_healthy }
+      mysql: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { cpus: "${ADMIN_CPU_LIMIT:-1}", memory: "${ADMIN_MEM_LIMIT:-1g}" }
+    logging: *default-logging
+    networks: [fangyu-net]
+
+  worker:
+    image: ${IMAGE_REGISTRY:-fangyu}/worker:${IMAGE_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/worker.Dockerfile
+    container_name: fangyu-worker
+    restart: always
+    environment:
+      <<: *common-env
+      WORKER_REDIS_URL: ${WORKER_REDIS_URL:?必须设置}
+      WORKER_CLICKHOUSE_URL: http://clickhouse:8123
+      WORKER_CLICKHOUSE_DATABASE: fangyu
+      WORKER_CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      WORKER_CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?必须设置}
+      WORKER_BATCH_TARGET_TABLE: fangyu.decision_events
+      # 必须与 gateway-api 的 GATEWAY_EVENT_STREAM_NAME 完全一致
+      WORKER_STREAM_NAME: ${STREAM_NAME:-fangyu:events:decision}
+      WORKER_CONSUMER_GROUP: ${WORKER_CONSUMER_GROUP:-fangyu-worker}
+      WORKER_CONSUMER_NAME: ${WORKER_CONSUMER_NAME:-worker-1}
+      WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE:-500}
+      WORKER_HEALTH_PORT: "9091"
+      WORKER_METRICS_PORT: "9092"
+      WORKER_REPUTATION_ENABLED: ${WORKER_REPUTATION_ENABLED:-true}
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
+      TRACE_SAMPLE_RATE: ${TRACE_SAMPLE_RATE:-0.1}
+    depends_on:
+      redis: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { cpus: "${WORKER_CPU_LIMIT:-1}", memory: "${WORKER_MEM_LIMIT:-1g}" }
+    logging: *default-logging
+    networks: [fangyu-net]
+
+  dashboard-ui:
+    image: ${IMAGE_REGISTRY:-fangyu}/dashboard-ui:${IMAGE_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/dashboard-ui.Dockerfile
+    container_name: fangyu-ui
+    restart: always
+    # 管理后台入口，由 OpenResty 反代到公网
+    ports: ["127.0.0.1:${UI_PUBLISH_PORT:-8080}:80"]
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    depends_on: [admin-api]
+    logging: *default-logging
+    networks: [fangyu-net]
+
+volumes:
+  redis-data:
+  mysql-data:
+  clickhouse-data:
+  clickhouse-logs:
+  mmdb-data:
+
+networks:
+  fangyu-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${DOCKER_SUBNET:-172.28.0.0/16}

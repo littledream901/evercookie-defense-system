@@ -12,8 +12,9 @@ from pydantic import Field, model_validator
 
 from fangyu_shared.clock.limits import DEFAULT_BAN_SECONDS, MAX_BAN_SECONDS
 from fangyu_shared.clock.windows import ClockDimension
+from fangyu_shared.whitelist.keys import WhitelistDimension
 from fangyu_shared.schemas.common import BaseSchema, PageRequest
-from fangyu_shared.schemas.disposition import Disposition
+from fangyu_shared.schemas.disposition import DecisionDisposition, Disposition
 from fangyu_shared.schemas.rule import (
     DecisionRule,
     GroupMode,
@@ -133,33 +134,95 @@ class PermissionUpsertRequest(BaseSchema):
 # ---------- Application ----------
 class AppSchema(BaseSchema):
     id: int
+    site_id: str
+    """站点标识，同时用作 X-App-Key 请求头的值。"""
+    app_secret: str = ""
+    """HMAC 验签密钥，明文回显。"""
     name: str
-    api_key: str
-    owner_user_id: int
-    status: str
-    description: str
-    domains: list[str]
+    domain: str
+    alt_domains: list[str]
+    access_mode: str
+    status: str = "active"
+    sdk_version: str | None = None
+    gateway_url: str | None = None
+    is_active: bool
+    owner_user_id: int | None = None
+    clock_stats_enabled: bool
+    log_retention_days: int
+    remark: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    rule_name: str | None = None
+    rule_status: str | None = None
+
+
+class AppCreateResponse(AppSchema):
+    """创建/轮换的响应。
+
+    与 AppSchema 结构一致（app_secret 已在基类中明文回显），
+    保留独立类型是为了让 OpenAPI 文档区分「创建结果」与「列表项」语义。
+    """
 
 
 class AppListRequest(PageRequest):
     keyword: str | None = None
     status: Literal["active", "paused", "archived"] | None = None
+    access_mode: Literal["adapter", "sdk"] | None = None
     owner_id: int | None = None
+
+
+class AppBatchDeleteRequest(BaseSchema):
+    """批量删除站点。"""
+
+    ids: list[int] = Field(min_length=1, max_length=100)
+
+
+class AppBatchToggleRequest(BaseSchema):
+    """批量启用 / 停用站点。"""
+
+    ids: list[int] = Field(min_length=1, max_length=100)
+    is_active: bool
+
+
+class AppBatchUpdateRequest(BaseSchema):
+    """批量修改站点通用配置；未传的字段保持原值。"""
+
+    ids: list[int] = Field(min_length=1, max_length=100)
+    access_mode: Literal["adapter", "sdk"] | None = None
+    clock_stats_enabled: bool | None = None
+    log_retention_days: int | None = Field(default=None, ge=1, le=365)
+
+
+class AppBatchResult(BaseSchema):
+    """批量操作结果；逐条执行，失败项不影响其他项。"""
+
+    succeeded: list[int] = Field(default_factory=list)
+    failed: list[dict[str, str]] = Field(default_factory=list)
+    """每项形如 {"id": "3", "reason": "激活状态的应用需先暂停后再删除"}。"""
 
 
 class AppCreateRequest(BaseSchema):
     name: str = Field(min_length=1, max_length=128)
-    description: str = Field(default="", max_length=512)
-    domains: list[str] = Field(default_factory=list)
+    domain: str = Field(min_length=1, max_length=512)
+    alt_domains: list[str] = Field(default_factory=list)
+    access_mode: Literal["adapter", "sdk"] = "adapter"
+    sdk_version: str | None = None
+    gateway_url: str | None = None
+    clock_stats_enabled: bool = True
+    log_retention_days: int = Field(default=30, ge=1, le=365)
+    remark: str | None = Field(default=None, max_length=512)
 
 
 class AppUpdateRequest(BaseSchema):
     name: str | None = None
-    description: str | None = None
-    domains: list[str] | None = None
-    status: Literal["active", "paused", "archived"] | None = None
+    alt_domains: list[str] | None = None
+    access_mode: Literal["adapter", "sdk"] | None = None
+    sdk_version: str | None = None
+    gateway_url: str | None = None
+    is_active: bool | None = None
+    clock_stats_enabled: bool | None = None
+    log_retention_days: int | None = Field(default=None, ge=1, le=365)
+    remark: str | None = None
 
 
 # ---------- Rule ----------
@@ -171,33 +234,31 @@ class RuleListRequest(PageRequest):
 class RuleUpsertRequest(BaseSchema):
     """规则新建/编辑请求。
 
-    ``kind=decision`` 时必须提供 ``disposition``；``kind=scoring`` 时必须提供
-    ``weight``。两者互斥，由校验器强制。
+    每条规则均为决策规则，命中与未命中各自配置独立处置策略。
     """
 
     name: str = Field(min_length=1, max_length=128)
     description: str = Field(default="", max_length=512)
-    kind: RuleKind = RuleKind.DECISION
     priority: RulePriority = RulePriority.NORMAL
     conditions: list[RuleCondition] = Field(..., min_length=1)
     match_all: bool = Field(default=True, alias="matchAll")
     group: str | None = Field(default=None, max_length=64)
     tags: list[str] = Field(default_factory=list)
+    kind: RuleKind = RuleKind.DECISION
     weight: int | None = Field(default=None, ge=-1000, le=1000)
-    disposition: Disposition | None = None
+    disposition_match: DecisionDisposition | None = Field(default=None, alias="dispositionMatch")
+    """命中时的处置动作，pass 表示立即放行并终止后续规则求值。"""
+    disposition_miss: DecisionDisposition | None = Field(default=None, alias="dispositionMiss")
+    """未命中时的处置动作，pass 表示放行并继续执行下一条规则。"""
 
     @model_validator(mode="after")
-    def _check_kind_fields(self) -> RuleUpsertRequest:
-        if self.kind == RuleKind.DECISION:
-            if self.disposition is None:
-                raise ValueError("kind=decision 必须提供 disposition")
-            if self.weight is not None:
-                raise ValueError("kind=decision 不接受 weight（命中即终止，权重无意义）")
-        else:
-            if self.weight is None:
-                raise ValueError("kind=scoring 必须提供 weight")
-            if self.disposition is not None:
-                raise ValueError("kind=scoring 不接受 disposition（打分规则不做处置决策）")
+    def _check_kind_fields(self) -> "RuleUpsertRequest":
+        if self.kind == RuleKind.SCORING and self.weight is None:
+            raise ValueError("scoring 规则必须提供 weight")
+        if self.kind == RuleKind.DECISION and (
+            self.disposition_match is None or self.disposition_miss is None
+        ):
+            raise ValueError("decision 规则必须提供 dispositionMatch 和 dispositionMiss")
         return self
 
 
@@ -220,7 +281,7 @@ class RuleTestRequest(BaseSchema):
 
 # ---------- Analytics ----------
 class AnalyticsBaseRequest(BaseSchema):
-    app_id: int
+    site_id: int | None = None
     start: datetime
     end: datetime
     filters: dict[str, str] = Field(default_factory=dict)
@@ -231,7 +292,7 @@ class TimelineRequest(AnalyticsBaseRequest):
 
 
 class TopEntityRequest(AnalyticsBaseRequest):
-    dimension: Literal["ip", "device", "country"] = "ip"
+    dimension: Literal["ip", "device", "country", "decided_by", "mechanism", "verdict"] = "ip"
     limit: int = Field(default=20, ge=1, le=100)
 
 
@@ -258,3 +319,102 @@ class ClockBanRequest(BaseSchema):
     value: str = Field(min_length=1, max_length=128)
     seconds: int = Field(default=DEFAULT_BAN_SECONDS, ge=1, le=MAX_BAN_SECONDS)
     reason: str = Field(default="manual", max_length=128)
+
+
+# ---------- PageResource ----------
+from src.domain.page_resource.entities import PageResourceKind  # noqa: E402
+
+
+class PageResourceCreateRequest(BaseSchema):
+    name: str = Field(min_length=1, max_length=128)
+    kind: PageResourceKind = PageResourceKind.SAFE
+    content: str = Field(default="")
+    content_type: str = Field(
+        default="text/html; charset=utf-8", alias="contentType", max_length=64
+    )
+    enabled: bool = True
+
+
+class PageResourceUpdateRequest(BaseSchema):
+    name: str = Field(min_length=1, max_length=128)
+    kind: PageResourceKind
+    content: str
+    content_type: str = Field(alias="contentType", max_length=64)
+    enabled: bool
+
+
+class PageResourceDetailResponse(BaseSchema):
+    id: int | None
+    app_id: int = Field(alias="appId")
+    name: str
+    kind: PageResourceKind
+    content: str
+    content_type: str = Field(alias="contentType")
+    enabled: bool
+    created_at: datetime | None = Field(default=None, alias="createdAt")
+    updated_at: datetime | None = Field(default=None, alias="updatedAt")
+
+
+# ---------- 封禁批量解除 ----------
+class BanTargetSchema(BaseSchema):
+    """一个封禁目标。"""
+
+    dimension: ClockDimension
+    value: str = Field(min_length=1, max_length=128)
+
+
+class BanUnbanBatchRequest(BaseSchema):
+    """批量解封请求。
+
+    上限 200 条：一次 ``DEL`` 的键数直接决定 Redis 的阻塞时长，无上限时一个
+    大 body 就能让网关的频控读写排队。
+    """
+
+    items: list[BanTargetSchema] = Field(min_length=1, max_length=200)
+
+
+# ---------- 白名单 ----------
+class WhitelistAddRequest(BaseSchema):
+    """新增白名单请求。
+
+    ``created_by`` 不在 body 里——它来自 JWT，让前端自报会让审计信息可伪造。
+    """
+
+    dimension: WhitelistDimension
+    value: str = Field(min_length=1, max_length=128)
+    note: str = Field(default="", max_length=256)
+
+
+# ---------- Scoring 评分配置 ----------
+class ScoringConfigSchema(BaseSchema):
+    id: int
+    app_id: int
+    name: str
+    enabled: bool
+    threshold_suspect: int
+    threshold_hostile: int
+    weights: dict[str, int]
+    disposition_suspect: DecisionDisposition | None = None
+    disposition_hostile: DecisionDisposition | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class ScoringConfigUpsertRequest(BaseSchema):
+    """评分配置新建/更新请求（PUT 语义，全量覆盖）。"""
+
+    name: str = Field(default="", max_length=128)
+    enabled: bool = True
+    threshold_suspect: int = Field(default=40, ge=0, le=100)
+    threshold_hostile: int = Field(default=70, ge=0, le=100)
+    weights: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "scorer 名 → 整数权重映射，范围 -1000..1000。"
+            "gateway 侧接收后除以 10 换算为浮点量纲（与 scorer 类默认权重 1.0 量级对齐），"
+            "存储时保留原始整数，不在 admin 侧换算。"
+        ),
+    )
+    disposition_suspect: DecisionDisposition | None = None
+    """自定义处置。verdict 不在此填写——由 mechanism 推导，与规则页保持一致。"""
+    disposition_hostile: DecisionDisposition | None = None

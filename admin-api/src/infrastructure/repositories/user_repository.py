@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from fangyu_shared.utils.time import local_now
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,6 +63,7 @@ class UserRepository:
         )
         self._session.add(model)
         await self._session.flush()
+        await self._session.refresh(model)
         return self._to_domain(model)  # type: ignore[return-value]
 
     async def update_profile(
@@ -82,6 +84,7 @@ class UserRepository:
         if status is not None:
             model.status = status.value
         await self._session.flush()
+        await self._session.refresh(model)
         return self._to_domain(model)
 
     async def update_password(self, user_id: int, password_hash: str) -> bool:
@@ -108,7 +111,7 @@ class UserRepository:
         user = await self._session.get(UserModel, user_id)
         if user is None:
             return
-        user.last_login_at = datetime.utcnow() if at is None else datetime.fromisoformat(at)
+        user.last_login_at = local_now() if at is None else datetime.fromisoformat(at)
 
     async def get_role_ids(self, user_id: int) -> list[int]:
         stmt = select(UserRoleModel.role_id).where(UserRoleModel.user_id == user_id)

@@ -1,0 +1,275 @@
+#!/usr/bin/env bash
+# =============================================================================
+# 部署前环境检查
+# -----------------------------------------------------------------------------
+# 只读脚本，不修改任何状态。检查失败项会累计并在结尾汇总。
+#
+# 用法：bash deploy/scripts/preflight.sh
+# 退出码：0 全部通过；1 存在阻塞项
+# =============================================================================
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env.production}"
+
+FAIL=0
+WARN=0
+
+red()   { printf '\033[31m%s\033[0m\n' "$*"; }
+green() { printf '\033[32m%s\033[0m\n' "$*"; }
+yellow(){ printf '\033[33m%s\033[0m\n' "$*"; }
+
+ok()    { green  "  [PASS] $*"; }
+bad()   { red    "  [FAIL] $*"; FAIL=$((FAIL+1)); }
+warn()  { yellow "  [WARN] $*"; WARN=$((WARN+1)); }
+
+section() { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
+
+# ─────────────────────────────────────────────────────────────
+section "1. 运行时组件"
+
+if command -v docker >/dev/null 2>&1; then
+    DOCKER_VER="$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo "")"
+    if [[ -z "$DOCKER_VER" ]]; then
+        bad "Docker 已安装但守护进程无响应（检查 systemctl status docker）"
+    else
+        ok "Docker $DOCKER_VER"
+        # 需要 >= 24：compose v2 的 depends_on.condition 与 healthcheck 语义依赖此版本
+        if [[ "${DOCKER_VER%%.*}" -lt 24 ]]; then
+            warn "Docker 版本低于 24，建议升级"
+        fi
+    fi
+else
+    bad "未安装 Docker"
+fi
+
+if docker compose version >/dev/null 2>&1; then
+    ok "docker compose $(docker compose version --short 2>/dev/null)"
+else
+    bad "docker compose v2 插件不可用（本项目不支持 docker-compose v1）"
+fi
+
+# ─────────────────────────────────────────────────────────────
+section "2. 系统资源"
+
+CPU_CORES="$(nproc 2>/dev/null || echo 0)"
+if [[ "$CPU_CORES" -ge 4 ]]; then
+    ok "CPU ${CPU_CORES} 核"
+elif [[ "$CPU_CORES" -ge 2 ]]; then
+    warn "CPU 仅 ${CPU_CORES} 核，需下调 GATEWAY_WORKERS / ADMIN_WORKERS"
+else
+    bad "CPU ${CPU_CORES} 核，低于最低要求 2 核"
+fi
+
+MEM_MB="$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)"
+if [[ "$MEM_MB" -ge 8000 ]]; then
+    ok "内存 ${MEM_MB} MB"
+elif [[ "$MEM_MB" -ge 4000 ]]; then
+    warn "内存 ${MEM_MB} MB，偏紧。需下调 MYSQL_BUFFER_POOL 与 REDIS_MAXMEMORY"
+else
+    bad "内存 ${MEM_MB} MB，低于最低要求 4 GB"
+fi
+
+DISK_GB="$(df -BG --output=avail /var/lib/docker 2>/dev/null | tail -1 | tr -dc '0-9' || echo 0)"
+DISK_GB="${DISK_GB:-0}"
+if [[ "$DISK_GB" -ge 100 ]]; then
+    ok "Docker 数据盘剩余 ${DISK_GB} GB"
+elif [[ "$DISK_GB" -ge 50 ]]; then
+    warn "剩余 ${DISK_GB} GB。ClickHouse 日志增长快，建议预留 100 GB 以上"
+else
+    bad "剩余 ${DISK_GB} GB，低于最低要求 50 GB"
+fi
+
+# ─────────────────────────────────────────────────────────────
+section "3. 端口占用"
+
+# 仅检查本项目要发布的回环端口。80/443 由 1Panel OpenResty 持有，
+# 被占用是预期状态，因此单独提示而不判失败。
+check_port() {
+    local port="$1" desc="$2"
+    if ss -tlnH "sport = :$port" 2>/dev/null | grep -q .; then
+        local who
+        who="$(ss -tlnpH "sport = :$port" 2>/dev/null | grep -oP 'users:\(\("\K[^"]+' | head -1)"
+        bad "端口 $port（$desc）已被占用${who:+：$who}"
+    else
+        ok "端口 $port（$desc）空闲"
+    fi
+}
+
+UI_PORT="$(grep -oP '^UI_PUBLISH_PORT=\K.*'      "$ENV_FILE" 2>/dev/null || echo 8080)"
+GW_PORT="$(grep -oP '^GATEWAY_PUBLISH_PORT=\K.*' "$ENV_FILE" 2>/dev/null || echo 8000)"
+
+check_port "${UI_PORT:-8080}" "dashboard-ui"
+check_port "${GW_PORT:-8000}" "gateway-api"
+check_port 3306 "MySQL"
+check_port 6379 "Redis"
+check_port 8123 "ClickHouse HTTP"
+check_port 9000 "ClickHouse TCP"
+
+for p in 80 443; do
+    if ss -tlnH "sport = :$p" 2>/dev/null | grep -q .; then
+        ok "端口 $p 已被占用（应为 1Panel OpenResty，属预期）"
+    else
+        warn "端口 $p 未监听 —— 确认 1Panel OpenResty 已启动"
+    fi
+done
+
+# ─────────────────────────────────────────────────────────────
+section "4. 环境变量文件"
+
+if [[ ! -f "$ENV_FILE" ]]; then
+    bad "缺少 $ENV_FILE（从 .env.production.example 复制并填写）"
+else
+    ok "找到 $ENV_FILE"
+
+    PERM="$(stat -c '%a' "$ENV_FILE")"
+    if [[ "$PERM" == "600" || "$PERM" == "400" ]]; then
+        ok "文件权限 $PERM"
+    else
+        bad "文件权限 $PERM 过宽，含明文口令，执行 chmod 600 $ENV_FILE"
+    fi
+
+    # 未替换的占位符
+    if grep -q '__REPLACE_' "$ENV_FILE"; then
+        bad "存在未替换的占位符："
+        grep -n '__REPLACE_' "$ENV_FILE" | sed 's/=.*/=<未填写>/' | sed 's/^/         /'
+    else
+        ok "无未替换占位符"
+    fi
+
+    # 必填项
+    for key in MYSQL_ROOT_PASSWORD MYSQL_PASSWORD REDIS_PASSWORD \
+               CLICKHOUSE_PASSWORD ADMIN_JWT_SECRET \
+               ADMIN_DATABASE_URL ADMIN_REDIS_URL GATEWAY_REDIS_URL \
+               WORKER_REDIS_URL ADMIN_CORS_ORIGINS GATEWAY_CORS_ORIGINS; do
+        val="$(grep -oP "^${key}=\K.*" "$ENV_FILE" 2>/dev/null || true)"
+        if [[ -z "$val" ]]; then
+            bad "$key 未设置或为空"
+        fi
+    done
+
+    # JWT 密钥强度：AdminSettings 要求 min_length=8，但生产下限按 32 卡
+    JWT="$(grep -oP '^ADMIN_JWT_SECRET=\K.*' "$ENV_FILE" 2>/dev/null || true)"
+    if [[ -n "$JWT" ]]; then
+        if [[ "${#JWT}" -ge 32 ]]; then
+            ok "ADMIN_JWT_SECRET 长度 ${#JWT}"
+        else
+            bad "ADMIN_JWT_SECRET 长度仅 ${#JWT}，生产要求 >= 32"
+        fi
+        case "$JWT" in
+            *change-me*|*please-change*|*local-dev*)
+                bad "ADMIN_JWT_SECRET 仍是示例值" ;;
+        esac
+    fi
+
+    # CORS 必须是 JSON 数组：pydantic 的 list[str] 无法解析逗号分隔串，
+    # 配错会让服务在启动时直接崩。
+    for key in ADMIN_CORS_ORIGINS GATEWAY_CORS_ORIGINS; do
+        val="$(grep -oP "^${key}=\K.*" "$ENV_FILE" 2>/dev/null || true)"
+        [[ -z "$val" ]] && continue
+        if [[ "$val" == \[*\] ]]; then
+            if [[ "$val" == *'"*"'* ]]; then
+                bad "$key 含通配 \"*\"，生产不允许（与 allow_credentials 冲突）"
+            else
+                ok "$key 格式为 JSON 数组"
+            fi
+        else
+            bad "$key 必须是 JSON 数组，如 [\"https://a.com\"]，当前为：$val"
+        fi
+    done
+
+    # 连接串主机名：容器内 localhost 指向容器自身，必然连不通
+    for key in ADMIN_DATABASE_URL ADMIN_REDIS_URL GATEWAY_REDIS_URL WORKER_REDIS_URL; do
+        val="$(grep -oP "^${key}=\K.*" "$ENV_FILE" 2>/dev/null || true)"
+        if [[ "$val" == *localhost* || "$val" == *127.0.0.1* ]]; then
+            bad "$key 指向 localhost，容器内应使用服务名（mysql / redis / clickhouse）"
+        fi
+    done
+
+    # Stream 名一致性：gateway 写入与 worker 消费必须同名，否则事件永不落库
+    if grep -q '^STREAM_NAME=' "$ENV_FILE"; then
+        ok "STREAM_NAME 已统一配置"
+    else
+        warn "未显式设置 STREAM_NAME，将使用默认 fangyu:events:decision"
+    fi
+fi
+
+# ─────────────────────────────────────────────────────────────
+section "5. 编排与前端配置"
+
+COMPOSE_FILE="$REPO_ROOT/deploy/docker-compose.prod.yml"
+if [[ -f "$COMPOSE_FILE" ]]; then
+    if [[ -f "$ENV_FILE" ]] && \
+       docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" config -q 2>/dev/null; then
+        ok "docker-compose.prod.yml 语法与变量插值通过"
+    else
+        bad "compose 配置校验失败，详情："
+        docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" config -q 2>&1 \
+            | head -20 | sed 's/^/         /'
+    fi
+else
+    bad "缺少 $COMPOSE_FILE"
+fi
+
+# 前端生产配置：Mock 地址混入生产是最容易漏的一项
+UI_ENV="$REPO_ROOT/dashboard-ui/.env.production"
+if [[ -f "$UI_ENV" ]]; then
+    if grep -qi 'apifoxmock\|mock' "$UI_ENV"; then
+        bad "dashboard-ui/.env.production 仍指向 Mock 服务"
+    else
+        ok "前端生产配置未包含 Mock 地址"
+    fi
+    if grep -q 'defense.example.com\|example.com' "$UI_ENV"; then
+        bad "dashboard-ui/.env.production 的 VITE_GATEWAY_URL 仍是示例域名"
+    else
+        ok "VITE_GATEWAY_URL 已替换为实际域名"
+    fi
+else
+    bad "缺少 dashboard-ui/.env.production"
+fi
+
+# ─────────────────────────────────────────────────────────────
+section "6. 镜像与代码"
+
+if [[ -f "$ENV_FILE" ]]; then
+    TAG="$(grep -oP '^IMAGE_TAG=\K.*' "$ENV_FILE" 2>/dev/null || true)"
+    if [[ "$TAG" == "latest" || -z "$TAG" ]]; then
+        bad "IMAGE_TAG 为 latest 或未设置，回滚将无法定位版本"
+    else
+        ok "IMAGE_TAG=$TAG"
+    fi
+fi
+
+if git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    BRANCH="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)"
+    ok "当前分支 $BRANCH @ $(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+    if [[ -n "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ]]; then
+        warn "工作区有未提交改动，构建产物将与 Git 记录不一致"
+    fi
+fi
+
+# ─────────────────────────────────────────────────────────────
+section "7. 备份就绪"
+
+BACKUP_DIR="${BACKUP_DIR:-$REPO_ROOT/deploy/backups}"
+if [[ -d "$BACKUP_DIR" ]]; then
+    ok "备份目录存在：$BACKUP_DIR"
+else
+    warn "备份目录不存在，backup.sh 首次运行时会自动创建"
+fi
+
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^fangyu-mysql$'; then
+    ok "MySQL 容器在运行，可执行部署前全量备份"
+else
+    warn "MySQL 容器未运行（首次部署属正常，升级部署则必须先备份）"
+fi
+
+# ─────────────────────────────────────────────────────────────
+printf '\n\033[1m== 汇总 ==\033[0m\n'
+if [[ "$FAIL" -eq 0 ]]; then
+    green "阻塞项 0，警告 $WARN —— 具备部署条件"
+    exit 0
+else
+    red "阻塞项 $FAIL，警告 $WARN —— 修复后重跑本脚本"
+    exit 1
+fi

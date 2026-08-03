@@ -17,7 +17,7 @@
  * - 权限控制
  *
  * @module types/router/index
- * @author Art Design Pro Team
+ * @author EverCookie Team
  */
 
 import { RouteRecordRaw } from 'vue-router'
@@ -54,6 +54,8 @@ export interface RouteMeta extends Record<string | number | symbol, unknown> {
   isFirstLevel?: boolean
   /** 角色权限 */
   roles?: string[]
+  /** 访问该菜单所需的权限码，形如 `app.read`；不声明则视为公开 */
+  permission?: string
   /** 是否固定标签页 */
   fixedTab?: boolean
   /** 激活菜单路径 */

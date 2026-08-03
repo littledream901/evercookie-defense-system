@@ -1,14 +1,25 @@
 """决策服务：编排决策流水线。
 
 流水线阶段（命中即返回，跳过后续）
-1. CLOCK          - 频控计数 + 封禁检查（**前置于缓存**，见下）
-2. CACHE          - 命中即返回未渲染决策，渲染后响应
-3. PROFILE        - 构建设备/IP 画像上下文
-4. DECISION_RULE  - 决策规则匹配 + allowlist 组兜底
-5. THREAT_INTEL   - IP 威胁情报
-6. SECURITY       - 基础安全检查（黑名单/地理围栏/Tor）
-7. RISK_SCORING   - 风险评分聚合
-8. DEFAULT        - app 级默认 → 系统默认
+1. WHITELIST      - app 级 IP/指纹白名单，命中直接放行（**最前**，见下）
+2. CLOCK          - 频控计数 + 封禁检查（**前置于缓存**，见下）
+3. CACHE          - 命中即返回未渲染决策，渲染后响应
+4. PROFILE        - 构建设备/IP 画像上下文
+5. DECISION_RULE  - 决策规则匹配 + allowlist 组兜底
+6. THREAT_INTEL   - IP 威胁情报
+7. SECURITY       - 基础安全检查（黑名单/地理围栏/Tor）
+8. RISK_SCORING   - 风险评分聚合
+9. DEFAULT        - app 级默认 → 系统默认
+
+为什么白名单排在 Clock 之前
+---------------------------
+白名单是误封的兜底通道。计划里写的是「在 SecurityChecker 之前」，但只挡在
+SecurityChecker 前面不够用：真正把人误伤到需要人工干预的，恰恰是排在更前面
+的频控封禁与威胁情报——被封禁的访客连 SecurityChecker 都到不了。放在最前面
+才能保证「加进白名单就一定能访问」这个运维直觉成立。
+
+代价是白名单流量不再被频控计数。这是有意的：既然已经声明这条流量不参与
+风控，给它累积计数只会在移出白名单的瞬间造成一次立即封禁。
 
 为什么 Clock 必须前置于缓存
 ---------------------------
@@ -32,6 +43,7 @@ import uuid
 from dataclasses import dataclass
 
 from fangyu_shared.clock.windows import ClockDimension
+from fangyu_shared.challenge_token import issue_challenge_token, DEFAULT_TTL as DEFAULT_CHALLENGE_TTL
 from fangyu_shared.logging import get_logger
 from fangyu_shared.metrics import (
     decision_cache_hits_total,
@@ -45,14 +57,24 @@ from fangyu_shared.schemas.decision import (
     DecisionResponse,
     ShadowOutcome,
 )
-from fangyu_shared.schemas.disposition import Disposition, Mechanism, deny, not_found
+from fangyu_shared.schemas.disposition import (
+    Disposition,
+    Mechanism,
+    TargetKind,
+    Verdict,
+    allow,
+    challenge,
+    deny,
+    not_found,
+    resolve_http_status,
+)
 from fangyu_shared.schemas.event import DecisionEvent
-from fangyu_shared.schemas.target_render import render_target
+from fangyu_shared.schemas.target_render import pick_target, render_pool, resolve_rotation_order
 from fangyu_shared.utils.crypto import sha256_hex
 from fangyu_shared.utils.time import utcnow_ms
 
 from src.domain.clock.guard import ClockGuard, ClockVerdict
-from src.domain.decision.disposition import DispositionResolver, ResolvedDisposition
+from src.domain.decision.disposition import DecidedBy, DispositionResolver, ResolvedDisposition
 from src.domain.decision.entities import (
     DecisionOutcome,
     PipelineStage,
@@ -64,17 +86,22 @@ from src.domain.risk.pipeline import RiskPipeline
 from src.domain.risk.security import SecurityChecker
 from src.domain.rule.matcher import DecisionRuleMatcher
 from src.infrastructure.cache.decision_cache import CachedDecision, DecisionCache
+from src.infrastructure.cache.page_resource_cache import PageResourceCache
 from src.infrastructure.cache.profile_cache import ProfileCache
+from src.infrastructure.cache.scoring_config_cache import ScoringConfigCache
+from src.infrastructure.cache.server_session_cache import ServerSessionCache
 from src.infrastructure.clock.repository import ClockReading, ClockRepository
 from src.infrastructure.event_publisher.stream_publisher import StreamEventPublisher
+from src.infrastructure.intel import IntelReader
 from src.infrastructure.mmdb.reader import MMDBReader
 from src.infrastructure.rule_repo.rule_repository import RuleRepository
 from src.infrastructure.threat_intel.reader import ThreatIntelReader
+from src.infrastructure.whitelist.reader import WhitelistReader
 
 _logger = get_logger("gateway.decision_service")
 
 
-@dataclass(slots=True)
+@dataclass
 class DecisionServiceDeps:
     decision_cache: DecisionCache
     profile_cache: ProfileCache
@@ -88,6 +115,32 @@ class DecisionServiceDeps:
     clock_repository: ClockRepository | None = None
     """None 表示关闭 Clock 阶段。频控是可选能力，缺失时流水线从 CACHE 开始。"""
     clock_guard: ClockGuard | None = None
+    page_resource_cache: PageResourceCache | None = None
+    """None 表示未配置页面资源缓存；serve_alt 命中时 page_content 将为 None。"""
+    whitelist_reader: WhitelistReader | None = None
+    """None 表示关闭白名单阶段，流水线从 CLOCK 开始。"""
+    intel_reader: IntelReader | None = None
+    """None 表示关闭六类维度情报富化，画像的 intel.* 命名空间留空。"""
+    scoring_config_cache: ScoringConfigCache | None = None
+    """None 表示关闭动态评分配置，阈值由 GatewaySettings 静态值决定。"""
+    server_session_cache: ServerSessionCache | None = None
+    """None 表示关闭 Hybrid 双层架构的 serverToken 关联。非 None 时：
+    - ingress=adapter 且 mechanism=pass 时，把第一层预判存入 Redis
+    - ingress=sdk 且 extra.serverToken 存在时，查 Redis 并短路流水线（已拦截则直接返回）
+      或把第一层信号注入 context.extra 供评分阶段参考。
+    """
+    app_key_resolver: Any = None
+    """AppKeyResolver，懒导入避免循环依赖。"""
+    challenge_pass_store: Any = None
+    """ChallengePassStore，用于检查访客是否已通过挑战。"""
+    rotation_counter: Any = None
+    """RotationCounter，用于 ROUND_ROBIN 策略的单调计数器。"""
+    pool_health_store: Any = None
+    """PoolHealthStore，用于 FAILOVER 策略的健康检查。"""
+    pool_quota_store: Any = None
+    """PoolQuotaStore，用于单地址配额限制。"""
+    health_prober: Any = None
+    """PoolHealthProber，用于注册地址池到健康探测任务。"""
 
 
 class DecisionService:
@@ -98,15 +151,65 @@ class DecisionService:
 
     async def decide(self, request: DecisionRequest) -> DecisionResponse:
         ctx = request.context
+        if ctx.ip is None:
+            # 到这一步 IP 必须已由接入层填好（SDK 路径取 socket peer，Adapter 路径
+            # schema 强制必填）。放过 None 的后果不是报错而是静默污染：下游大量
+            # `str(ctx.ip)` 会得到字符串 "None"，让所有缺 IP 的请求共用同一条
+            # 决策缓存、同一个频控计数器和同一个封禁键——一次误封会波及全部访客。
+            raise ValueError("decide() 收到未解析 IP 的上下文：接入层必须先填充 context.ip")
         request_id = uuid.uuid4().hex
         started = time.perf_counter()
         decision_requests_total.labels(app_id=str(ctx.app_id), verdict="pending").inc()
+
+        # Stage: whitelist（最前，误封兜底通道）
+        wl_outcome = await self._run_whitelist(ctx)
+        if wl_outcome is not None:
+            cost_ms = int((time.perf_counter() - started) * 1000)
+            response = await self._respond(
+                disposition=wl_outcome.disposition,
+                ctx=ctx,
+                request_id=request_id,
+                score=wl_outcome.score,
+                rule_ids=wl_outcome.rule_ids,
+                reason=wl_outcome.reason,
+                decided_by=wl_outcome.decided_by.value,
+                decided_stage=wl_outcome.decided_stage,
+                details=self._details(wl_outcome) if request.require_details else [],
+            )
+            await self._publish_event(ctx, response, wl_outcome, None, cost_ms)
+            decision_requests_total.labels(
+                app_id=str(ctx.app_id),
+                verdict=wl_outcome.disposition.verdict.value,
+            ).inc()
+            return response
+
+        # Stage: challenge_pass（白名单之后、频控之前，已完成挑战的访客直接放行）
+        pass_outcome = await self._run_challenge_pass(ctx)
+        if pass_outcome is not None:
+            cost_ms = int((time.perf_counter() - started) * 1000)
+            response = await self._respond(
+                disposition=pass_outcome.disposition,
+                ctx=ctx,
+                request_id=request_id,
+                score=pass_outcome.score,
+                rule_ids=pass_outcome.rule_ids,
+                reason=pass_outcome.reason,
+                decided_by=pass_outcome.decided_by.value,
+                decided_stage=pass_outcome.decided_stage,
+                details=self._details(pass_outcome) if request.require_details else [],
+            )
+            await self._publish_event(ctx, response, pass_outcome, None, cost_ms)
+            decision_requests_total.labels(
+                app_id=str(ctx.app_id),
+                verdict=pass_outcome.disposition.verdict.value,
+            ).inc()
+            return response
 
         # Stage: clock（前置于缓存，保证每个请求都被计数）
         clock_outcome = await self._run_clock(ctx)
         if clock_outcome is not None:
             cost_ms = int((time.perf_counter() - started) * 1000)
-            response = self._render(
+            response = await self._respond(
                 disposition=clock_outcome.disposition,
                 ctx=ctx,
                 request_id=request_id,
@@ -124,10 +227,35 @@ class DecisionService:
             ).inc()
             return response
 
+        # Stage: hybrid_lookup
+        # SDK 请求携带 serverToken 时查询第一层预判。
+        # - 第一层已拦截（非 pass）→ 直接短路，跳过指纹流水线（兜底更精确的结论）
+        # - 第一层 pass → 把信号注入 ctx.extra 供评分阶段参考（不短路）
+        hybrid_outcome = await self._run_hybrid_lookup(ctx)
+        if hybrid_outcome is not None:
+            cost_ms = int((time.perf_counter() - started) * 1000)
+            response = await self._respond(
+                disposition=hybrid_outcome.disposition,
+                ctx=ctx,
+                request_id=request_id,
+                score=hybrid_outcome.score,
+                rule_ids=hybrid_outcome.rule_ids,
+                reason=hybrid_outcome.reason,
+                decided_by=hybrid_outcome.decided_by.value,
+                decided_stage=hybrid_outcome.decided_stage,
+                details=self._details(hybrid_outcome) if request.require_details else [],
+            )
+            await self._publish_event(ctx, response, hybrid_outcome, None, cost_ms)
+            decision_requests_total.labels(
+                app_id=str(ctx.app_id),
+                verdict=hybrid_outcome.disposition.verdict.value,
+            ).inc()
+            return response
+
         cached = await self._try_cache(ctx)
         if cached is not None:
             decision_cache_hits_total.labels(app_id=str(ctx.app_id), layer="decision").inc()
-            return self._render(
+            cached_resp = await self._respond(
                 disposition=cached.disposition,
                 ctx=ctx,
                 request_id=request_id,
@@ -137,6 +265,10 @@ class DecisionService:
                 decided_by=cached.decided_by,
                 decided_stage=cached.decided_stage,
             )
+            # adapter 请求携带 serverToken 时，即使命中缓存也要把结论写入
+            # ServerSessionCache，否则 SDK 二次请求的 hybrid_lookup 永远查不到。
+            await self._save_server_session(ctx, cached)
+            return cached_resp
 
         snapshot = await self._build_snapshot(ctx)
         outcome = await self._run_pipeline(ctx, snapshot)
@@ -156,8 +288,12 @@ class DecisionService:
                 ),
             )
 
+        # Hybrid 存储：adapter 请求完成决策后，把结论存入 server_session_cache
+        # 供后续 SDK 二次请求的 HYBRID_LOOKUP 阶段复用。
+        await self._save_server_session(ctx, outcome)
+
         cost_ms = int((time.perf_counter() - started) * 1000)
-        response = self._render(
+        response = await self._respond(
             disposition=outcome.disposition,
             ctx=ctx,
             request_id=request_id,
@@ -166,6 +302,7 @@ class DecisionService:
             reason=outcome.reason,
             decided_by=outcome.decided_by.value,
             decided_stage=outcome.decided_stage,
+            snapshot=snapshot,
             details=self._details(outcome) if request.require_details else [],
             shadow=self._shadow(outcome),
         )
@@ -175,6 +312,182 @@ class DecisionService:
             app_id=str(ctx.app_id), verdict=outcome.disposition.verdict.value
         ).inc()
         return response
+
+    async def _run_hybrid_lookup(self, ctx: DecisionContext) -> DecisionOutcome | None:
+        """Hybrid 查询阶段（仅 SDK 请求）。
+
+        从 context.extra["serverToken"] 取出第一层会话 token，查询 Redis 中存储的
+        adapter 预判结果：
+        - 第一层判定为非 pass（hostile / suspect 且机制为拦截）→ 构造 outcome 短路流水线
+        - 第一层判定为 pass → 把信号注入 ctx.extra["serverLayer"] 供评分参考，返回 None
+        - token 不存在 / 缓存未命中 → 返回 None（流水线正常继续）
+
+        只对 ingress=sdk 的请求生效；adapter 请求本身就是第一层，不做查询。
+        """
+        from fangyu_shared.schemas.decision import IngressKind
+
+        if ctx.ingress != IngressKind.SDK:
+            return None
+        cache = self._deps.server_session_cache
+        if cache is None:
+            return None
+        token = ctx.extra.get("serverToken") if ctx.extra else None
+        if not token or not isinstance(token, str):
+            return None
+
+        entry = await cache.get(token)
+        if entry is None:
+            return None
+
+        # 消费后删除：防止同一 token 被多次请求复用（防重放）
+        await cache.delete(token)
+
+        # 把第一层信号写入 ctx.extra，供 profile/scoring 阶段参考
+        object.__setattr__(
+            ctx,
+            "extra",
+            {**ctx.extra, "serverLayer": {
+                "verdict": entry.verdict,
+                "score": entry.score,
+                "ip": entry.ip,
+            }},
+        )
+
+        # 短路条件：第一层由规则命中（decided_by=decision_rule），说明管理员明确配置了拦截。
+        # 纯评分产生的 suspect/hostile 只注入信号，让第二层用真实指纹重新判断。
+        if (
+            entry.verdict != Verdict.TRUSTED.value
+            and entry.decided_by == DecidedBy.DECISION_RULE.value
+        ):
+            mech = entry.mechanism or Mechanism.CHALLENGE.value
+            if mech == Mechanism.DENY.value:
+                disp = deny()
+            else:
+                disp = challenge()
+
+            resolved = DispositionResolver.from_server_layer(
+                disp, reason=f"server_layer:{entry.reason or entry.verdict}"
+            )
+            stage = PipelineStageResult(
+                stage=PipelineStage.HYBRID_LOOKUP,
+                disposition=resolved.disposition,
+                reason=resolved.reason,
+                matched=True,
+                metadata={"serverScore": entry.score, "serverIp": entry.ip, "serverVerdict": entry.verdict},
+            )
+            return DecisionOutcome(
+                disposition=resolved.disposition,
+                decided_by=resolved.decided_by,
+                decided_stage=resolved.decided_stage,
+                score=entry.score,
+                reason=resolved.explain,
+                stage_results=(stage,),
+            )
+
+        return None  # trusted：第一层已放行，继续完整流水线
+
+    async def _save_server_session(
+        self, ctx: DecisionContext, outcome: DecisionOutcome
+    ) -> None:
+        """Hybrid 存储（仅 adapter 请求）。
+
+        adapter 完成决策后把结论写入 ServerSessionCache，供后续 SDK 请求的
+        HYBRID_LOOKUP 阶段读取。token 从 context.extra["serverToken"] 取得。
+        """
+        from fangyu_shared.schemas.decision import IngressKind
+
+        if ctx.ingress != IngressKind.ADAPTER:
+            return
+        cache = self._deps.server_session_cache
+        if cache is None:
+            return
+        token = ctx.extra.get("serverToken") if ctx.extra else None
+        if not token or not isinstance(token, str):
+            return
+
+        from src.infrastructure.cache.server_session_cache import ServerSessionEntry
+
+        entry = ServerSessionEntry(
+            verdict=outcome.disposition.verdict.value,
+            mechanism=outcome.disposition.mechanism.value,
+            decided_by=outcome.decided_by.value,
+            score=outcome.score,
+            reason=outcome.reason,
+            ip=str(ctx.ip) if ctx.ip else "",
+            user_agent=ctx.user_agent or "",
+        )
+        try:
+            await cache.set(token, entry)
+        except Exception as exc:
+            _logger.warning("server_session_cache_set_failed", error=str(exc))
+
+    async def _run_whitelist(self, ctx: DecisionContext) -> DecisionOutcome | None:
+        """白名单阶段：命中则放行并终止流水线。
+
+        返回 ``None`` 表示未命中（继续后续阶段）。
+        """
+        reader = self._deps.whitelist_reader
+        if reader is None:
+            return None
+
+        with decision_latency_seconds.labels(
+            app_id=str(ctx.app_id), stage="whitelist"
+        ).time():
+            hit = await reader.check(
+                ctx.app_id, ip=str(ctx.ip), fingerprint=ctx.fingerprint
+            )
+        if not hit.matched:
+            return None
+
+        resolved = DispositionResolver.from_whitelist(reason=hit.reason)
+        stage = PipelineStageResult(
+            stage=PipelineStage.WHITELIST,
+            disposition=resolved.disposition,
+            reason=resolved.reason,
+            matched=True,
+            metadata={"note": hit.note} if hit.note else {},
+        )
+        return DecisionOutcome(
+            disposition=resolved.disposition,
+            decided_by=resolved.decided_by,
+            decided_stage=resolved.decided_stage,
+            score=0.0,
+            reason=resolved.explain,
+            stage_results=(stage,),
+        )
+
+    async def _run_challenge_pass(self, ctx: DecisionContext) -> DecisionOutcome | None:
+        """挑战通行阶段：检查访客是否持有挑战通行凭据。
+
+        返回 ``None`` 表示未持有（继续后续阶段）；返回 outcome 表示持有凭据，直接放行。
+        """
+        store = self._deps.challenge_pass_store
+        if store is None or not ctx.fingerprint:
+            return None
+
+        with decision_latency_seconds.labels(
+            app_id=str(ctx.app_id), stage="challenge_pass"
+        ).time():
+            has_pass = await store.check(ctx.app_id, ctx.fingerprint)
+        if not has_pass:
+            return None
+
+        # 持有通行凭据，直接放行
+        resolved = DispositionResolver.from_challenge_pass()
+        stage = PipelineStageResult(
+            stage=PipelineStage.CHALLENGE_PASS,
+            disposition=resolved.disposition,
+            reason=resolved.reason,
+            matched=True,
+        )
+        return DecisionOutcome(
+            disposition=resolved.disposition,
+            decided_by=resolved.decided_by,
+            decided_stage=resolved.decided_stage,
+            score=0.0,
+            reason=resolved.explain,
+            stage_results=(stage,),
+        )
 
     async def _run_clock(self, ctx: DecisionContext) -> DecisionOutcome | None:
         """Clock 阶段：计数、落行为时序、判定频控。
@@ -276,11 +589,20 @@ class DecisionService:
             device = await self._deps.profile_cache.get_device(ctx.app_id, ctx.fingerprint)
             ip_profile = await self._deps.profile_cache.get_ip(str(ctx.ip))
             ip_lookup = self._deps.mmdb_reader.lookup(str(ctx.ip))
+            intel = None
+            if self._deps.intel_reader is not None:
+                intel = await self._deps.intel_reader.lookup(
+                    ip=str(ctx.ip),
+                    asn=ip_lookup.get("asn"),
+                    fingerprint=ctx.fingerprint,
+                    user_agent=ctx.user_agent or "",
+                )
             return self._deps.profile_builder.build(
                 ctx,
                 cached_device=device,
                 cached_ip=ip_profile,
                 ip_lookup=ip_lookup,
+                intel=intel,
             )
 
     async def _run_pipeline(
@@ -297,13 +619,19 @@ class DecisionService:
             )
 
         shadow_hits = tuple(
-            ShadowHit(rule_id=m.rule.id, rule_name=m.rule.name, disposition=m.rule.disposition)
+            ShadowHit(
+                rule_id=m.rule.id,
+                rule_name=m.rule.name,
+                disposition=m.rule.effective_match_disposition,
+            )
             for m in match.shadow_matches
         )
 
         if match.matched and match.rule is not None:
             resolved = DispositionResolver.from_rule(
-                match.rule.disposition, rule_id=match.rule.id, rule_name=match.rule.name
+                match.rule.effective_match_disposition,
+                rule_id=match.rule.id,
+                rule_name=match.rule.name,
             )
             stages.append(
                 PipelineStageResult(
@@ -330,6 +658,27 @@ class DecisionService:
                 )
             )
             return self._finalize(resolved, stages, shadow_hits=shadow_hits)
+
+        # disposition_miss 短路：规则未命中但带有明确的"未命中处置"
+        if match.miss_rule is not None:
+            miss_disp = match.miss_rule.effective_miss_disposition
+            if miss_disp is not None:
+                resolved = DispositionResolver.from_rule(
+                    miss_disp,
+                    rule_id=match.miss_rule.id,
+                    rule_name=match.miss_rule.name,
+                    stage="decision_rule_miss",
+                )
+                stages.append(
+                    PipelineStageResult(
+                        stage=PipelineStage.DECISION_RULE,
+                        disposition=resolved.disposition,
+                        rule_ids=(match.miss_rule.id,) if match.miss_rule.id else (),
+                        reason=f"miss:{resolved.explain}",
+                        matched=True,
+                    )
+                )
+                return self._finalize(resolved, stages, shadow_hits=shadow_hits)
 
         # Stage: threat intel
         with decision_latency_seconds.labels(app_id=str(ctx.app_id), stage="threat_intel").time():
@@ -368,8 +717,32 @@ class DecisionService:
             return self._finalize(resolved, stages, shadow_hits=shadow_hits)
 
         # Stage: risk scoring
+        # 传入 scoring_rules：权重由后台维护，标定阈值不必改代码重新部署。
+        # 评分开关与阈值来自 ScoringConfigCache（admin 保存后 30s 内生效）。
+        scoring_cfg = None
+        if self._deps.scoring_config_cache is not None:
+            scoring_cfg = await self._deps.scoring_config_cache.get(ctx.app_id)
+
+        if scoring_cfg is not None and not scoring_cfg.enabled:
+            # 评分已关闭：跳过此阶段，直接交给默认处置链
+            stages.append(
+                PipelineStageResult(
+                    stage=PipelineStage.RISK_SCORING,
+                    disposition=rule_set.default_disposition or allow(),
+                    reason="scoring_disabled",
+                    matched=False,
+                )
+            )
+            resolved = DispositionResolver.fallback(rule_set.default_disposition)
+            return self._finalize(resolved, stages, shadow_hits=shadow_hits)
+
         with decision_latency_seconds.labels(app_id=str(ctx.app_id), stage="risk").time():
-            risk = self._deps.risk_pipeline.run(snapshot)
+            risk = self._deps.risk_pipeline.run(
+                snapshot,
+                challenge_threshold=scoring_cfg.challenge_threshold if scoring_cfg else None,
+                block_threshold=scoring_cfg.block_threshold if scoring_cfg else None,
+                weights=scoring_cfg.weights if scoring_cfg else None,
+            )
         reason = ";".join(risk.reasons) if risk.reasons else None
         stages.append(
             PipelineStageResult(
@@ -382,7 +755,14 @@ class DecisionService:
         )
 
         if risk.disposition.is_terminal:
-            resolved = DispositionResolver.from_scoring(risk.disposition, reason=reason)
+            # 自定义处置：当分数越线时用 admin 配置的处置覆盖 pipeline 内置的
+            final_disp = risk.disposition
+            if scoring_cfg is not None:
+                if risk.score >= (scoring_cfg.block_threshold):
+                    final_disp = scoring_cfg.disposition_hostile or risk.disposition
+                elif risk.score >= (scoring_cfg.challenge_threshold):
+                    final_disp = scoring_cfg.disposition_suspect or risk.disposition
+            resolved = DispositionResolver.from_scoring(final_disp, reason=reason)
         else:
             # 评分未越线：交给默认处置链，而不是直接用评分产出的 allow。
             # 这样 app 级默认配置才有机会生效。
@@ -428,23 +808,48 @@ class DecisionService:
         reason: str | None,
         decided_by: str,
         decided_stage: str,
+        snapshot: ProfileSnapshot | None = None,
         details: list[DecisionDetail] | None = None,
         shadow: list[ShadowOutcome] | None = None,
+        pool_order: list[str] | None = None,
     ) -> DecisionResponse:
         """构造响应：在此渲染 target_url 占位符。
 
         渲染失败（协议非法等）时降级为不跳转，避免把 ``javascript:`` 之类的
         协议回给客户端。
+
+        ``snapshot`` 用于提取 IP 画像字段（country / connection_type / is_vpn /
+        is_proxy）供占位符渲染；缓存命中和 Clock 阶段没有 snapshot，
+        这些变量置空，规则侧应避免在不依赖地理信息的跳转规则里使用它们。
+
+        ``pool_order`` 是轮询策略已排好序的候选地址。为 None 时走 ``url_pool``
+        的旧路径（单地址或旧版 urls 字段）。
         """
-        rendered_url = render_target(
-            disposition.target.url,
+        ip_profile = snapshot.ip if snapshot else None
+        rendered_url = render_pool(
+            pool_order if pool_order is not None else disposition.target.url_pool,
+            # request_id 每请求唯一，轮询因此按请求分摊而非按访客分片。
+            seed=request_id or f"{ctx.app_id}:{ctx.fingerprint}",
             visit_url=ctx.visit_url or ctx.path,
             app_id=ctx.app_id,
             request_id=request_id,
+            ip=str(ctx.ip) if ctx.ip else "",
+            fingerprint=ctx.fingerprint or "",
+            country=ip_profile.country or "" if ip_profile else "",
+            verdict=disposition.verdict.value,
+            score=score,
+            connection_type=ip_profile.connection_type or "" if ip_profile else "",
+            is_vpn=ip_profile.is_vpn if ip_profile else False,
+            is_proxy=ip_profile.is_proxy if ip_profile else False,
+            user_agent=ctx.user_agent or "",
+            referer=ctx.referer or "",
+            ingress=ctx.ingress.value,
         )
         mechanism = disposition.mechanism
         if mechanism == Mechanism.REDIRECT and not rendered_url:
-            # 跳转目标渲染失败：降级放行，不能把半成品地址发出去
+            # 跳转目标渲染失败：降级放行，不能把半成品地址发出去。
+            # 状态码必须跟着重算，否则会下发 mechanism=pass 却 httpStatus=302
+            # 这对自相矛盾的值，适配器若以 httpStatus 为准就会跳到空地址。
             mechanism = Mechanism.PASS
 
         return DecisionResponse(
@@ -452,7 +857,7 @@ class DecisionService:
             mechanism=mechanism,
             targetKind=disposition.target.kind,
             targetUrl=rendered_url,
-            httpStatus=disposition.effective_status,
+            httpStatus=resolve_http_status(mechanism, disposition.target),
             challengeKind=disposition.challenge_kind,
             score=score,
             ruleIds=list(rule_ids),
@@ -488,6 +893,269 @@ class DecisionService:
             )
             for hit in outcome.shadow_hits
         ]
+
+    async def _respond(
+        self,
+        *,
+        disposition: Disposition,
+        ctx: DecisionContext,
+        request_id: str,
+        score: float,
+        rule_ids: tuple[int, ...],
+        reason: str | None,
+        decided_by: str,
+        decided_stage: str,
+        snapshot: ProfileSnapshot | None = None,
+        details: list[DecisionDetail] | None = None,
+        shadow: list[ShadowOutcome] | None = None,
+    ) -> DecisionResponse:
+        """响应构造唯一出口：渲染 + serve_alt 内容富化。
+
+        所有决策路径都必须走这里。此前 _enrich_serve_alt 按分支逐个调用，
+        白名单短路分支漏配——虽然当前白名单硬编码 allow() 而无实际后果，
+        但一旦白名单支持自定义处置就会立刻显现为「配了替代页却不投放」。
+        """
+        pool_order = await self._resolve_pool_order(
+            disposition, ctx, request_id=request_id, rule_ids=rule_ids
+        )
+        response = self._render(
+            disposition=disposition,
+            ctx=ctx,
+            request_id=request_id,
+            score=score,
+            rule_ids=rule_ids,
+            reason=reason,
+            decided_by=decided_by,
+            decided_stage=decided_stage,
+            snapshot=snapshot,
+            details=details,
+            shadow=shadow,
+            pool_order=pool_order,
+        )
+        # 轮询选址成功后消费配额
+        await self._consume_pool_quota(disposition, ctx, response.target_url)
+        return await self._enrich_serve_alt(response, disposition, ctx.app_id)
+
+    async def _resolve_pool_order(
+        self,
+        disposition: Disposition,
+        ctx: DecisionContext,
+        *,
+        request_id: str,
+        rule_ids: tuple[int, ...],
+    ) -> list[str] | None:
+        """按轮询策略解析地址优先顺序。返回 None 表示不走轮询（单地址快路径）。
+
+        独立成异步方法是因为 round_robin 需要 Redis 计数器、failover 需要查
+        健康状态，而 ``_render`` 是同步的纯函数——把 IO 留在这里，渲染仍可
+        在无 Redis 的单测里直接调用。
+        """
+        target = disposition.target
+        if target.kind != TargetKind.URL_POOL or target.rotation is None:
+            return None
+
+        rotation = target.rotation
+        strategy = rotation.strategy.value
+        entries = [(e.url, e.weight, e.enabled) for e in rotation.entries]
+
+        # failover 策略依赖健康检查，注册地址池到探测任务
+        if strategy == "failover" and self._deps.health_prober is not None:
+            urls = [e.url for e in rotation.entries]
+            self._deps.health_prober.register_pool(ctx.app_id, urls)
+
+        counter: int | None = None
+        if strategy == "round_robin" and self._deps.rotation_counter is not None:
+            # 每条规则一个计数器；无规则 id（默认处置等）时退化为 app 级
+            rule_id = rule_ids[0] if rule_ids else 0
+            try:
+                counter = await self._deps.rotation_counter.next(ctx.app_id, rule_id)
+            except Exception:  # noqa: BLE001 - 计数器不可用不该让决策失败
+                _logger.warning("rotation_counter unavailable, fallback to hash")
+                counter = None
+
+        healthy_fn = None
+        store = self._deps.pool_health_store
+        if strategy == "failover" and store is not None:
+            # 一次性把池内健康状态查完，避免在排序回调里发起 IO
+            health_map: dict[str, bool] = {}
+            for url, _, _ in entries:
+                try:
+                    health_map[url] = await store.is_healthy(ctx.app_id, url)
+                except Exception:  # noqa: BLE001 - 探测数据缺失时乐观放行
+                    health_map[url] = True
+            healthy_fn = lambda u: health_map.get(u, True)  # noqa: E731
+
+        # 批量查询配额状态
+        exhausted_fn = None
+        quota_store = self._deps.pool_quota_store
+        if quota_store is not None:
+            exhausted_map: dict[str, bool] = {}
+            for entry in rotation.entries:
+                url = entry.url
+                # 任一维度打满即视为耗尽
+                daily_exhausted = False
+                hourly_exhausted = False
+                try:
+                    if entry.daily_quota is not None and entry.daily_quota > 0:
+                        daily_exhausted = await quota_store.is_exhausted(
+                            ctx.app_id, url, entry.daily_quota, "daily"
+                        )
+                    if entry.hourly_quota is not None and entry.hourly_quota > 0:
+                        hourly_exhausted = await quota_store.is_exhausted(
+                            ctx.app_id, url, entry.hourly_quota, "hourly"
+                        )
+                except Exception:  # noqa: BLE001 - 配额查询失败不该让决策失败
+                    _logger.warning("pool_quota_store unavailable for %s", url)
+                exhausted_map[url] = daily_exhausted or hourly_exhausted
+            exhausted_fn = lambda u: exhausted_map.get(u, False)  # noqa: E731
+
+        return resolve_rotation_order(
+            entries,
+            strategy=strategy,
+            request_seed=request_id or f"{ctx.app_id}:{ctx.fingerprint}",
+            visitor_seed=ctx.fingerprint or "",
+            counter=counter,
+            healthy=healthy_fn,
+            exhausted=exhausted_fn,
+        )
+
+    async def _consume_pool_quota(
+        self,
+        disposition: Disposition,
+        ctx: DecisionContext,
+        selected_url: str | None,
+    ) -> None:
+        """消费已选中地址的配额。
+
+        在渲染之后调用——只有渲染成功才消费，避免占位符非法、协议不匹配等
+        导致实际未跳转却扣了配额的不公平现象。
+        """
+        if selected_url is None:
+            return
+        target = disposition.target
+        if target.kind != TargetKind.URL_POOL or target.rotation is None:
+            return
+        quota_store = self._deps.pool_quota_store
+        if quota_store is None:
+            return
+
+        # 找到选中地址对应的配额配置
+        entry = next((e for e in target.rotation.entries if e.url == selected_url), None)
+        if entry is None:
+            return
+
+        # 消费各维度配额（任一超限时 consume 返回 False，但不影响本次响应）
+        try:
+            if entry.daily_quota is not None and entry.daily_quota > 0:
+                await quota_store.consume(ctx.app_id, selected_url, entry.daily_quota, "daily")
+            if entry.hourly_quota is not None and entry.hourly_quota > 0:
+                await quota_store.consume(ctx.app_id, selected_url, entry.hourly_quota, "hourly")
+        except Exception:  # noqa: BLE001 - 配额消费失败不该让响应失败
+            _logger.warning("pool_quota_store consume failed for %s", selected_url)
+
+    async def _enrich_serve_alt(
+        self,
+        response: DecisionResponse,
+        disposition: Disposition,
+        app_id: int,
+    ) -> DecisionResponse:
+        """serve_alt 命中时从 Redis 缓存取页面内容并填充 page_content 字段。
+
+        fail-open：缓存未配置或查询失败时静默跳过，page_content 保持 None。
+        """
+        if disposition.mechanism != Mechanism.SERVE_ALT:
+            return response
+        cache = self._deps.page_resource_cache
+        if cache is None:
+            return response
+        # target.url 在 serve_alt 语义下是页面资源**名**而非 URL，所以只取池不渲染。
+        # 走 pick_target 是为了让 urls 轮询在 serve_alt 上同样成立——否则配了多页
+        # 轮询的规则会因为 url 为 None 而静默不投放内容。
+        name = pick_target(disposition.target.url_pool, seed=response.request_id or "")
+        if not name:
+            _logger.warning(
+                "serve_alt_no_resource_name",
+                app_id=app_id,
+                request_id=response.request_id,
+                reason="url_pool empty or all disabled",
+            )
+            return response
+        entry = await cache.get(app_id, name)
+        if entry is None:
+            _logger.warning(
+                "serve_alt_resource_not_found",
+                app_id=app_id,
+                resource_name=name,
+                request_id=response.request_id,
+            )
+            return response
+        return response.model_copy(
+            update={
+                "page_content": entry.content,
+                "page_content_type": entry.content_type,
+            }
+        )
+
+    async def _sign_challenge_token(
+        self,
+        response: DecisionResponse,
+        disposition: Disposition,
+        ctx: DecisionContext,
+    ) -> DecisionResponse:
+        """mechanism=challenge 时签发 HMAC 凭据并填充 challenge_token 字段。
+
+        fail-open：resolver 未配置或查询失败时静默跳过，challenge_token 保持 None。
+        客户端拿不到 token 时应退化为普通拦截（显示错误页而非挑战表单）。
+        """
+        if disposition.mechanism != Mechanism.CHALLENGE:
+            return response
+        if disposition.challenge_kind is None:
+            _logger.warning(
+                "challenge_without_kind",
+                app_id=ctx.app_id,
+                request_id=response.request_id,
+                reason="challengeKind is None, cannot issue token",
+            )
+            return response
+
+        resolver = self._deps.app_key_resolver
+        if resolver is None:
+            _logger.warning(
+                "challenge_token_no_resolver",
+                app_id=ctx.app_id,
+                request_id=response.request_id,
+            )
+            return response
+
+        try:
+            secret = await resolver.get_secret_by_app_id(ctx.app_id)
+            if not secret:
+                # 站点未配置 app_secret（或凭据缓存已过期）：无法签发，只能降级。
+                # 客户端见 mechanism=challenge 但 challengeToken 为空时应按拦截处理。
+                _logger.warning(
+                    "challenge_token_no_secret",
+                    app_id=ctx.app_id,
+                    request_id=response.request_id,
+                )
+                return response
+
+            token = issue_challenge_token(
+                app_id=ctx.app_id,
+                fingerprint=ctx.fingerprint or "",
+                kind=disposition.challenge_kind.value,
+                secret=secret,
+                ttl=disposition.ttl_seconds or DEFAULT_CHALLENGE_TTL,
+            )
+            return response.model_copy(update={"challenge_token": token})
+
+        except Exception as exc:
+            _logger.error(
+                "challenge_token_sign_error",
+                app_id=ctx.app_id,
+                request_id=response.request_id,
+                error=str(exc),
+            )
+            return response
 
     async def _publish_event(
         self,
@@ -547,6 +1215,8 @@ class DecisionService:
                 repeatKey=ctx.repeat_key,
                 repeatValue=ctx.repeat_value,
                 evercookieRestore=ctx.evercookie_restored,
+                # 语言偏好
+                acceptLanguage=ctx.client_language,
                 # 影子评估
                 shadowRuleIds=[h.rule_id for h in outcome.shadow_hits if h.rule_id],
                 shadowVerdicts=[h.disposition.verdict.value for h in outcome.shadow_hits],

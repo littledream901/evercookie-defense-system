@@ -29,7 +29,7 @@
  * ```
  *
  * @module useTableColumns
- * @author Art Design Pro Team
+ * @author EverCookie Team
  */
 
 import { ref, computed, watch } from 'vue'

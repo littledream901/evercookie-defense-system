@@ -3,7 +3,9 @@
 - draft -> published (审核通过时)
 - published -> disabled (人工下线)
 - disabled -> published (重新启用)
+- disabled -> archived (归档下线)
 - 任意 -> archived (归档)
+- archived -> draft (恢复编辑)
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ _TRANSITIONS: dict[RuleStatus, set[RuleStatus]] = {
     RuleStatus.DRAFT: {RuleStatus.PUBLISHED, RuleStatus.ARCHIVED, RuleStatus.DISABLED},
     RuleStatus.PUBLISHED: {RuleStatus.DISABLED, RuleStatus.ARCHIVED},
     RuleStatus.DISABLED: {RuleStatus.PUBLISHED, RuleStatus.ARCHIVED},
-    RuleStatus.ARCHIVED: set(),
+    RuleStatus.ARCHIVED: {RuleStatus.DRAFT},
 }
 
 

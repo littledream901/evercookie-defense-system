@@ -14,7 +14,10 @@ from src.domain.decision.disposition import DecidedBy
 class PipelineStage(str, Enum):
     """决策流水线阶段。"""
 
+    WHITELIST = "whitelist"
+    CHALLENGE_PASS = "challenge_pass"
     CLOCK = "clock"
+    HYBRID_LOOKUP = "hybrid_lookup"
     CACHE = "cache"
     PROFILE = "profile"
     DECISION_RULE = "decision_rule"

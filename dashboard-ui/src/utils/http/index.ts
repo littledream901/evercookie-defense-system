@@ -11,7 +11,7 @@
  * - 支持 GET/POST/PUT/DELETE 等常用方法
  *
  * @module utils/http
- * @author Art Design Pro Team
+ * @author EverCookie Team
  */
 
 import axios, { AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
@@ -28,6 +28,9 @@ const MAX_RETRIES = 0
 const RETRY_DELAY = 1000
 const UNAUTHORIZED_DEBOUNCE_TIME = 3000
 
+/** admin-api 成功业务码 */
+const BIZ_SUCCESS_CODE = 0
+
 /** 401防抖状态 */
 let isUnauthorizedErrorShown = false
 let unauthorizedTimer: NodeJS.Timeout | null = null
@@ -36,6 +39,10 @@ let unauthorizedTimer: NodeJS.Timeout | null = null
 interface ExtendedAxiosRequestConfig extends AxiosRequestConfig {
   showErrorMessage?: boolean
   showSuccessMessage?: boolean
+  /** 跳过 token 注入与 401 刷新（用于登录、刷新令牌等接口） */
+  noAuth?: boolean
+  /** 内部标记：该请求已重试过一次，避免刷新令牌死循环 */
+  _retry?: boolean
 }
 
 const { VITE_API_URL, VITE_WITH_CREDENTIALS } = import.meta.env
@@ -65,7 +72,9 @@ const axiosInstance = axios.create({
 axiosInstance.interceptors.request.use(
   (request: InternalAxiosRequestConfig) => {
     const { accessToken } = useUserStore()
-    if (accessToken) request.headers.set('Authorization', accessToken)
+    const noAuth = (request as ExtendedAxiosRequestConfig).noAuth
+    // admin-api 要求 `Authorization: Bearer <token>`
+    if (accessToken && !noAuth) request.headers.set('Authorization', `Bearer ${accessToken}`)
 
     if (request.data && !(request.data instanceof FormData) && !request.headers['Content-Type']) {
       request.headers.set('Content-Type', 'application/json')
@@ -83,13 +92,21 @@ axiosInstance.interceptors.request.use(
 /** 响应拦截器 */
 axiosInstance.interceptors.response.use(
   (response: AxiosResponse<BaseResponse>) => {
-    const { code, msg } = response.data
-    if (code === ApiStatus.success) return response
-    if (code === ApiStatus.unauthorized) handleUnauthorizedError(msg)
-    throw createHttpError(msg || $t('httpMsg.requestFailed'), code)
+    const payload = response.data
+
+    // 部分接口（如 /v2/threat-intel）直接返回业务 dict，不带 code/message 信封，原样放行
+    if (!payload || typeof payload !== 'object' || !('code' in payload)) return response
+
+    const { code } = payload
+    const message = payload.message ?? payload.msg
+
+    // admin-api 成功码为 0，同时兼容模板默认的 200
+    if (code === BIZ_SUCCESS_CODE || code === ApiStatus.success) return response
+    if (code === ApiStatus.unauthorized) handleUnauthorizedError(message)
+
+    throw createHttpError(message || $t('httpMsg.requestFailed'), ApiStatus.error)
   },
   (error) => {
-    if (error.response?.status === ApiStatus.unauthorized) handleUnauthorizedError()
     return Promise.reject(handleError(error))
   }
 )
@@ -162,6 +179,44 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/** 刷新令牌并发控制 */
+let isRefreshing = false
+let refreshWaiters: Array<(token: string | null) => void> = []
+
+function notifyRefreshWaiters(token: string | null) {
+  refreshWaiters.forEach((resolve) => resolve(token))
+  refreshWaiters = []
+}
+
+/**
+ * 用 refreshToken 换取新的 accessToken
+ *
+ * 走裸 axios 以绕过拦截器，避免刷新请求自身触发 401 递归。
+ */
+async function refreshAccessToken(): Promise<string | null> {
+  const userStore = useUserStore()
+  const refreshToken = userStore.refreshToken
+  if (!refreshToken) return null
+
+  try {
+    const resp = await axios.post(`${VITE_API_URL}api/v2/auth/refresh`, {
+      refresh_token: refreshToken
+    })
+    const tokens = resp.data?.data ?? {}
+    if (!tokens.access_token) return null
+
+    userStore.setToken(tokens.access_token, tokens.refresh_token || refreshToken)
+    return tokens.access_token
+  } catch {
+    return null
+  }
+}
+
+/** 判断错误是否为 401 未授权 */
+function isUnauthorized(error: unknown): boolean {
+  return error instanceof HttpError && error.code === ApiStatus.unauthorized
+}
+
 /** 请求函数 */
 async function request<T = any>(config: ExtendedAxiosRequestConfig): Promise<T> {
   // POST | PUT 参数自动填充
@@ -176,14 +231,41 @@ async function request<T = any>(config: ExtendedAxiosRequestConfig): Promise<T> 
 
   try {
     const res = await axiosInstance.request<BaseResponse<T>>(config)
+    const payload = res.data
 
-    // 显示成功消息
-    if (config.showSuccessMessage && res.data.msg) {
-      showSuccess(res.data.msg)
+    // 无信封的裸响应（如 /v2/threat-intel）直接返回整体
+    if (!payload || typeof payload !== 'object' || !('code' in payload)) {
+      return payload as T
     }
 
-    return res.data.data as T
+    // 显示成功消息
+    const successMsg = payload.message ?? payload.msg
+    if (config.showSuccessMessage && successMsg) {
+      showSuccess(successMsg)
+    }
+
+    return payload.data as T
   } catch (error) {
+    // 401 时尝试用 refreshToken 续期后重放一次
+    if (isUnauthorized(error) && !config.noAuth && !config._retry) {
+      config._retry = true
+
+      if (isRefreshing) {
+        // 已有刷新在进行，挂起等待结果
+        const token = await new Promise<string | null>((resolve) => refreshWaiters.push(resolve))
+        if (token) return request<T>(config)
+      } else {
+        isRefreshing = true
+        const token = await refreshAccessToken()
+        isRefreshing = false
+        notifyRefreshWaiters(token)
+        if (token) return request<T>(config)
+      }
+
+      // 刷新失败，走统一登出
+      handleUnauthorizedError()
+    }
+
     if (error instanceof HttpError && error.code !== ApiStatus.unauthorized) {
       const showMsg = config.showErrorMessage !== false
       showError(error, showMsg)

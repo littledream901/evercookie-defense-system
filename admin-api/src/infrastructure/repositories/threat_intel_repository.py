@@ -5,9 +5,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from fangyu_shared.utils.time import local_now
 from sqlalchemy import and_, func, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.mysql import insert as mysql_insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.repositories.models import ThreatIntelModel
 
@@ -77,10 +78,11 @@ class ThreatIntelRepository:
         *,
         category: str | None = None,
         source: str | None = None,
+        severity: str | None = None,
         page: int = 1,
         page_size: int = 100,
     ) -> tuple[list[ThreatIntelModel], int]:
-        now = datetime.utcnow()
+        now = local_now()
         base_where = and_(
             ThreatIntelModel.is_active == True,
             (ThreatIntelModel.expires_at == None) | (ThreatIntelModel.expires_at > now),
@@ -89,6 +91,8 @@ class ThreatIntelRepository:
             base_where = and_(base_where, ThreatIntelModel.category == category)
         if source:
             base_where = and_(base_where, ThreatIntelModel.source == source)
+        if severity:
+            base_where = and_(base_where, ThreatIntelModel.severity == severity)
 
         total = await self._session.scalar(
             select(func.count()).select_from(ThreatIntelModel).where(base_where)
@@ -105,8 +109,25 @@ class ThreatIntelRepository:
         ).all()
         return list(rows), int(total)
 
+    async def count_by_source(self) -> dict[str, int]:
+        """按 source 分组统计活跃条目数。
+
+        口径与 :meth:`list_active` 一致（排除已过期条目），使前端卡片显示的
+        条数与列表实际可见条数对得上。
+        """
+        now = local_now()
+        rows = await self._session.execute(
+            select(ThreatIntelModel.source, func.count())
+            .where(
+                ThreatIntelModel.is_active == True,
+                (ThreatIntelModel.expires_at == None) | (ThreatIntelModel.expires_at > now),
+            )
+            .group_by(ThreatIntelModel.source)
+        )
+        return {source: int(count) for source, count in rows.all()}
+
     async def list_all_active_ips(self) -> list[str]:
-        now = datetime.utcnow()
+        now = local_now()
         rows = await self._session.scalars(
             select(ThreatIntelModel.ip).where(
                 ThreatIntelModel.is_active == True,

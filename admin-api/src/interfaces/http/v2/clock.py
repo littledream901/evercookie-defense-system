@@ -18,7 +18,8 @@ from src.interfaces.http.dependencies import get_clock_service, require_permissi
 
 from .schemas import ClockBanRequest, ClockLimitsUpdateRequest
 
-router = APIRouter(prefix="/apps/{app_id}/clock", tags=["clock"])
+router = APIRouter(prefix="/sites/{site_id}/clock", tags=["clock"])
+global_router = APIRouter(prefix="/clock", tags=["clock"])
 
 
 @router.get(
@@ -27,11 +28,11 @@ router = APIRouter(prefix="/apps/{app_id}/clock", tags=["clock"])
     dependencies=[Depends(require_permission("clock.read"))],
 )
 async def get_limits(
-    app_id: int,
+    site_id: int,
     service: ClockService = Depends(get_clock_service),
 ) -> SuccessResponse[ClockLimits]:
     """读取阈值。未配置时返回默认值，与网关的回退行为一致。"""
-    return SuccessResponse(data=await service.get_limits(app_id))
+    return SuccessResponse(data=await service.get_limits(site_id))
 
 
 @router.get(
@@ -56,14 +57,14 @@ async def list_windows() -> SuccessResponse[list[dict[str, Any]]]:
     dependencies=[Depends(require_permission("clock.write"))],
 )
 async def put_limits(
-    app_id: int,
+    site_id: int,
     payload: ClockLimitsUpdateRequest,
     service: ClockService = Depends(get_clock_service),
 ) -> SuccessResponse[ClockLimits]:
     """更新阈值。未知窗口名或负阈值会被 400 拒绝。"""
     try:
         limits = await service.put_limits(
-            app_id,
+            site_id,
             enabled=payload.enabled,
             windows=payload.windows,
             ban_seconds=payload.ban_seconds,
@@ -80,11 +81,11 @@ async def put_limits(
     dependencies=[Depends(require_permission("clock.write"))],
 )
 async def reset_limits(
-    app_id: int,
+    site_id: int,
     service: ClockService = Depends(get_clock_service),
 ) -> SuccessResponse[dict[str, bool]]:
     """清除自定义阈值，回退默认值。"""
-    deleted = await service.reset_limits(app_id)
+    deleted = await service.reset_limits(site_id)
     return SuccessResponse(data={"deleted": deleted})
 
 
@@ -94,18 +95,14 @@ async def reset_limits(
     dependencies=[Depends(require_permission("clock.write"))],
 )
 async def create_ban(
-    app_id: int,
+    site_id: int,
     payload: ClockBanRequest,
     service: ClockService = Depends(get_clock_service),
 ) -> SuccessResponse[dict[str, Any]]:
-    """手工封禁某个 IP 或指纹。
-
-    注意 ``dimension=ip`` 时 ``value`` 必须是**网关侧同样算法的 IP 哈希**，
-    而非明文 IP：网关按 ``sha256_hex(ip)[:32]`` 计数与封禁，明文写进去不会命中。
-    """
+    """手工封禁某个 IP 或指纹。"""
     return SuccessResponse(
         data=await service.ban(
-            app_id,
+            site_id,
             payload.dimension,
             payload.value,
             seconds=payload.seconds,
@@ -120,13 +117,13 @@ async def create_ban(
     dependencies=[Depends(require_permission("clock.read"))],
 )
 async def get_ban(
-    app_id: int,
+    site_id: int,
     dimension: ClockDimension = Query(...),
     value: str = Query(..., min_length=1, max_length=128),
     service: ClockService = Depends(get_clock_service),
 ) -> SuccessResponse[dict[str, Any] | None]:
     """查询封禁状态与剩余时长。未封禁返回 data=null。"""
-    return SuccessResponse(data=await service.get_ban(app_id, dimension, value))
+    return SuccessResponse(data=await service.get_ban(site_id, dimension, value))
 
 
 @router.delete(
@@ -135,13 +132,13 @@ async def get_ban(
     dependencies=[Depends(require_permission("clock.write"))],
 )
 async def delete_ban(
-    app_id: int,
+    site_id: int,
     dimension: ClockDimension = Query(...),
     value: str = Query(..., min_length=1, max_length=128),
     service: ClockService = Depends(get_clock_service),
 ) -> SuccessResponse[dict[str, bool]]:
     """解封。"""
-    removed = await service.unban(app_id, dimension, value)
+    removed = await service.unban(site_id, dimension, value)
     return SuccessResponse(data={"removed": removed})
 
 
@@ -151,11 +148,127 @@ async def delete_ban(
     dependencies=[Depends(require_permission("clock.write"))],
 )
 async def resync(
-    app_id: int,
+    site_id: int,
     service: ClockService = Depends(get_clock_service),
 ) -> SuccessResponse[dict[str, int]]:
-    """把库里全部阈值重推 Redis，用于 Redis flush 后恢复。
+    """把库里全部阈值重推 Redis，用于 Redis flush 后恢复。"""
+    return SuccessResponse(data=await service.resync_all())
 
-    这是全局操作，``app_id`` 仅用于权限归属与路由形状统一。
-    """
+
+# ── 全局频控（site_id=0）────────────────────────────────────────────────
+
+_GLOBAL_SITE = 0
+
+
+@global_router.get(
+    "/limits",
+    response_model=SuccessResponse[ClockLimits],
+    dependencies=[Depends(require_permission("clock.read"))],
+)
+async def get_global_limits(
+    service: ClockService = Depends(get_clock_service),
+) -> SuccessResponse[ClockLimits]:
+    return SuccessResponse(data=await service.get_limits(_GLOBAL_SITE))
+
+
+@global_router.get(
+    "/windows",
+    response_model=SuccessResponse[list[dict[str, Any]]],
+    dependencies=[Depends(require_permission("clock.read"))],
+)
+async def list_global_windows() -> SuccessResponse[list[dict[str, Any]]]:
+    return SuccessResponse(
+        data=[{"name": w.name, "seconds": w.seconds} for w in ALL_WINDOWS]
+    )
+
+
+@global_router.put(
+    "/limits",
+    response_model=SuccessResponse[ClockLimits],
+    dependencies=[Depends(require_permission("clock.write"))],
+)
+async def put_global_limits(
+    payload: ClockLimitsUpdateRequest,
+    service: ClockService = Depends(get_clock_service),
+) -> SuccessResponse[ClockLimits]:
+    try:
+        limits = await service.put_limits(
+            _GLOBAL_SITE,
+            enabled=payload.enabled,
+            windows=payload.windows,
+            ban_seconds=payload.ban_seconds,
+            ban_enabled=payload.ban_enabled,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return SuccessResponse(data=limits)
+
+
+@global_router.delete(
+    "/limits",
+    response_model=SuccessResponse[dict[str, bool]],
+    dependencies=[Depends(require_permission("clock.write"))],
+)
+async def reset_global_limits(
+    service: ClockService = Depends(get_clock_service),
+) -> SuccessResponse[dict[str, bool]]:
+    deleted = await service.reset_limits(_GLOBAL_SITE)
+    return SuccessResponse(data={"deleted": deleted})
+
+
+@global_router.post(
+    "/bans",
+    response_model=SuccessResponse[dict[str, Any]],
+    dependencies=[Depends(require_permission("clock.write"))],
+)
+async def create_global_ban(
+    payload: ClockBanRequest,
+    service: ClockService = Depends(get_clock_service),
+) -> SuccessResponse[dict[str, Any]]:
+    return SuccessResponse(
+        data=await service.ban(
+            _GLOBAL_SITE,
+            payload.dimension,
+            payload.value,
+            seconds=payload.seconds,
+            reason=payload.reason,
+        )
+    )
+
+
+@global_router.get(
+    "/bans",
+    response_model=SuccessResponse[dict[str, Any] | None],
+    dependencies=[Depends(require_permission("clock.read"))],
+)
+async def get_global_ban(
+    dimension: ClockDimension = Query(...),
+    value: str = Query(..., min_length=1, max_length=128),
+    service: ClockService = Depends(get_clock_service),
+) -> SuccessResponse[dict[str, Any] | None]:
+    return SuccessResponse(data=await service.get_ban(_GLOBAL_SITE, dimension, value))
+
+
+@global_router.delete(
+    "/bans",
+    response_model=SuccessResponse[dict[str, bool]],
+    dependencies=[Depends(require_permission("clock.write"))],
+)
+async def delete_global_ban(
+    dimension: ClockDimension = Query(...),
+    value: str = Query(..., min_length=1, max_length=128),
+    service: ClockService = Depends(get_clock_service),
+) -> SuccessResponse[dict[str, bool]]:
+    removed = await service.unban(_GLOBAL_SITE, dimension, value)
+    return SuccessResponse(data={"removed": removed})
+
+
+@global_router.post(
+    "/limits/resync",
+    response_model=SuccessResponse[dict[str, int]],
+    dependencies=[Depends(require_permission("clock.write"))],
+)
+async def resync_global(
+    service: ClockService = Depends(get_clock_service),
+) -> SuccessResponse[dict[str, int]]:
     return SuccessResponse(data=await service.resync_all())

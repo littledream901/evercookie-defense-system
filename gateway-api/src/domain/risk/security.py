@@ -53,4 +53,26 @@ class SecurityChecker:
                 disposition=not_found(),
                 reason="tor_exit_node",
             )
+
+        # ── 以下两条是硬判定，不交给评分累积 ──
+        # 高置信信号靠分数累积拦截是不可靠的：只要阈值上调或新增 scorer，
+        # 它们就可能掉到线下。误杀风险本身极低的信号应当直接判死。
+        ua = snapshot.ua
+        if ua is not None and ua.crawler_category == "security":
+            # 漏洞扫描器（sqlmap / nikto 等）没有任何正常业务用途
+            return SecurityCheckResult(
+                triggered=True,
+                disposition=deny(),
+                reason=f"security_scanner:{ua.crawler_vendor or 'unknown'}",
+            )
+
+        if ip.is_vpn and ip.is_datacenter:
+            # VPN 且数据中心：真实访客的 VPN 出口通常落在住宅或运营商段，
+            # 两者同时成立基本只有自建代理与爬虫池。
+            return SecurityCheckResult(
+                triggered=True,
+                disposition=deny(),
+                reason="vpn_on_datacenter",
+            )
+
         return SecurityCheckResult(triggered=False)

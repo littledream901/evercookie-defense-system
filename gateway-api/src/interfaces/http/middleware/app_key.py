@@ -4,7 +4,8 @@ Gateway 通过 HTTP header 中的 API Key 反查 Redis 得到 app_id：
 - 主凭据 header：``X-App-Key``
 - 兜底：``Authorization: Bearer <key>``
 
-Redis 键位：``fangyu:app_keys:{api_key}`` → ``str(app_id)``
+Redis 键位：``fangyu:app_keys:{api_key}`` → ``{"app_id": 1, "app_secret": "..."}``
+兼容旧格式 ``str(app_id)``（此时无密钥，无法验签）。
 
 由 admin-api 负责在应用创建 / 轮换 Key / 删除应用时维护映射。
 Gateway 侧只读，并配合本地进程内缓存降低 Redis 压力。
@@ -14,6 +15,21 @@ Gateway 侧只读，并配合本地进程内缓存降低 Redis 压力。
   之前完成 API Key 校验，未通过直接返回 401，避免 pydantic 校验先触发 422。
 - 校验成功后把 ``ResolvedAppKey`` 写入 ``request.state.resolved_app_key``，
   路由层用 :func:`require_app_key` 依赖再取用。
+
+为什么 API Key 之外还要验签
+---------------------------
+API Key 走 header 明文传输，且适配器把它写在 Nginx 配置、WordPress 选项表、
+CDN 环境变量里，泄露面很大。仅凭 Key 鉴权意味着任何拿到 Key 的人都能伪造
+任意访客画像——把自己的 IP 报成干净机房、把爬虫 UA 报成 Chrome，直接骗过
+风控。因此对**画像可信度**的保护落在签名上：
+
+1. ``timestamp`` 落在 ±300s 窗口内（双向容忍客户端时钟偏差）；
+2. ``nonce`` 在 Redis 中一次性兑付，挡住窗口内的原样重放；
+3. ``sign`` = HMAC-SHA256(待签串, app_secret)，待签串由
+   :func:`fangyu_shared.utils.crypto.build_sign_payload` 统一构造。
+
+三项校验失败一律返回同一个 401 文案，不区分「Key 错」「签名错」「重放」，
+避免把哪一步失败告诉探测方。
 """
 
 from __future__ import annotations
@@ -23,6 +39,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+import orjson
 from fastapi import Request
 from redis.asyncio import Redis
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -31,8 +48,21 @@ from starlette.types import ASGIApp
 
 from fangyu_shared.exceptions import AuthenticationException
 from fangyu_shared.logging import get_logger
+from fangyu_shared.utils.crypto import (
+    DEFAULT_TIMESTAMP_WINDOW,
+    is_timestamp_fresh,
+    verify_params_signature,
+)
 
 _logger = get_logger("gateway.app_key")
+
+
+@dataclass(slots=True)
+class AppCredential:
+    """Redis 中一条 app_key 映射的完整内容。"""
+
+    app_id: int
+    app_secret: str | None = None
 
 
 @dataclass(slots=True)
@@ -41,6 +71,7 @@ class ResolvedAppKey:
 
     app_id: int
     api_key: str
+    signature_verified: bool = False
 
 
 class AppKeyResolver:
@@ -58,10 +89,10 @@ class AppKeyResolver:
         self._prefix = key_prefix
         self._cache_ttl = max(cache_ttl, 0)
         self._max_cache_size = max_cache_size
-        self._cache: dict[str, tuple[int, float]] = {}
+        self._cache: dict[str, tuple[AppCredential, float]] = {}
 
-    async def resolve(self, api_key: str) -> int | None:
-        """把 api_key 反查成 app_id。未命中返回 None。"""
+    async def resolve_credential(self, api_key: str) -> AppCredential | None:
+        """把 api_key 反查成 :class:`AppCredential`。未命中返回 None。"""
         if not api_key:
             return None
 
@@ -73,17 +104,63 @@ class AppKeyResolver:
         if raw is None:
             return None
 
+        credential = self._parse(api_key, raw)
+        if credential is None:
+            return None
+
+        self._cache_set(api_key, credential)
+        return credential
+
+    async def resolve(self, api_key: str) -> int | None:
+        """兼容旧签名：只要 app_id。"""
+        credential = await self.resolve_credential(api_key)
+        return credential.app_id if credential else None
+
+    async def get_secret_by_app_id(self, app_id: int) -> str | None:
+        """反向查询：从 app_id 拿 app_secret，用于 challenge token 签发。
+
+        由于 Redis 键位是 fangyu:app_keys:{api_key}，无法直接按 app_id 查。
+        这里用扫描缓存 + 兜底返回 None 的策略：
+        - 缓存命中：直接返回（热数据场景，challenge 触发前通常刚完成过 decide 鉴权）
+        - 缓存未命中：返回 None，外层 fail-open（challenge token 签发失败不应阻断决策）
+
+        生产环境可优化为在 Redis 增加反向索引 fangyu:app_secrets:{app_id} → secret。
+        """
+        now = time.monotonic()
+        for credential, expire_at in self._cache.values():
+            if expire_at > now and credential.app_id == app_id and credential.app_secret:
+                return credential.app_secret
+        return None
+
+    def _parse(self, api_key: str, raw: Any) -> AppCredential | None:
+        """解析 Redis 值，兼容 JSON 与旧的纯数字格式。"""
+        if isinstance(raw, (bytes, bytearray)):
+            raw = raw.decode("utf-8", errors="replace")
+        text = str(raw).strip()
+
+        app_id_raw: Any = text
+        secret: str | None = None
+        if text.startswith("{"):
+            try:
+                payload = orjson.loads(text)
+            except orjson.JSONDecodeError:
+                _logger.warning("app_key_mapping_invalid", api_key_prefix=api_key[:6])
+                return None
+            if not isinstance(payload, dict):
+                return None
+            app_id_raw = payload.get("app_id")
+            raw_secret = payload.get("app_secret")
+            secret = str(raw_secret) if raw_secret else None
+
         try:
-            app_id = int(raw)
+            app_id = int(app_id_raw)
         except (TypeError, ValueError):
-            _logger.warning("app_key_mapping_invalid", api_key_prefix=api_key[:6], value=str(raw))
+            _logger.warning("app_key_mapping_invalid", api_key_prefix=api_key[:6], value=text)
             return None
 
         if app_id <= 0:
             return None
-
-        self._cache_set(api_key, app_id)
-        return app_id
+        return AppCredential(app_id=app_id, app_secret=secret)
 
     def invalidate(self, api_key: str) -> None:
         """在测试或 admin 侧回调时可主动清缓存。"""
@@ -92,7 +169,7 @@ class AppKeyResolver:
     def clear(self) -> None:
         self._cache.clear()
 
-    def _cache_get(self, key: str) -> int | None:
+    def _cache_get(self, key: str) -> AppCredential | None:
         if self._cache_ttl <= 0:
             return None
         entry = self._cache.get(key)
@@ -104,7 +181,7 @@ class AppKeyResolver:
             return None
         return value
 
-    def _cache_set(self, key: str, value: int) -> None:
+    def _cache_set(self, key: str, value: AppCredential) -> None:
         if self._cache_ttl <= 0:
             return
         if len(self._cache) >= self._max_cache_size:
@@ -123,12 +200,78 @@ def extract_api_key(request: Request, *, header_name: str = "X-App-Key") -> str 
     return None
 
 
+@dataclass(slots=True)
+class SignatureCheck:
+    """验签结果。``ok=False`` 时 ``reason`` 用于日志，不回给调用方。"""
+
+    ok: bool
+    reason: str = ""
+
+
+async def verify_request_signature(
+    request: Request,
+    credential: AppCredential,
+    *,
+    nonce_store: Any | None = None,
+    window: int = DEFAULT_TIMESTAMP_WINDOW,
+) -> SignatureCheck:
+    """校验请求签名：时间戳窗口 → nonce 一次性 → HMAC。
+
+    参数取自 JSON body（适配器统一用 POST + JSON）。GET 请求回退到 query。
+    """
+    if not credential.app_secret:
+        return SignatureCheck(False, "no_app_secret")
+
+    params = await _signable_params(request)
+    if params is None:
+        return SignatureCheck(False, "unparsable_body")
+
+    sign = str(params.get("sign") or "")
+    if not sign:
+        return SignatureCheck(False, "missing_sign")
+
+    if not is_timestamp_fresh(params.get("timestamp"), window=window):
+        return SignatureCheck(False, "stale_timestamp")
+
+    if not verify_params_signature(params, credential.app_secret, sign):
+        return SignatureCheck(False, "bad_signature")
+
+    # 验签通过后才占用 nonce：否则伪造请求能把合法访客的 nonce 提前烧掉。
+    nonce = str(params.get("nonce") or "")
+    if nonce_store is not None:
+        if not nonce:
+            return SignatureCheck(False, "missing_nonce")
+        if not await nonce_store.claim(credential.app_id, nonce):
+            return SignatureCheck(False, "replayed_nonce")
+
+    return SignatureCheck(True)
+
+
+async def _signable_params(request: Request) -> dict[str, Any] | None:
+    """取出参与签名的顶层参数。"""
+    if request.method in ("GET", "HEAD"):
+        return dict(request.query_params)
+    try:
+        body = await request.body()
+    except Exception:  # pragma: no cover - 客户端断连
+        return None
+    if not body:
+        return {}
+    try:
+        payload = orjson.loads(body)
+    except orjson.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 class AppKeyEnforcementMiddleware(BaseHTTPMiddleware):
     """在到达路由 body 解析之前拦截，完成 API Key 校验。
 
-    - 只对配置的 ``protected_patterns`` 生效，默认覆盖 ``/v2/decide*``
-      与 ``/v2/rule/test``。后者会回显规则命中逻辑，若不鉴权等于把规则
-      边界开放给外部试探，因此与决策接口同级保护。
+    - 只对配置的 ``protected_patterns`` 生效，默认覆盖 ``/v2/decide*``、
+      ``/v2/rule/test`` 与 ``/v2/sdk/*``。``rule/test`` 会回显规则命中逻辑，
+      若不鉴权等于把规则边界开放给外部试探；``sdk/*`` 会按 appId 往站点
+      时序库写行为事件，不鉴权则任意调用方都能污染他人数据。二者都与决策
+      接口同级保护。
     - 未通过校验直接返回 401，格式与 shared 异常处理器保持一致。
     - 通过后把 :class:`ResolvedAppKey` 写入 ``request.state.resolved_app_key``。
     """
@@ -139,14 +282,17 @@ class AppKeyEnforcementMiddleware(BaseHTTPMiddleware):
         *,
         resolver_provider: Any,
         settings_provider: Any,
+        nonce_store_provider: Any | None = None,
         protected_patterns: Iterable[str] = (
             r"^/v2/decide(?:/|$)",
             r"^/v2/rule/test(?:/|$)",
+            r"^/v2/sdk/",
         ),
     ) -> None:
         super().__init__(app)
         self._resolver_provider = resolver_provider
         self._settings_provider = settings_provider
+        self._nonce_store_provider = nonce_store_provider
         self._patterns = [re.compile(p) for p in protected_patterns]
 
     def _needs_guard(self, path: str) -> bool:
@@ -169,15 +315,38 @@ class AppKeyEnforcementMiddleware(BaseHTTPMiddleware):
 
         try:
             resolver = self._resolver_provider()
-            app_id = await resolver.resolve(api_key)
+            credential = await resolver.resolve_credential(api_key)
         except Exception as exc:  # pragma: no cover - Redis 异常兜底
             _logger.error("app_key_resolve_error", error=str(exc))
             return _auth_failure_response(request, "API Key 校验失败", code="APP_KEY_RESOLVE_ERROR")
 
-        if app_id is None:
+        if credential is None:
             return _auth_failure_response(request, "API Key 无效或已失效")
 
-        request.state.resolved_app_key = ResolvedAppKey(app_id=app_id, api_key=api_key)
+        verified = False
+        if getattr(settings, "signature_required", False):
+            check = await verify_request_signature(
+                request,
+                credential,
+                nonce_store=self._nonce_store_provider() if self._nonce_store_provider else None,
+                window=getattr(settings, "signature_window", DEFAULT_TIMESTAMP_WINDOW),
+            )
+            if not check.ok:
+                _logger.warning(
+                    "request_signature_rejected",
+                    app_id=credential.app_id,
+                    reason=check.reason,
+                    path=request.url.path,
+                )
+                # 与 Key 失效共用同一文案：不告诉探测方是哪一步没过。
+                return _auth_failure_response(request, "API Key 无效或已失效")
+            verified = True
+
+        request.state.resolved_app_key = ResolvedAppKey(
+            app_id=credential.app_id,
+            api_key=api_key,
+            signature_verified=verified,
+        )
         return await call_next(request)
 
 
@@ -224,17 +393,39 @@ async def require_app_key(request: Request) -> ResolvedAppKey:
     if not api_key:
         raise AuthenticationException("缺少 API Key")
 
-    app_id = await get_app_key_resolver().resolve(api_key)
-    if app_id is None:
+    credential = await get_app_key_resolver().resolve_credential(api_key)
+    if credential is None:
         raise AuthenticationException("API Key 无效或已失效")
 
-    return ResolvedAppKey(app_id=app_id, api_key=api_key)
+    if getattr(settings, "signature_required", False):
+        check = await verify_request_signature(
+            request,
+            credential,
+            window=getattr(settings, "signature_window", DEFAULT_TIMESTAMP_WINDOW),
+        )
+        if not check.ok:
+            _logger.warning(
+                "request_signature_rejected",
+                app_id=credential.app_id,
+                reason=check.reason,
+                path=request.url.path,
+            )
+            raise AuthenticationException("API Key 无效或已失效")
+
+    return ResolvedAppKey(
+        app_id=credential.app_id,
+        api_key=api_key,
+        signature_verified=bool(getattr(settings, "signature_required", False)),
+    )
 
 
 __all__ = [
+    "AppCredential",
     "AppKeyResolver",
     "AppKeyEnforcementMiddleware",
     "ResolvedAppKey",
+    "SignatureCheck",
     "extract_api_key",
     "require_app_key",
+    "verify_request_signature",
 ]

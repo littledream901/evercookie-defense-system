@@ -20,7 +20,7 @@ from fangyu_shared.schemas.disposition import (
     redirect,
     serve_alt,
 )
-from fangyu_shared.schemas.target_render import render_target
+from fangyu_shared.schemas.target_render import pick_target, render_pool, render_target
 
 from src.domain.decision.disposition import (
     SYSTEM_DEFAULT_DISPOSITION,
@@ -172,3 +172,133 @@ def test_fallback_to_system_default() -> None:
     # 兜底放行而非拦截：兜底被触发说明规则未覆盖，拦截会造成大面积误伤
     assert r.disposition.mechanism == Mechanism.PASS
     assert SYSTEM_DEFAULT_DISPOSITION.verdict == Verdict.TRUSTED
+
+
+# ── Target.urls 地址池 ─────────────────────────────────────────────────────────
+
+def test_target_urls_pool_accepted() -> None:
+    """urls 非空时 Target 正常构造，url_pool 返回池内所有地址。"""
+    t = Target(kind=TargetKind.URL, urls=["https://a.example/1", "https://b.example/2"])
+    assert t.url_pool == ("https://a.example/1", "https://b.example/2")
+    assert t.url is None
+
+
+def test_target_url_pool_prefers_urls_over_url() -> None:
+    """urls 优先于 url；两者都给时取 urls。"""
+    t = Target(kind=TargetKind.URL, url="https://ignored.example/", urls=["https://real.example/"])
+    assert t.url_pool == ("https://real.example/",)
+
+
+def test_target_url_pool_degrades_to_single_url() -> None:
+    """只给 url 时 url_pool 退化成单元素元组。"""
+    t = Target(kind=TargetKind.URL, url="https://a.example/x")
+    assert t.url_pool == ("https://a.example/x",)
+
+
+def test_target_url_pool_empty_when_nothing_given() -> None:
+    t = Target()
+    assert t.url_pool == ()
+
+
+def test_target_empty_urls_list_rejected() -> None:
+    with pytest.raises(ValidationError, match="不能是空列表"):
+        Target(kind=TargetKind.URL, urls=[])
+
+
+def test_target_url_kind_requires_url_or_urls() -> None:
+    with pytest.raises(ValidationError):
+        Target(kind=TargetKind.URL)
+
+
+# ── redirect() 工厂 — 多地址 ──────────────────────────────────────────────────
+
+def test_redirect_factory_single_string_backward_compat() -> None:
+    d = redirect("https://a.example/x")
+    assert d.target.url == "https://a.example/x"
+    assert d.target.urls is None
+    assert d.effective_status == 302
+
+
+def test_redirect_factory_permanent_single() -> None:
+    d = redirect("https://a.example/x", permanent=True)
+    assert d.effective_status == 301
+
+
+def test_redirect_factory_list_activates_pool() -> None:
+    d = redirect(["https://a.example/1", "https://b.example/2"])
+    assert d.target.url is None
+    assert d.target.urls == ["https://a.example/1", "https://b.example/2"]
+    # 地址池强制 302（永久缓存与轮询语义矛盾）
+    assert d.effective_status == 302
+
+
+def test_redirect_factory_permanent_ignored_with_pool() -> None:
+    """permanent + pool 时 permanent 被静默忽略（池必须 302）。"""
+    d = redirect(["https://a.example/1", "https://b.example/2"], permanent=True)
+    assert d.effective_status == 302
+
+
+def test_redirect_pool_disposition_validates() -> None:
+    """以 urls 构造的 Disposition 通过语义校验。"""
+    d = Disposition(
+        verdict=Verdict.SUSPECT,
+        mechanism=Mechanism.REDIRECT,
+        target=Target(kind=TargetKind.URL, urls=["https://a.example/x"]),
+    )
+    assert d.mechanism == Mechanism.REDIRECT
+
+
+# ── pick_target ────────────────────────────────────────────────────────────────
+
+def test_pick_target_single_always_returns_it() -> None:
+    assert pick_target(["https://a.example/"], seed="any") == "https://a.example/"
+
+
+def test_pick_target_empty_returns_none() -> None:
+    assert pick_target([], seed="any") is None
+
+
+def test_pick_target_deterministic_for_same_seed() -> None:
+    pool = ["https://a.example/", "https://b.example/", "https://c.example/"]
+    r1 = pick_target(pool, seed="req-abc-123")
+    r2 = pick_target(pool, seed="req-abc-123")
+    assert r1 == r2
+    assert r1 in pool
+
+
+def test_pick_target_different_seeds_distribute() -> None:
+    """不同 seed 能命中池内不同地址（均匀性粗检验：5 个 seed 至少选出 2 个不同值）。"""
+    pool = ["https://a.example/", "https://b.example/", "https://c.example/"]
+    results = {pick_target(pool, seed=f"r{i}") for i in range(5)}
+    assert len(results) >= 2
+
+
+def test_pick_target_skips_blank_entries() -> None:
+    pool = ["", "  ", "https://a.example/"]
+    assert pick_target(pool, seed="x") == "https://a.example/"
+
+
+# ── render_pool ───────────────────────────────────────────────────────────────
+
+def test_render_pool_single_url_renders_placeholders() -> None:
+    out = render_pool(
+        ["https://{host}/alt"],
+        seed="r1",
+        visit_url="https://shop.example/checkout",
+    )
+    assert out == "https://shop.example/alt"
+
+
+def test_render_pool_empty_returns_none() -> None:
+    assert render_pool([], seed="r1") is None
+
+
+def test_render_pool_falls_back_to_next_on_bad_url() -> None:
+    """首选地址协议非法时顺延到池内下一个合法地址。"""
+    pool = ["javascript:alert(1)", "https://safe.example/ok"]
+    out = render_pool(pool, seed="always-first")
+    assert out == "https://safe.example/ok"
+
+
+def test_render_pool_all_bad_returns_none() -> None:
+    assert render_pool(["javascript:x", "data:text/html,x"], seed="r1") is None

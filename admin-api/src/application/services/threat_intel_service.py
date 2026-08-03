@@ -56,11 +56,16 @@ class ThreatIntelService:
         *,
         category: str | None = None,
         source: str | None = None,
+        severity: str | None = None,
         page: int = 1,
         page_size: int = 100,
     ) -> dict[str, Any]:
         rows, total = await self._repo.list_active(
-            category=category, source=source, page=page, page_size=page_size
+            category=category,
+            source=source,
+            severity=severity,
+            page=page,
+            page_size=page_size,
         )
         return {
             "items": [self._to_dict(r) for r in rows],
@@ -88,6 +93,10 @@ class ThreatIntelService:
 
     async def redis_stats(self) -> dict[str, Any]:
         return await ThreatIntelSync.stats()
+
+    async def count_by_source(self) -> dict[str, int]:
+        """各来源当前贡献的活跃条目数，供前端「数据来源」卡片展示。"""
+        return await self._repo.count_by_source()
 
     @staticmethod
     def _to_dict(r: Any) -> dict[str, Any]:

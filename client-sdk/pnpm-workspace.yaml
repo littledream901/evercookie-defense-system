@@ -1,0 +1,3 @@
+# esbuild 需要 postinstall 安装对应平台的二进制，不放行则 vite / vitest 无法运行。
+allowBuilds:
+  esbuild: true

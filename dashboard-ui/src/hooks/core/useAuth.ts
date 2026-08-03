@@ -27,26 +27,20 @@
  * ```
  *
  * @module useAuth
- * @author Art Design Pro Team
+ * @author EverCookie Team
  */
 
 import { useRoute } from 'vue-router'
-import { storeToRefs } from 'pinia'
 import { useUserStore } from '@/store/modules/user'
 import { useAppMode } from '@/hooks/core/useAppMode'
 import type { AppRouteRecord } from '@/types/router'
 
 type AuthItem = NonNullable<AppRouteRecord['meta']['authList']>[number]
 
-const userStore = useUserStore()
-
 export const useAuth = () => {
   const route = useRoute()
   const { isFrontendMode } = useAppMode()
-  const { info } = storeToRefs(userStore)
-
-  // 前端按钮权限（例如：['add', 'edit']）
-  const frontendAuthList = info.value?.buttons ?? []
+  const userStore = useUserStore()
 
   // 后端路由 meta 配置的权限列表（例如：[{ authMark: 'add' }]）
   const backendAuthList: AuthItem[] = Array.isArray(route.meta.authList)
@@ -55,13 +49,17 @@ export const useAuth = () => {
 
   /**
    * 检查是否拥有某权限标识（前后端模式通用）
+   *
+   * 前端模式复用 `userStore.hasPermission`，与后端 `PermissionContext.has`
+   * 保持一致的三级匹配，避免 `rule.*` 这类通配权限被误判为无权限。
+   *
    * @param auth 权限标识
    * @returns 是否有权限
    */
   const hasAuth = (auth: string): boolean => {
     // 前端模式
     if (isFrontendMode.value) {
-      return frontendAuthList.includes(auth)
+      return userStore.hasPermission(auth)
     }
 
     // 后端模式

@@ -40,6 +40,8 @@ class MatchResult:
     rule: DecisionRule | None = None
     group: RuleGroup | None = None
     """命中 allowlist 组的 on_no_match 时填充，此时 rule 为 None。"""
+    miss_rule: DecisionRule | None = None
+    """首条携带 disposition_miss 且本次未命中的规则；decision_service 消费后短路。"""
     shadow_matches: tuple[ShadowMatch, ...] = field(default=())
 
     @property
@@ -62,11 +64,20 @@ class DecisionRuleMatcher:
     ) -> MatchResult:
         shadow: list[ShadowMatch] = []
         winner: DecisionRule | None = None
+        first_miss_rule: DecisionRule | None = None  # 首条带 disposition_miss 的未命中规则
 
         for rule in self._sort(rules):
             if not (rule.is_active or rule.is_shadow):
                 continue
-            if not self._hits(rule, context):
+            hit = self._hits(rule, context)
+            if not hit:
+                # 记录首条带 disposition_miss 的未命中规则，供 decision_service 短路
+                if (
+                    first_miss_rule is None
+                    and not rule.is_shadow
+                    and rule.disposition_miss is not None
+                ):
+                    first_miss_rule = rule
                 continue
             if rule.is_shadow:
                 shadow.append(ShadowMatch(rule=rule))
@@ -82,7 +93,11 @@ class DecisionRuleMatcher:
         if group is not None:
             return MatchResult(matched=True, group=group, shadow_matches=tuple(shadow))
 
-        return MatchResult(matched=False, shadow_matches=tuple(shadow))
+        return MatchResult(
+            matched=False,
+            miss_rule=first_miss_rule,
+            shadow_matches=tuple(shadow),
+        )
 
     def _hits(self, rule: DecisionRule, context: dict[str, Any]) -> bool:
         if rule.match_all:

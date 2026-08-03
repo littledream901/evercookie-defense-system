@@ -52,12 +52,22 @@ class DecisionContext(BaseSchema):
         ``fingerprint_is_derived`` 会显式标记，规则侧可据此调整信任度。
     """
 
-    app_id: int = Field(..., alias="appId", gt=0)
+    app_id: int = Field(default=0, alias="appId", ge=0)
+    """内部数据库 PK，由 gateway 根据 API Key 覆写，适配器无需填写。"""
     ingress: IngressKind = IngressKind.SDK
     fingerprint: str = Field(default="", max_length=128)
     fingerprint_is_derived: bool = Field(default=False, alias="fingerprintIsDerived")
     device_id: str | None = Field(default=None, alias="deviceId", max_length=128)
-    ip: IPvAnyAddress
+    ip: IPvAnyAddress | None = None
+    """访客 IP。
+
+    SDK 路径可省略——浏览器**无法得知自己的出口 IP**，只能由 gateway 从
+    socket peer 填充（见 ``v2/decide.py`` 的 ``_resolve_context_ip``）。即使
+    客户端传了值也会被服务端覆盖，所以这里不做必填校验。
+
+    Adapter 路径必填：决策发生在站点服务端，那里才知道真实来源 IP，且
+    gateway 看到的 socket peer 是站点服务器而非访客。
+    """
     user_agent: str = Field(..., alias="userAgent", max_length=1024)
     referer: str | None = Field(default=None, max_length=2048)
     visit_url: str | None = Field(default=None, alias="visitUrl", max_length=2048)
@@ -82,7 +92,13 @@ class DecisionContext(BaseSchema):
 
     @model_validator(mode="after")
     def _resolve_fingerprint(self) -> DecisionContext:
-        """按来源校验并补全指纹。"""
+        """按来源校验并补全指纹。
+
+        Adapter 路径的派生指纹依赖 ``ip``，因此顺带在此校验 Adapter 必须带 IP。
+        """
+        if self.ingress == IngressKind.ADAPTER and self.ip is None:
+            raise ValueError("ingress=adapter 必须提供 ip")
+
         if self.fingerprint:
             return self
         if self.ingress == IngressKind.SDK:
@@ -151,3 +167,17 @@ class DecisionResponse(BaseSchema):
     details: list[DecisionDetail] = Field(default_factory=list)
     shadow: list[ShadowOutcome] = Field(default_factory=list)
     request_id: str | None = Field(default=None, alias="requestId")
+    page_content: str | None = Field(default=None, alias="pageContent")
+    """serve_alt 命中时由 gateway 填充的页面内容，客户端直接渲染。None 表示非 serve_alt 命中。"""
+    page_content_type: str | None = Field(default=None, alias="pageContentType")
+    """page_content 的 MIME 类型，适配器据此设置 Content-Type 响应头。
+
+    与 page_content 同时填充。非 HTML 资源（如 JSON 占位）若一律按 HTML 投放会渲染错乱，
+    所以内容类型必须随内容一起下发而不能由客户端猜测。
+    """
+    challenge_token: str | None = Field(default=None, alias="challengeToken")
+    """mechanism=challenge 时由 gateway 签发的 HMAC 凭据，客户端完成挑战后携带此 token 提交答案。
+
+    Token 格式：base64(payload) + "." + hmac_sha256(app_secret, payload_base64)
+    Payload 包含 {appId, fingerprint, kind, exp, nonce}，防跨租户盗用、重放攻击、过期使用。
+    """

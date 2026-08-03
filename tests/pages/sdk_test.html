@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fangyu V2 · SDK 测试台</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:ui-monospace,'Cascadia Code',monospace;background:#0d1117;color:#c9d1d9;font-size:13px}
+header{background:#161b22;border-bottom:1px solid #30363d;padding:12px 20px;display:flex;align-items:center;gap:12px}
+header h1{font-size:16px;color:#f0f6fc;font-weight:600}
+.badge{background:#238636;color:#fff;padding:2px 8px;border-radius:12px;font-size:11px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px}
+.card-title{font-size:12px;font-weight:600;color:#8b949e;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.section{padding:16px;border-bottom:1px solid #21262d}
+.section-title{font-size:11px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
+.field{display:flex;flex-direction:column;gap:4px;margin-bottom:8px}
+.field label{font-size:11px;color:#8b949e}
+.field input{background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 8px;border-radius:6px;font-family:inherit;font-size:12px;width:100%}
+.field input:focus{outline:none;border-color:#1f6feb}
+.btn{padding:6px 12px;border-radius:6px;border:1px solid #30363d;background:#21262d;color:#c9d1d9;cursor:pointer;font-family:inherit;font-size:12px;transition:background .15s}
+.btn:hover{background:#30363d}
+.btn-primary{background:#1f6feb;border-color:#1f6feb;color:#fff}
+.btn-primary:hover{background:#388bfd}
+.btn-sm{padding:3px 8px;font-size:11px}
+.btn-group{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+table{width:100%;border-collapse:collapse;font-size:11px}
+th{text-align:left;color:#8b949e;font-weight:500;padding:6px 8px;border-bottom:1px solid #21262d}
+td{padding:6px 8px;border-bottom:1px solid #21262d;vertical-align:middle}
+.channel-icon{font-size:16px}
+.status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
+.dot-ok{background:#238636}
+.dot-warn{background:#9e6a03}
+.dot-err{background:#da3633}
+.dot-idle{background:#30363d}
+pre{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px;overflow:auto;font-size:11px;max-height:220px;white-space:pre-wrap;word-break:break-all}
+.vote-bar{height:8px;background:#21262d;border-radius:4px;overflow:hidden;min-width:80px}
+.vote-fill{height:100%;background:#1f6feb;border-radius:4px;transition:width .3s}
+.event-stream{max-height:160px;overflow-y:auto}
+.event-row{padding:3px 6px;font-size:11px;border-left:2px solid #30363d;margin-bottom:2px}
+.event-mousemove{border-color:#1f6feb}
+.event-click{border-color:#238636}
+.event-keydown{border-color:#e3b341}
+.event-scroll{border-color:#8b949e}
+.heartbeat-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.hb-stat{text-align:center}
+.hb-sv{font-size:18px;font-weight:700}
+.hb-sl{font-size:10px;color:#8b949e}
+.tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;background:#21262d;border:1px solid #30363d;margin:1px}
+.fp-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px}
+.fp-item{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px}
+.fp-label{font-size:10px;color:#8b949e;margin-bottom:3px}
+.fp-val{font-size:12px;word-break:break-all}
+.skew-bar{height:4px;background:#21262d;border-radius:2px;overflow:hidden;margin-top:4px}
+.skew-fill{height:100%;background:#e3b341;border-radius:2px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡 Fangyu V2</h1>
+  <span class="badge">SDK 测试台</span>
+  <span style="margin-left:auto;color:#8b949e;font-size:11px" id="clock"></span>
+</header>
+
+<!-- Config strip -->
+<div class="section" style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap">
+  <div class="field" style="flex:1;min-width:180px"><label>Gateway URL</label><input id="cfg-url" value="http://localhost:8001"></div>
+  <div class="field" style="flex:1;min-width:160px"><label>App ID</label><input id="cfg-appid" type="number" value="1"></div>
+  <div class="field" style="flex:1;min-width:200px"><label>API Key</label><input id="cfg-apikey" value=""></div>
+  <div class="field" style="flex:1;min-width:200px"><label>App Secret</label><input id="cfg-secret" type="password" value=""></div>
+</div>
+
+<div class="grid2">
+<!-- LEFT COLUMN -->
+<div style="display:flex;flex-direction:column;gap:16px">
+
+  <!-- 6-channel storage -->
+  <div class="card">
+    <div class="card-title">💾 6 通道存储 写入 / 读取 / 投票</div>
+    <div class="field"><label>测试值</label><input id="store-val" value="evercookie_test_2026"></div>
+    <div class="btn-group">
+      <button class="btn btn-primary btn-sm" onclick="writeAll()">全部写入</button>
+      <button class="btn btn-sm" onclick="readAll()">全部读取</button>
+      <button class="btn btn-sm" onclick="clearAll()">全部清除</button>
+      <button class="btn btn-sm" onclick="corruptOne()">篡改 Cookie</button>
+      <button class="btn btn-sm" onclick="triggerSelfHeal()">触发 selfHeal</button>
+    </div>
+    <table style="margin-top:10px">
+      <thead><tr><th></th><th>通道</th><th>写入</th><th>读取</th><th>票数</th><th>状态</th></tr></thead>
+      <tbody id="channel-table"></tbody>
+    </table>
+    <div style="margin-top:8px;font-size:11px;color:#8b949e">
+      共识值：<strong id="consensus-val" style="color:#c9d1d9">—</strong>
+      &nbsp;投票：<strong id="consensus-pct">—</strong>
+      &nbsp;<span id="heal-status"></span>
+    </div>
+  </div>
+
+  <!-- Fingerprint detail -->
+  <div class="card">
+    <div class="card-title">🔍 浏览器指纹详情</div>
+    <button class="btn btn-sm btn-primary" onclick="collectFp()">采集指纹</button>
+    <div class="fp-grid" id="fp-grid"></div>
+  </div>
+
+</div>
+
+<!-- RIGHT COLUMN -->
+<div style="display:flex;flex-direction:column;gap:16px">
+
+  <!-- /sdk/init -->
+  <div class="card">
+    <div class="card-title">🚀 /sdk/init <span id="init-latency" style="font-size:10px;color:#8b949e"></span></div>
+    <div class="btn-group">
+      <button class="btn btn-primary btn-sm" onclick="runInit()">调用 /sdk/init</button>
+    </div>
+    <pre id="init-resp" style="margin-top:8px">（未调用）</pre>
+    <div id="skew-info" style="margin-top:6px;font-size:11px;color:#8b949e"></div>
+  </div>
+
+  <!-- /sdk/heartbeat -->
+  <div class="card">
+    <div class="card-title">💓 /sdk/heartbeat <span id="hb-latency" style="font-size:10px;color:#8b949e"></span></div>
+    <div class="heartbeat-row">
+      <button class="btn btn-primary btn-sm" onclick="runHeartbeat()">发送心跳</button>
+      <button class="btn btn-sm" onclick="startAutoHb()">每 30 s 自动</button>
+      <button class="btn btn-sm" onclick="stopAutoHb()">停止自动</button>
+      <div class="hb-stat"><div class="hb-sv" id="hb-count">0</div><div class="hb-sl">次</div></div>
+      <div class="hb-stat"><div class="hb-sv" id="hb-ok" style="color:#56d364">0</div><div class="hb-sl">OK</div></div>
+      <div class="hb-stat"><div class="hb-sv" id="hb-fail" style="color:#f85149">0</div><div class="hb-sl">Fail</div></div>
+    </div>
+    <pre id="hb-resp" style="margin-top:8px">（未调用）</pre>
+  </div>
+
+  <!-- Behavior event stream -->
+  <div class="card">
+    <div class="card-title">🎯 行为事件流</div>
+    <div class="btn-group">
+      <button class="btn btn-sm" onclick="toggleCapture()">开始/停止 捕获</button>
+      <button class="btn btn-sm" onclick="clearEvents()">清空</button>
+      <span id="capture-status" style="font-size:11px;color:#8b949e">未捕获</span>
+    </div>
+    <div id="event-stream" class="event-stream" style="margin-top:8px">
+      <div style="color:#8b949e;font-size:11px">（在页面上移动鼠标、点击、滚动…）</div>
+    </div>
+    <div style="margin-top:6px;font-size:11px;color:#8b949e">
+      捕获 <strong id="ev-count">0</strong> 条 &nbsp;|&nbsp;
+      <span id="ev-types"></span>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString('zh-CN'); }, 1000);
+
+const CHANNELS = [
+  { id:'cookie',         icon:'🍪', label:'Cookie' },
+  { id:'localStorage',   icon:'📦', label:'localStorage' },
+  { id:'sessionStorage', icon:'🗂', label:'sessionStorage' },
+  { id:'indexedDB',      icon:'🗄', label:'IndexedDB' },
+  { id:'cacheStorage',   icon:'⚡', label:'CacheStorage' },
+  { id:'windowName',     icon:'🪟', label:'window.name' },
+];
+const STATE = {};
+CHANNELS.forEach(c => { STATE[c.id] = { written:null, read:null }; });
+const STORE_KEY = '_fangyu_id';
+
+function buildTable() {
+  const tbody = $('channel-table');
+  tbody.innerHTML = '';
+  CHANNELS.forEach(c => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td style="font-size:16px">${c.icon}</td>
+      <td>${c.label}</td>
+      <td id="wr-${c.id}" style="color:#8b949e">—</td>
+      <td id="rd-${c.id}" style="color:#8b949e">—</td>
+      <td id="vt-${c.id}"><div class="vote-bar"><div class="vote-fill" id="vb-${c.id}" style="width:0%"></div></div></td>
+      <td><span class="status-dot dot-idle" id="dot-${c.id}"></span><span id="st-${c.id}">idle</span></td>`;
+    tbody.appendChild(row);
+  });
+}
+buildTable();
+
+// writers
+async function writeCookie(k,v)      { document.cookie=`${k}=${v}; path=/; max-age=86400; SameSite=Lax`; }
+async function writeLS(k,v)          { localStorage.setItem(k,v); }
+async function writeSS(k,v)          { sessionStorage.setItem(k,v); }
+async function writeWindowName(k,v)  { try{window.name=JSON.stringify({...JSON.parse(window.name||'{}'),[k]:v});}catch{window.name=JSON.stringify({[k]:v});} }
+async function writeIDB(k,v) {
+  return new Promise((res,rej)=>{
+    const req=indexedDB.open('fangyu_sdk',1);
+    req.onupgradeneeded=e=>e.target.result.createObjectStore('data');
+    req.onsuccess=e=>{const db=e.target.result;const tx=db.transaction('data','readwrite');tx.objectStore('data').put(v,k);tx.oncomplete=()=>{db.close();res();};tx.onerror=rej;};
+    req.onerror=rej;
+  });
+}
+async function writeCacheStorage(k,v){const cache=await caches.open('fangyu_sdk_v1');await cache.put('/_sdk_'+k,new Response(v,{headers:{'Content-Type':'text/plain'}}));}
+
+// readers
+async function readCookie(k)      {return document.cookie.split('; ').find(r=>r.startsWith(k+'='))?.split('=')[1]??null;}
+async function readLS(k)          {return localStorage.getItem(k);}
+async function readSS(k)          {return sessionStorage.getItem(k);}
+async function readWindowName(k)  {try{return JSON.parse(window.name||'{}')[k]??null;}catch{return null;}}
+async function readIDB(k) {
+  return new Promise((res,rej)=>{
+    const req=indexedDB.open('fangyu_sdk',1);
+    req.onupgradeneeded=e=>e.target.result.createObjectStore('data');
+    req.onsuccess=e=>{const db=e.target.result;const tx=db.transaction('data','readonly');const gr=tx.objectStore('data').get(k);gr.onsuccess=()=>{db.close();res(gr.result??null);};gr.onerror=rej;};
+    req.onerror=rej;
+  });
+}
+async function readCacheStorage(k){const cache=await caches.open('fangyu_sdk_v1');const r=await cache.match('/_sdk_'+k);return r?await r.text():null;}
+
+const WRITERS={cookie:writeCookie,localStorage:writeLS,sessionStorage:writeSS,indexedDB:writeIDB,cacheStorage:writeCacheStorage,windowName:writeWindowName};
+const READERS={cookie:readCookie, localStorage:readLS, sessionStorage:readSS, indexedDB:readIDB, cacheStorage:readCacheStorage, windowName:readWindowName};
+
+function setDot(id,cls,label){$('dot-'+id).className='status-dot '+cls;$('st-'+id).textContent=label;}
+
+async function writeAll(){
+  const val=$('store-val').value.trim();
+  for(const c of CHANNELS){
+    try{await WRITERS[c.id](STORE_KEY,val);STATE[c.id].written=val;$('wr-'+c.id).textContent=val.slice(0,18)+(val.length>18?'…':'');$('wr-'+c.id).style.color='#56d364';setDot(c.id,'dot-ok','written');}
+    catch(e){$('wr-'+c.id).textContent='ERR';$('wr-'+c.id).style.color='#f85149';setDot(c.id,'dot-err','error');}
+  }
+}
+
+async function readAll(){
+  const votes={};
+  for(const c of CHANNELS){
+    try{const v=await READERS[c.id](STORE_KEY);STATE[c.id].read=v;$('rd-'+c.id).textContent=v!==null?v.slice(0,18)+(v.length>18?'…':''):'null';$('rd-'+c.id).style.color=v!==null?'#56d364':'#8b949e';if(v!==null)votes[v]=(votes[v]||0)+1;}
+    catch(e){$('rd-'+c.id).textContent='ERR';$('rd-'+c.id).style.color='#f85149';}
+  }
+  const total=Object.values(votes).reduce((a,b)=>a+b,0);
+  const winner=Object.entries(votes).sort((a,b)=>b[1]-a[1])[0];
+  CHANNELS.forEach(c=>{const v=STATE[c.id].read;const cnt=v!==null?(votes[v]||0):0;$('vb-'+c.id).style.width=total>0?Math.round(cnt/total*100)+'%':'0%';});
+  if(winner){$('consensus-val').textContent=winner[0];$('consensus-pct').textContent=winner[1]+'/'+total+' 票';}
+}
+
+async function clearAll(){
+  document.cookie=`${STORE_KEY}=; path=/; max-age=0`;
+  localStorage.removeItem(STORE_KEY); sessionStorage.removeItem(STORE_KEY);
+  try{const cache=await caches.open('fangyu_sdk_v1');await cache.delete('/_sdk_'+STORE_KEY);}catch{}
+  try{const wn=JSON.parse(window.name||'{}');delete wn[STORE_KEY];window.name=JSON.stringify(wn);}catch{}
+  CHANNELS.forEach(c=>{STATE[c.id]={written:null,read:null};});
+  buildTable();$('consensus-val').textContent='—';$('consensus-pct').textContent='—';$('heal-status').textContent='';
+}
+
+function corruptOne(){
+  document.cookie=`${STORE_KEY}=CORRUPTED_VALUE; path=/; max-age=86400; SameSite=Lax`;
+  setDot('cookie','dot-warn','corrupted');$('rd-cookie').textContent='CORRUPTED_VALUE';$('rd-cookie').style.color='#e3b341';
+}
+
+async function triggerSelfHeal(){
+  await readAll();
+  const votes={};CHANNELS.forEach(c=>{const v=STATE[c.id].read;if(v!==null)votes[v]=(votes[v]||0)+1;});
+  const winner=Object.entries(votes).sort((a,b)=>b[1]-a[1])[0];
+  if(!winner){$('heal-status').textContent='无法确定共识值';return;}
+  const consensus=winner[0]; let healed=0;
+  for(const c of CHANNELS){if(STATE[c.id].read!==consensus){try{await WRITERS[c.id](STORE_KEY,consensus);setDot(c.id,'dot-ok','healed');healed++;}catch{}}}
+  $('heal-status').textContent=`✓ selfHeal: 修复 ${healed} 通道 → "${consensus}"`;
+  await readAll();
+}
+
+// fingerprint
+async function collectFp(){
+  const grid=$('fp-grid'); grid.innerHTML='';
+  const items=[
+    ['UA',          navigator.userAgent.slice(0,60)+'…'],
+    ['Platform',    navigator.platform],
+    ['Languages',   navigator.languages.join(', ')],
+    ['Cores',       navigator.hardwareConcurrency],
+    ['Memory (GB)', navigator.deviceMemory??'N/A'],
+    ['ColorDepth',  screen.colorDepth],
+    ['Screen',      screen.width+'x'+screen.height],
+    ['TimeZone',    Intl.DateTimeFormat().resolvedOptions().timeZone],
+    ['Canvas Hash', await getCanvasHash()],
+    ['WebGL Vendor',   getWebGLInfo().vendor.slice(0,30)],
+    ['WebGL Renderer', getWebGLInfo().renderer.slice(0,30)],
+    ['Plugins',     navigator.plugins.length],
+    ['DoNotTrack',  navigator.doNotTrack],
+    ['Cookies',     navigator.cookieEnabled],
+    ['Storage',     getStorageTypes()],
+  ];
+  items.forEach(([label,val])=>{const d=document.createElement('div');d.className='fp-item';d.innerHTML=`<div class="fp-label">${label}</div><div class="fp-val">${val}</div>`;grid.appendChild(d);});
+}
+
+async function getCanvasHash(){
+  try{const c=document.createElement('canvas');c.width=200;c.height=50;const ctx=c.getContext('2d');ctx.fillStyle='#f60';ctx.fillRect(10,10,100,30);ctx.fillStyle='#069';ctx.font='14px Arial';ctx.fillText('Fangyu fp 🔍',2,35);const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(c.toDataURL()));return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('').slice(0,16);}catch{return 'N/A';}
+}
+function getWebGLInfo(){try{const gl=document.createElement('canvas').getContext('webgl');const ext=gl.getExtension('WEBGL_debug_renderer_info');return{vendor:gl.getParameter(ext.UNMASKED_VENDOR_WEBGL),renderer:gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)};}catch{return{vendor:'N/A',renderer:'N/A'};}}
+function getStorageTypes(){const t=[];if(window.localStorage)t.push('LS');if(window.sessionStorage)t.push('SS');if(window.indexedDB)t.push('IDB');if(window.caches)t.push('Cache');if(document.cookie!==undefined)t.push('Cookie');return t.join(' / ');}
+
+// /sdk/init
+async function runInit(){
+  const url=$('cfg-url').value.trim().replace(/\/$/,'')+'/sdk/init';
+  $('init-resp').textContent='请求中…'; const t0=performance.now();
+  try{
+    const resp=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-App-Key':$('cfg-apikey').value.trim()},body:JSON.stringify({appId:parseInt($('cfg-appid').value)})});
+    const ms=(performance.now()-t0).toFixed(0); const data=await resp.json();
+    $('init-latency').textContent=ms+'ms'; $('init-resp').textContent=JSON.stringify(data,null,2);
+    if(data.serverTime){const skew=Math.floor(Date.now()/1000)-data.serverTime;$('skew-info').innerHTML=`时钟偏差: <strong>${skew}s</strong> ${Math.abs(skew)>30?'⚠ 偏差过大':'✓ 正常'}`;}
+  }catch(e){$('init-resp').textContent='ERROR: '+e.message;}
+}
+
+// /sdk/heartbeat
+let _hbCount=0,_hbOk=0,_hbFail=0,_hbTimer=null;
+const _sessionId='sess_'+Array.from(crypto.getRandomValues(new Uint8Array(8))).map(b=>b.toString(16).padStart(2,'0')).join('');
+async function runHeartbeat(){
+  const url=$('cfg-url').value.trim().replace(/\/$/,'')+'/sdk/heartbeat'; const t0=performance.now();
+  try{
+    const resp=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-App-Key':$('cfg-apikey').value.trim()},body:JSON.stringify({appId:parseInt($('cfg-appid').value),sessionId:_sessionId})});
+    const ms=(performance.now()-t0).toFixed(0); const data=await resp.json();
+    _hbCount++;if(resp.ok)_hbOk++;else _hbFail++;
+    $('hb-latency').textContent=ms+'ms'; $('hb-resp').textContent=JSON.stringify(data,null,2);
+  }catch(e){_hbCount++;_hbFail++;$('hb-resp').textContent='ERROR: '+e.message;}
+  $('hb-count').textContent=_hbCount;$('hb-ok').textContent=_hbOk;$('hb-fail').textContent=_hbFail;
+}
+function startAutoHb(){if(_hbTimer)return;_hbTimer=setInterval(runHeartbeat,30000);$('hb-latency').textContent='自动(30s)';}
+function stopAutoHb(){clearInterval(_hbTimer);_hbTimer=null;$('hb-latency').textContent='已停止';}
+
+// behavior events
+const _events=[]; let _capturing=false;
+function toggleCapture(){_capturing=!_capturing;$('capture-status').textContent=_capturing?'● 捕获中…':'已停止';$('capture-status').style.color=_capturing?'#56d364':'#8b949e';}
+['mousemove','click','keydown','scroll'].forEach(type=>{document.addEventListener(type,e=>{if(!_capturing)return;_events.push({type,ts:Date.now(),...(type==='mousemove'?{x:e.clientX,y:e.clientY}:{})});if(_events.length>200)_events.shift();renderEvents();},{passive:true});});
+function renderEvents(){
+  $('event-stream').innerHTML=_events.slice(-10).map(ev=>`<div class="event-row event-${ev.type}">${ev.type} ${new Date(ev.ts).toLocaleTimeString('zh-CN')}${ev.x!==undefined?` (${ev.x},${ev.y})`:''}</div>`).join('');
+  $('ev-count').textContent=_events.length;
+  const types={};_events.forEach(e=>types[e.type]=(types[e.type]||0)+1);
+  $('ev-types').innerHTML=Object.entries(types).map(([t,c])=>`<span class="tag">${t}×${c}</span>`).join('');
+}
+function clearEvents(){_events.length=0;renderEvents();}
+</script>
+</body>
+</html>

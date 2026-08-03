@@ -13,13 +13,39 @@ from fangyu_shared.tracing import setup_tracing
 from src.application.consumers.decision_consumer import DecisionConsumer
 from src.application.transformers.event_transformer import EventTransformer
 from src.application.writers.event_writer import EventWriter
+from src.application.writers.reputation_writer import ReputationWriter, ReputationWriterConfig
 from src.config import WorkerSettings, get_settings
+from src.infrastructure.cache.profile_cache import ProfileCache
 from src.entrypoints.health_server import run_health_server
 from src.infrastructure.clickhouse_batch.batch_writer import BatchWriter
 from src.infrastructure.dead_letter.dead_letter import DeadLetterHandler
 from src.infrastructure.stream.consumer import StreamConsumer, StreamConsumerConfig
 
 _logger = get_logger("worker.main")
+
+
+async def _reputation_sync_loop(
+    writer: ReputationWriter, interval: float, stop: asyncio.Event
+) -> None:
+    """定期触发声誉回流；stop event 置位后退出。"""
+    while not stop.is_set():
+        try:
+            result = await writer.run_once()
+            _logger.info(
+                "reputation_loop_tick",
+                ips=result.ips_written,
+                devices=result.devices_written,
+                errors=len(result.errors),
+            )
+        except Exception as exc:
+            _logger.warning("reputation_loop_error", error=str(exc))
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(asyncio.ensure_future(stop.wait())),
+                timeout=interval,
+            )
+        except asyncio.TimeoutError:
+            pass  # 正常的定时唤醒
 
 
 async def _bootstrap(settings: WorkerSettings) -> DecisionConsumer:
@@ -96,9 +122,12 @@ async def async_main() -> None:
     health_task = await run_health_server("0.0.0.0", settings.health_port)
     loop = asyncio.get_running_loop()
 
+    stop_event = asyncio.Event()
+
     def _stop() -> None:
         _logger.info("worker_stopping")
         consumer.request_stop()
+        stop_event.set()
 
     try:
         loop.add_signal_handler(signal.SIGINT, _stop)
@@ -107,9 +136,40 @@ async def async_main() -> None:
         # Windows fallback
         pass
 
+    # 声誉回流后台任务（可选：reputation_enabled=False 时跳过）
+    reputation_task: asyncio.Task | None = None
+    if settings.reputation_enabled:
+        redis = RedisManager.get_client()
+        clickhouse = ClickHouseManager.get_client()
+        rep_writer = ReputationWriter(
+            clickhouse=clickhouse,
+            profile_cache=ProfileCache(redis, ttl=settings.reputation_ip_ttl),
+            config=ReputationWriterConfig(
+                lookback_days=settings.reputation_lookback_days,
+                min_samples=settings.reputation_min_samples,
+                ip_ttl=settings.reputation_ip_ttl,
+                device_ttl=settings.reputation_device_ttl,
+            ),
+        )
+        reputation_task = asyncio.create_task(
+            _reputation_sync_loop(rep_writer, settings.reputation_sync_interval_seconds, stop_event)
+        )
+        _logger.info(
+            "reputation_writer_started",
+            interval=settings.reputation_sync_interval_seconds,
+            lookback=settings.reputation_lookback_days,
+        )
+
     try:
         await consumer.run()
     finally:
+        stop_event.set()
+        if reputation_task is not None:
+            reputation_task.cancel()
+            try:
+                await reputation_task
+            except asyncio.CancelledError:
+                pass
         health_task.cancel()
         try:
             await health_task

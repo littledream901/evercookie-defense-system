@@ -2,49 +2,48 @@
  * 快速入口配置
  * 包含：应用列表、快速链接等配置
  */
-import { WEB_LINKS } from '@/utils/constants'
 import type { FastEnterConfig } from '@/types/config'
 
 const fastEnterConfig: FastEnterConfig = {
   // 显示条件（屏幕宽度）
   minWidth: 1200,
-  // 应用列表
+  // 应用列表（routeName 必须存在于 router/modules/fangyu.ts，否则点击无法跳转）
   applications: [
     {
-      name: '工作台',
-      description: '系统概览与数据统计',
-      icon: 'ri:pie-chart-line',
+      name: '概览',
+      description: '防护态势与核心指标',
+      icon: 'ri:dashboard-line',
       iconColor: '#377dff',
       enabled: true,
       order: 1,
-      routeName: 'Console'
+      routeName: 'FangyuDashboard'
     },
     {
-      name: '官方文档',
-      description: '使用指南与开发文档',
-      icon: 'ri:bill-line',
-      iconColor: '#ffb100',
+      name: '应用管理',
+      description: '站点接入与密钥管理',
+      icon: 'ri:apps-line',
+      iconColor: '#00b42a',
       enabled: true,
       order: 2,
-      link: WEB_LINKS.DOCS
+      routeName: 'FangyuApps'
     },
     {
-      name: '技术支持',
-      description: '技术支持与问题反馈',
-      icon: 'ri:user-location-line',
-      iconColor: '#ff6b6b',
+      name: '规则管理',
+      description: '风控规则配置与发布',
+      icon: 'ri:shield-keyhole-line',
+      iconColor: '#ffb100',
       enabled: true,
       order: 3,
-      link: WEB_LINKS.COMMUNITY
+      routeName: 'FangyuRules'
     },
     {
-      name: '哔哩哔哩',
-      description: '技术分享与交流',
-      icon: 'ri:bilibili-line',
-      iconColor: '#FB7299',
+      name: '访问日志',
+      description: '决策明细与请求追溯',
+      icon: 'ri:file-list-3-line',
+      iconColor: '#ff6b6b',
       enabled: true,
       order: 4,
-      link: WEB_LINKS.BILIBILI
+      routeName: 'FangyuAccessLogs'
     }
   ],
   // 快速链接
@@ -71,7 +70,7 @@ const fastEnterConfig: FastEnterConfig = {
       name: '个人中心',
       enabled: true,
       order: 4,
-      routeName: 'UserCenter'
+      routeName: 'FangyuProfile'
     }
   ]
 }

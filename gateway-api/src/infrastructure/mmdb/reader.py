@@ -14,83 +14,11 @@ from typing import Any
 
 import maxminddb
 
+from fangyu_shared.intel import DATACENTER_ASNS as _DATACENTER_ASNS
+from fangyu_shared.intel import MOBILE_ASNS as _MOBILE_ASNS
 from fangyu_shared.logging import get_logger
 
 _logger = get_logger("gateway.mmdb")
-
-# 已知数据中心/云厂商 ASN（精确匹配，优先级高于关键词）
-#
-# 为什么需要这张表：组织名关键词匹配会漏掉大量托管商。
-# 实测 GeoLite2-ASN 返回的名字是 "Google LLC"、"Alibaba (US) Technology Co., Ltd."、
-# "Zenlayer Inc"，都不含 cloud/hosting 字样，只靠关键词会被误判成 residential。
-_DATACENTER_ASNS: frozenset[int] = frozenset(
-    {
-        # Google
-        15169, 396982, 19527, 36384, 36385,
-        # Amazon AWS
-        16509, 14618, 8987, 7224, 38895, 16550, 39111,
-        # Microsoft Azure
-        8075, 8068, 8069, 8070, 8071, 12076, 58862,
-        # Cloudflare
-        13335, 209242, 132892, 395747,
-        # Akamai / Linode
-        20940, 16625, 32787, 63949, 21342,
-        # Fastly / CDN77 / DataCamp
-        54113, 60068, 212238, 136620,
-        # DigitalOcean
-        14061, 393406, 200130,
-        # Vultr / The Constant Company
-        20473, 64515,
-        # OVH
-        16276, 35540, 54123,
-        # Hetzner
-        24940, 213230, 212317,
-        # Contabo / netcup / IONOS
-        51167, 197540, 8560, 34011,
-        # Alibaba Cloud
-        45102, 37963, 45096, 134963,
-        # Tencent Cloud
-        45090, 132203, 133478,
-        # Huawei Cloud
-        55990, 136907, 136908,
-        # Baidu Cloud
-        38365, 55967,
-        # Oracle Cloud
-        31898, 7160,
-        # IBM / SoftLayer
-        36351, 30315,
-        # Zenlayer / M247 / Leaseweb / Hostwinds
-        21859, 9009, 60781, 16265, 54290,
-        # GoDaddy / Namecheap / Unified Layer / Hostgator
-        26496, 22612, 46606, 30083,
-        # Scaleway / Online SAS
-        12876,
-        # G-Core / Selectel / Yandex Cloud
-        199524, 49505, 208722,
-        # Hivelocity / QuadraNet / FranTech / Psychz / Sharktech
-        29802, 8100, 53667, 40676, 46844,
-        # Choopa / RamNode / BuyVM / Servers.com
-        7203, 3223, 50673,
-    }
-)
-
-# 已知移动/蜂窝网络 ASN
-_MOBILE_ASNS: frozenset[int] = frozenset(
-    {
-        # 中国移动
-        9808, 56040, 56041, 56042, 56044, 56046, 56047, 24400, 24547, 9231,
-        # 中国联通（移动业务）
-        56048, 56049, 56050,
-        # 中国电信（移动业务）
-        56045, 56051,
-        # T-Mobile US / Verizon Wireless / AT&T Mobility
-        21928, 22394, 6167, 20057, 6389,
-        # Vodafone / Orange / Telefonica
-        55410, 3209, 25135, 3215, 12430, 6147,
-        # NTT Docomo / SoftBank / KDDI
-        9605, 17676, 9824, 2516, 2527,
-    }
-)
 
 # 已知数据中心/托管商 ASN org 关键词（小写），作为 ASN 表的补充
 _DATACENTER_KEYWORDS = {

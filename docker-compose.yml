@@ -16,7 +16,9 @@ x-common-env: &common-env
   CLICKHOUSE_HTTP_PORT: "8123"
   CLICKHOUSE_USER: default
   CLICKHOUSE_PASSWORD: ""
-  CLICKHOUSE_DATABASE: fangyu_v2
+  # ClickHouse 库名固定 fangyu：analytics_query.py / reputation_sync_service.py
+  # 里的表前缀是硬编码的，改库名会导致查不到表。
+  CLICKHOUSE_DATABASE: fangyu
   OTLP_ENDPOINT: http://jaeger:4317
   TRACE_SAMPLE_RATE: "1.0"
 
@@ -65,7 +67,7 @@ services:
       - "8123:8123"
       - "9000:9000"
     environment:
-      CLICKHOUSE_DB: fangyu_v2
+      CLICKHOUSE_DB: fangyu
       CLICKHOUSE_USER: default
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     volumes:
@@ -124,10 +126,19 @@ services:
     ports: ["9100:9091"]
     environment:
       <<: *common-env
+      # WorkerSettings 使用 WORKER_ 前缀，须显式覆盖，
+      # 否则 pydantic-settings 无法从无前缀的 common-env 中读取，
+      # 会回退到默认值 localhost，导致 Redis/ClickHouse 连不通。
+      WORKER_REDIS_URL: redis://redis:6379/0
+      WORKER_CLICKHOUSE_URL: http://clickhouse:8123
+      WORKER_CLICKHOUSE_DATABASE: fangyu
+      WORKER_BATCH_TARGET_TABLE: fangyu.decision_events
+      # Stream name 必须与 gateway-api 的 event_stream_name 一致
+      # （GatewaySettings.event_stream_name 默认 fangyu:events:decision）。
+      WORKER_STREAM_NAME: fangyu:events:decision
+      WORKER_CONSUMER_GROUP: fangyu-worker
+      WORKER_CONSUMER_NAME: worker-1
       WORKER_HEALTH_PORT: "9091"
-      STREAM_KEY: fangyu:events:v2
-      STREAM_CONSUMER_GROUP: worker-group-v2
-      STREAM_CONSUMER_NAME: worker-1
     depends_on:
       redis: { condition: service_healthy }
       clickhouse: { condition: service_healthy }

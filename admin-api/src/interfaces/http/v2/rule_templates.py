@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import Field
 
-from fangyu_shared.rules.operators import apply_operator, read_path
+from fangyu_shared.rules.operators import apply_operator, evaluate_conditions, read_path
 from fangyu_shared.schemas.common import BaseSchema, SuccessResponse
 from fangyu_shared.schemas.disposition import (
     ChallengeKind,
@@ -87,26 +87,39 @@ _TEMPLATES = [
     RuleTemplateSchema(
         id="allow-country-only",
         name="仅放行指定国家",
-        description="业务只面向特定市场时，非目标国家一律阻断。",
+        description=(
+            "业务只面向特定市场时，非目标国家一律阻断。"
+            "第一条件排除地理数据缺失的情况：MMDB 未加载或内网地址时 ip.country 为空，"
+            "否定类操作符会命中，若不排除则退化为全站阻断。"
+        ),
         priority="critical",
         disposition=deny(),
-        conditions=[{"field": "ip.country", "op": "not_in_ci", "value": ["CN", "HK", "MO", "TW"]}],
+        conditions=[
+            {"field": "ip.country", "op": "neq", "value": None},
+            {"field": "ip.country", "op": "not_in_ci", "value": ["CN", "HK", "MO", "TW"]},
+        ],
     ),
     RuleTemplateSchema(
         id="challenge-new-device",
         name="新设备挑战",
-        description="对新设备请求执行验证码挑战。",
+        description=(
+            "对首次出现的设备执行验证码挑战。"
+            "以累计请求数为判据，与 scorer 的新设备识别口径一致。"
+        ),
         priority="normal",
         disposition=challenge(ChallengeKind.CAPTCHA),
-        conditions=[{"field": "device.isNew", "op": "eq", "value": True}],
+        conditions=[{"field": "device.totalRequests", "op": "eq", "value": 0}],
     ),
     RuleTemplateSchema(
         id="path-block",
         name="敏感路径阻断",
-        description="命中敏感路径后执行阻断。",
+        description=(
+            "命中敏感路径前缀后执行阻断。用 regex 而非 in："
+            "in 是精确相等，只能挡住 /admin 本身，挡不住 /admin/users。"
+        ),
         priority="critical",
         disposition=deny(),
-        conditions=[{"field": "request.path", "op": "in", "value": ["/admin", "/checkout"]}],
+        conditions=[{"field": "request.path", "op": "regex", "value": "^/(admin|checkout)(/|$)"}],
     ),
     RuleTemplateSchema(
         id="block-datacenter",
@@ -334,31 +347,27 @@ async def preview_rule(payload: RulePreviewRequest) -> SuccessResponse[RulePrevi
         ctx["request"] = ctx.get("request", {})
         ctx["request"].setdefault("user_agent", payload.user_agent or "")
 
-    traces: list[ConditionTrace] = []
-    results: list[bool] = []
-    for condition in payload.rule.conditions:
-        actual = read_path(ctx, condition.field)
-        condition_matched = apply_operator(condition.op, actual, condition.value)
-        results.append(condition_matched)
-        traces.append(
-            ConditionTrace(
-                field=condition.field,
-                op=condition.op,
-                expected=condition.value,
-                actual=actual,
-                matched=condition_matched,
-            )
+    # 逐条 trace 供前端展示，仅用于可视化；命中结论一律由 evaluator 给出，
+    # 不在此处重复实现 AND/OR，避免与 gateway 漂移。
+    traces = [
+        ConditionTrace(
+            field=condition.field,
+            op=condition.op,
+            expected=condition.value,
+            actual=read_path(ctx, condition.field),
+            matched=apply_operator(
+                condition.op, read_path(ctx, condition.field), condition.value
+            ),
         )
+        for condition in payload.rule.conditions
+    ]
 
-    # 与 gateway 匹配器保持一致：match_all 决定 AND / OR，空条件不命中
-    if not results:
-        matched = False
-    elif payload.rule.match_all:
-        matched = all(results)
-    else:
-        matched = any(results)
+    matched = evaluate_conditions(
+        payload.rule.conditions, ctx, match_all=payload.rule.match_all
+    )
 
-    disposition = payload.rule.disposition
+    # 优先用 effective_match_disposition，兼容新版双路规则与旧版单路规则
+    disposition = payload.rule.effective_match_disposition if matched else None
     return SuccessResponse(
         data=RulePreviewResponse(
             matched=matched,

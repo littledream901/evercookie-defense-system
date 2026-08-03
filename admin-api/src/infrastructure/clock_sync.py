@@ -12,8 +12,16 @@ V1 的教训：admin 侧写 ``clock:ban:{ip}``，gateway 侧读
 
 from __future__ import annotations
 
+from typing import Any
+
 import orjson
-from fangyu_shared.clock.windows import ClockDimension, ban_key, limits_key
+from fangyu_shared.clock.windows import (
+    ClockDimension,
+    ban_key,
+    ban_scan_pattern,
+    limits_key,
+    parse_ban_key,
+)
 from fangyu_shared.schemas.clock import ClockLimits
 from redis.asyncio import Redis
 
@@ -88,3 +96,87 @@ class ClockSync:
             "reason": meta.get("reason", ""),
             "ttlSeconds": max(0, int(ttl or 0)),
         }
+
+    async def scan_bans(
+        self,
+        app_id: int,
+        *,
+        dimension: ClockDimension | None = None,
+        cursor: int = 0,
+        count: int = 200,
+    ) -> tuple[int, list[dict[str, Any]]]:
+        """游标扫描某 app 的封禁键，返回 ``(下一游标, 条目)``。
+
+        用 ``SCAN`` 而不是 ``KEYS``：封禁键数量随攻击流量增长，可能到十万级，
+        ``KEYS`` 会阻塞整个 Redis——网关的频控读写全都排在后面，等于把一次
+        运维查询变成一次全站故障。
+
+        游标透传给调用方而非在内部循环到底：一次请求扫完全库会让接口超时，
+        也失去了「先看前几页就够了」的常见用法。注意 ``SCAN`` 的返回条数只是
+        近似值，调用方不能用「返回条数不足」判断结束，只能看游标是否回到 0。
+
+        逐条 ``TTL`` 会带来 N 次往返，因此对本批键用 pipeline 一次取回。
+        """
+        pattern = ban_scan_pattern(app_id, dimension)
+        next_cursor, keys = await self._redis.scan(
+            cursor=cursor, match=pattern, count=count
+        )
+        if not keys:
+            return int(next_cursor), []
+
+        text_keys = [_text(k) for k in keys]
+        async with self._redis.pipeline(transaction=False) as pipe:
+            for key in text_keys:
+                pipe.get(key)
+                pipe.ttl(key)
+            flat = await pipe.execute()
+
+        entries: list[dict[str, Any]] = []
+        for idx, key in enumerate(text_keys):
+            raw = flat[idx * 2]
+            ttl = flat[idx * 2 + 1]
+            if raw is None:
+                # 扫描与取值之间封禁到期了。跳过而非报错——这是正常竞态，
+                # 报错只会让列表接口在攻击高峰期随机失败。
+                continue
+            parsed = parse_ban_key(key)
+            if parsed is None:
+                continue
+            _, dim, value = parsed
+            try:
+                meta = orjson.loads(raw)
+            except (orjson.JSONDecodeError, TypeError, ValueError):
+                meta = {}
+            if not isinstance(meta, dict):
+                meta = {}
+            entries.append(
+                {
+                    "dimension": dim.value,
+                    "value": value,
+                    "reason": str(meta.get("reason", "")),
+                    "ttlSeconds": max(0, int(ttl or 0)),
+                }
+            )
+        entries.sort(key=lambda e: (e["dimension"], e["value"]))
+        return int(next_cursor), entries
+
+    async def unban_many(
+        self, app_id: int, items: list[tuple[ClockDimension, str]]
+    ) -> int:
+        """批量解封，返回实际删除条数。
+
+        误封通常成批发生（一个 NAT 出口下的整片设备、一次误配阈值），逐条调
+        接口在这种场景下不实用。
+        """
+        if not items:
+            return 0
+        keys = [ban_key(app_id, dim, value) for dim, value in items]
+        removed = await self._redis.delete(*keys)
+        return int(removed or 0)
+
+
+def _text(key: object) -> str:
+    """SCAN 返回的键可能是 bytes（未开 decode_responses）或 str。"""
+    if isinstance(key, bytes):
+        return key.decode("utf-8", errors="replace")
+    return str(key)

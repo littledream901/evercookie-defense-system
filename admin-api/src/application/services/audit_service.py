@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from fangyu_shared.logging import get_logger
+from fangyu_shared.utils.time import local_now
 
 from src.domain.audit.entities import AuditAction, AuditLog
 from src.infrastructure.repositories.audit_repository import AuditLogRepository
@@ -34,7 +35,7 @@ class AuditService:
         detail: dict[str, Any] | None = None,
     ) -> AuditLog:
         log = AuditLog(
-            occurred_at=datetime.utcnow(),
+            occurred_at=local_now(),
             user_id=user_id,
             username=username,
             method=method,

@@ -19,7 +19,7 @@
  * - 错误日志收集和上报
  *
  * @module utils/http/error
- * @author Art Design Pro Team
+ * @author EverCookie Team
  */
 import { AxiosError } from 'axios'
 import { ApiStatus } from './status'
@@ -27,12 +27,16 @@ import { $t } from '@/locales'
 
 // 错误响应接口
 export interface ErrorResponse {
-  /** 错误状态码 */
-  code: number
-  /** 错误消息 */
-  msg: string
+  /** 错误状态码：admin-api 为业务错误码字符串 */
+  code: number | string
+  /** 错误消息（模板兼容字段） */
+  msg?: string
+  /** 错误消息（admin-api 字段名） */
+  message?: string
   /** 错误附加数据 */
   data?: unknown
+  /** 错误详情 */
+  details?: unknown
 }
 
 // 错误日志数据接口
@@ -126,7 +130,8 @@ export function handleError(error: AxiosError<ErrorResponse>): never {
   }
 
   const statusCode = error.response?.status
-  const errorMessage = error.response?.data?.msg || error.message
+  // admin-api 错误体字段名为 message，且携带可读的业务原因（如「缺少权限: app.read」）
+  const bizMessage = error.response?.data?.message || error.response?.data?.msg
   const requestConfig = error.config
 
   // 处理网络错误
@@ -137,10 +142,10 @@ export function handleError(error: AxiosError<ErrorResponse>): never {
     })
   }
 
-  // 处理 HTTP 状态码错误
-  const message = statusCode
-    ? getErrorMessage(statusCode)
-    : errorMessage || $t('httpMsg.requestFailed')
+  // 优先使用后端返回的业务原因，缺失时回退到状态码通用文案
+  const message =
+    bizMessage ||
+    (statusCode ? getErrorMessage(statusCode) : error.message || $t('httpMsg.requestFailed'))
   throw new HttpError(message, statusCode || ApiStatus.error, {
     data: error.response.data,
     url: requestConfig?.url,

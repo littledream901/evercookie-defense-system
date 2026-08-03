@@ -1,0 +1,12 @@
+# Shell 脚本与容器内配置必须保持 LF：
+# Windows 检出时被转成 CRLF 会导致 Linux 上 shebang 解析失败
+# （报 "bad interpreter: /usr/bin/env bash^M: no such file"）。
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.Dockerfile    text eol=lf
+*.conf          text eol=lf
+*.template      text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+.env.example    text eol=lf
+.env.production.example text eol=lf

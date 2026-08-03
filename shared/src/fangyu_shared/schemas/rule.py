@@ -26,7 +26,7 @@ from pydantic import Field, field_validator, model_validator
 
 from fangyu_shared.rules.operators import OPERATOR_NAMES
 from fangyu_shared.schemas.common import BaseSchema
-from fangyu_shared.schemas.disposition import Disposition
+from fangyu_shared.schemas.disposition import DecisionDisposition, Disposition
 
 
 class RuleStatus(str, Enum):
@@ -62,7 +62,7 @@ _ALLOWED_OPS = OPERATOR_NAMES
 从实现派生而非手写常量，避免出现「白名单放行但求值器未实现」的静默 False。
 """
 
-ALLOWED_CONTEXT_ROOTS: frozenset[str] = frozenset({"device", "ip", "ua", "request"})
+ALLOWED_CONTEXT_ROOTS: frozenset[str] = frozenset({"device", "ip", "ua", "request", "intel"})
 """条件 field 允许的顶层命名空间，与 ProfileSnapshot.to_evaluation_context() 对应。"""
 
 
@@ -88,7 +88,15 @@ class RuleBase(BaseSchema):
     """
 
     id: int | None = None
-    app_id: int = Field(..., alias="appId", gt=0)
+    app_id: int = Field(default=0, alias="appId", ge=0)
+    """站点分片标记。
+
+    规则与站点是多对多关系（关联表 biz_rule_site），规则本身不归属某个站点。
+    该字段仅在写入 Redis ``fangyu:rules:{app_id}`` 分片时按目标站点逐一赋值，
+    供 gateway 侧沿用既有的按站点读取逻辑；admin 侧查询返回的规则该值为 0。
+    """
+    site_ids: list[int] = Field(default_factory=list, alias="siteIds")
+    """已绑定的站点 id 列表，由 admin 侧填充，gateway 不使用。"""
     name: str = Field(..., min_length=1, max_length=128)
     description: str | None = Field(default=None, max_length=512)
     status: RuleStatus = RuleStatus.DRAFT
@@ -132,7 +140,6 @@ class ScoringRule(RuleBase):
 
     kind: RuleKind = RuleKind.SCORING
     weight: int = Field(default=10, ge=-1000, le=1000)
-    scorer: str | None = Field(default=None, max_length=32)
 
     @field_validator("kind")
     @classmethod
@@ -145,11 +152,17 @@ class ScoringRule(RuleBase):
 class DecisionRule(RuleBase):
     """决策规则：命中即终止流水线并施加处置。
 
-    没有 ``weight`` 字段——命中即终止，权重无意义。
+    双路处置（新）：命中走 ``disposition_match``，未命中走 ``disposition_miss``。
+    向后兼容（旧）：只传 ``disposition`` 时自动回填 ``disposition_match``，
+    ``disposition_miss`` 默认放行。没有 ``weight`` 字段——命中即终止，权重无意义。
     """
 
     kind: RuleKind = RuleKind.DECISION
-    disposition: Disposition
+    disposition_match: DecisionDisposition | None = None
+    disposition_miss: DecisionDisposition | None = None
+    # 兼容旧版单路处置（回填/迁移用）；新规则优先用 disposition_match
+    # @deprecated: 此字段将在下一个大版本移除，迁移时请改用 disposition_match + disposition_miss
+    disposition: Disposition | None = None
 
     @field_validator("kind")
     @classmethod
@@ -157,6 +170,44 @@ class DecisionRule(RuleBase):
         if v != RuleKind.DECISION:
             raise ValueError("DecisionRule.kind 必须为 decision")
         return v
+
+    @model_validator(mode="after")
+    def _backfill_disposition(self) -> "DecisionRule":
+        """兼容旧版单路 ``disposition``：如未提供 disposition_match，从 disposition 推导。
+
+        新代码应直接传 disposition_match；旧测试/旧数据只传 disposition 时不需改动。
+        """
+        if self.disposition_match is None:
+            if self.disposition is None:
+                raise ValueError(
+                    "DecisionRule 必须提供 disposition_match 或 disposition（兼容旧版）"
+                )
+            # 将旧版 Disposition → DecisionDisposition（去掉 verdict，保留机制与目标）
+            d = self.disposition
+            # BaseSchema 不是 frozen，可直接赋值（Pydantic v2 推荐写法）
+            self.disposition_match = DecisionDisposition(
+                mechanism=d.mechanism,
+                target=d.target,
+                challengeKind=d.challenge_kind,
+                ttlSeconds=d.ttl_seconds,
+            )
+        return self
+
+    @property
+    def effective_match_disposition(self) -> Disposition:
+        """命中时实际施加的 Disposition（含 verdict）。统一出口，兼容双路与旧版单路。"""
+        assert self.disposition_match is not None  # _backfill_disposition 已保证
+        if self.disposition is not None:
+            # 旧版：直接返回带 verdict 的原始 disposition
+            return self.disposition
+        return self.disposition_match.to_disposition()
+
+    @property
+    def effective_miss_disposition(self) -> Disposition | None:
+        """未命中时施加的 Disposition；None 表示继续流水线（不短路）。"""
+        if self.disposition_miss is None:
+            return None
+        return self.disposition_miss.to_disposition()
 
 
 class RuleGroup(BaseSchema):

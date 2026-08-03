@@ -40,8 +40,10 @@ class GatewaySettings(BaseSettings):
     mmdb_asn_path: str = "/data/mmdb/GeoLite2-ASN.mmdb"
 
     # Risk thresholds
-    challenge_threshold: float = Field(default=40.0, ge=0, le=100)
-    block_threshold: float = Field(default=70.0, ge=0, le=100)
+    # 累加截顶模型下的阈值，对齐原版 30/75 口径。
+    # 早期加权平均模型用的 40/70 在累加语义下会过度触发，不可沿用。
+    challenge_threshold: float = Field(default=30.0, ge=0, le=100)
+    block_threshold: float = Field(default=75.0, ge=0, le=100)
 
     # Stream
     event_stream_name: str = "fangyu:events:decision"
@@ -59,13 +61,33 @@ class GatewaySettings(BaseSettings):
     app_key_cache_ttl: int = 60
     app_key_cache_max_size: int = 4096
 
+    # 请求签名（防伪造画像与重放）
+    signature_required: bool = False
+    """默认关闭：存量适配器尚未带 sign 字段，开启前需先完成客户端灰度。"""
+    signature_window: int = 300
+    """timestamp 允许的双向偏差秒数，同时作为 nonce 的 Redis TTL。"""
+
     # Clock：频控与行为时序
     clock_enabled: bool = True
     """关闭后流水线从 CACHE 开始，完全不产生 Clock 的 Redis 开销。"""
 
+    # 白名单：误封的人工兜底通道
+    whitelist_enabled: bool = True
+    """关闭后流水线从 CLOCK 开始，省掉每请求一次 HMGET。
+
+    默认开启：这是误封唯一的即时解除手段，关掉等于运维只能等封禁 TTL 自然
+    过期。单次 HMGET 的成本远低于一次误封事故。
+    """
+
     # CORS
+    #
+    # 这里保留 ["*"]：SDK 从各接入方站点发起跨域请求，来源无法预先枚举，
+    # 收窄反而会拦掉正常流量。鉴权靠 API Key 请求头，不依赖 Cookie。
+    #
+    # 但 allow_credentials 必须默认 False —— 与 allow_origins=["*"] 同时开启时
+    # 浏览器会直接拒绝整个响应，等于所有跨域请求失效。
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
-    cors_allow_credentials: bool = True
+    cors_allow_credentials: bool = False
 
 
 _settings: GatewaySettings | None = None

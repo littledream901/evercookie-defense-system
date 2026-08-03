@@ -5,7 +5,7 @@
  * 通过修改此配置文件可以快速启用或禁用顶部栏的功能按钮。
  *
  * @module config/headerBar
- * @author Art Design Pro Team
+ * @author EverCookie Team
  */
 
 import { HeaderBarFeatureConfig } from '@/types'
@@ -39,11 +39,11 @@ export const headerBarConfig: HeaderBarFeatureConfig = {
     description: '全屏切换功能'
   },
   notification: {
-    enabled: true,
+    enabled: false,
     description: '通知中心，显示系统通知和消息'
   },
   chat: {
-    enabled: true,
+    enabled: false,
     description: '聊天功能，提供实时沟通'
   },
   language: {

@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fangyu V2 · Adapter 测试台</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: ui-monospace, 'Cascadia Code', monospace; background: #0d1117; color: #c9d1d9; font-size: 13px; }
+header { background: #161b22; border-bottom: 1px solid #30363d; padding: 12px 20px; display: flex; align-items: center; gap: 12px; }
+header h1 { font-size: 16px; color: #f0f6fc; font-weight: 600; }
+header .badge { background: #1f6feb; color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 11px; }
+.main { display: grid; grid-template-columns: 300px 1fr; gap: 0; height: calc(100vh - 48px); overflow: hidden; }
+.sidebar { background: #161b22; border-right: 1px solid #30363d; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.panel { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.section-title { font-size: 11px; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.field label { font-size: 11px; color: #8b949e; }
+.field input, .field select, .field textarea {
+  background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
+  padding: 6px 8px; border-radius: 6px; font-family: inherit; font-size: 12px; width: 100%;
+}
+.field input:focus, .field select:focus { outline: none; border-color: #1f6feb; }
+.btn { padding: 6px 12px; border-radius: 6px; border: 1px solid #30363d; background: #21262d; color: #c9d1d9; cursor: pointer; font-family: inherit; font-size: 12px; transition: background .15s; }
+.btn:hover { background: #30363d; }
+.btn-primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+.btn-primary:hover { background: #388bfd; }
+.btn-danger { background: #da3633; border-color: #da3633; color: #fff; }
+.btn-danger:hover { background: #f85149; }
+.btn-sm { padding: 3px 8px; font-size: 11px; }
+.scene-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.scene-btn { padding: 8px 6px; border-radius: 6px; border: 1px solid #30363d; background: #21262d; color: #c9d1d9; cursor: pointer; font-family: inherit; font-size: 11px; text-align: left; line-height: 1.4; transition: border-color .15s; }
+.scene-btn:hover { border-color: #1f6feb; }
+.scene-btn .scene-icon { display: block; font-size: 16px; margin-bottom: 4px; }
+.stress-btns { display: flex; gap: 6px; }
+.card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px; }
+.card-title { font-size: 12px; font-weight: 600; color: #8b949e; margin-bottom: 10px; }
+pre { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 10px; overflow: auto; font-size: 11px; max-height: 280px; white-space: pre-wrap; word-break: break-all; }
+.verdict-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+.v-trusted  { background: #0d4a1e; color: #56d364; border: 1px solid #238636; }
+.v-suspect  { background: #3d2800; color: #e3b341; border: 1px solid #9e6a03; }
+.v-hostile  { background: #3d0000; color: #f85149; border: 1px solid #da3633; }
+.mechanism-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+.mech-badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; background: #21262d; border: 1px solid #30363d; }
+.result-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.result-item { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 10px; }
+.result-item .label { font-size: 10px; color: #8b949e; margin-bottom: 4px; }
+.result-item .value { font-size: 14px; font-weight: 600; }
+.score-bar { height: 6px; background: #21262d; border-radius: 3px; margin-top: 6px; overflow: hidden; }
+.score-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #238636, #9e6a03, #da3633); transition: width .4s; }
+.log-entry { padding: 4px 8px; border-left: 3px solid #30363d; margin-bottom: 4px; font-size: 11px; }
+.log-ok    { border-color: #238636; }
+.log-warn  { border-color: #9e6a03; }
+.log-err   { border-color: #da3633; }
+.stress-summary { display: flex; gap: 16px; flex-wrap: wrap; }
+.stress-stat { text-align: center; }
+.stress-stat .sv { font-size: 20px; font-weight: 700; }
+.stress-stat .sl { font-size: 10px; color: #8b949e; }
+.action-sim { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.action-card { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 10px; }
+.action-card .action-title { font-size: 11px; font-weight: 600; color: #8b949e; margin-bottom: 6px; }
+.hidden { display: none; }
+.spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #30363d; border-top-color: #1f6feb; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: 4px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.tag { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px; background: #21262d; border: 1px solid #30363d; margin-right: 3px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡 Fangyu V2</h1>
+  <span class="badge">Adapter 测试台</span>
+  <span style="margin-left:auto;color:#8b949e;font-size:11px" id="ts-display"></span>
+</header>
+<div class="main">
+<!-- ── SIDEBAR ── -->
+<aside class="sidebar">
+  <div>
+    <div class="section-title">网关配置</div>
+    <div class="field"><label>Gateway URL</label><input id="cfg-url" value="http://localhost:8001"></div>
+    <div class="field"><label>App ID</label><input id="cfg-appid" type="number" value="1"></div>
+    <div class="field"><label>API Key (X-App-Key)</label><input id="cfg-apikey" value=""></div>
+    <div class="field"><label>App Secret (HMAC)</label><input id="cfg-secret" type="password" value=""></div>
+    <div class="field"><label>Ingress</label>
+      <select id="cfg-ingress">
+        <option value="sdk">sdk（浏览器 JS）</option>
+        <option value="adapter">adapter（服务端转发）</option>
+      </select>
+    </div>
+    <div class="field" id="field-ip" class="hidden"><label>访客 IP（adapter 必填）</label><input id="cfg-ip" value="1.2.3.4"></div>
+    <div class="field"><label>Fail Mode</label>
+      <select id="cfg-fail"><option value="open">fail-open（放行）</option><option value="closed">fail-closed（拒绝）</option></select>
+    </div>
+  </div>
+  <div>
+    <div class="section-title">测试场景</div>
+    <div class="scene-grid">
+      <button class="scene-btn" onclick="loadScene('normal')"><span class="scene-icon">🌐</span>正常 Chrome</button>
+      <button class="scene-btn" onclick="loadScene('python_crawler')"><span class="scene-icon">🕷</span>Python 爬虫 UA</button>
+      <button class="scene-btn" onclick="loadScene('tor_exit')"><span class="scene-icon">🧅</span>Tor 出口（模拟）</button>
+      <button class="scene-btn" onclick="loadScene('datacenter')"><span class="scene-icon">☁️</span>云服务器 IP</button>
+      <button class="scene-btn" onclick="loadScene('headless')"><span class="scene-icon">🤖</span>无头浏览器</button>
+      <button class="scene-btn" onclick="loadScene('direct')"><span class="scene-icon">📡</span>无浏览器直调</button>
+    </div>
+  </div>
+  <div>
+    <div class="section-title">压力测试</div>
+    <div class="stress-btns">
+      <button class="btn btn-sm" onclick="runStress(5)">连发 5 次</button>
+      <button class="btn btn-sm btn-danger" onclick="runStress(20)">连发 20 次</button>
+      <button class="btn btn-sm" onclick="clearStress()">清空</button>
+    </div>
+    <div id="stress-summary" class="stress-summary" style="margin-top:10px"></div>
+  </div>
+  <div>
+    <div class="section-title">上下文覆盖</div>
+    <div class="field"><label>Visit URL</label><input id="ctx-visit" value="https://example.com/product/123"></div>
+    <div class="field"><label>Referer</label><input id="ctx-referer" value=""></div>
+    <div class="field"><label>Repeat Value (_sd_0000)</label><input id="ctx-repeat" value=""></div>
+    <div class="field"><label>Fingerprint</label><input id="ctx-fp" value="" placeholder="留空自动生成"></div>
+  </div>
+  <button class="btn btn-primary" onclick="runDecide()">发起决策请求</button>
+</aside>
+<!-- ── MAIN PANEL ── -->
+<div class="panel">
+  <!-- 请求体 -->
+  <div class="card">
+    <div class="card-title">请求体 <span id="sign-status" style="font-size:10px;color:#8b949e"></span></div>
+    <pre id="req-display">（点击场景按钮或直接点「发起决策请求」）</pre>
+  </div>
+  <!-- 响应 -->
+  <div class="card" id="resp-card">
+    <div class="card-title">响应 — V2 三层处置模型</div>
+    <div id="verdict-area" class="hidden">
+      <div class="mechanism-row">
+        <span id="badge-verdict" class="verdict-badge">—</span>
+        <span class="mech-badge" id="badge-mechanism">—</span>
+        <span class="tag" id="badge-target-kind">origin</span>
+        <span id="badge-target-url" style="font-size:11px;color:#8b949e"></span>
+        <span style="margin-left:auto;font-size:11px;color:#8b949e" id="resp-latency"></span>
+      </div>
+      <div class="result-grid" style="margin:10px 0">
+        <div class="result-item"><div class="label">Risk Score</div><div class="value" id="ri-score">—</div><div class="score-bar"><div class="score-fill" id="ri-score-bar" style="width:0%"></div></div></div>
+        <div class="result-item"><div class="label">Decided By</div><div class="value" id="ri-decided-by" style="font-size:11px">—</div></div>
+        <div class="result-item"><div class="label">HTTP Status</div><div class="value" id="ri-status">—</div></div>
+      </div>
+    </div>
+    <pre id="resp-display">（等待响应…）</pre>
+  </div>
+  <!-- adapter 动作模拟 -->
+  <div class="card" id="action-card">
+    <div class="card-title">Adapter 动作模拟 <span style="font-size:10px;color:#8b949e">— 根据 mechanism 展示 adapter 将执行的操作</span></div>
+    <div class="action-sim" id="action-sim-grid">
+      <div class="action-card"><div class="action-title">PASS / SERVE_ALT</div><div id="act-pass" style="color:#56d364;font-size:11px">正常放行，继续渲染页面。</div></div>
+      <div class="action-card"><div class="action-title">REDIRECT</div><div id="act-redirect" style="font-size:11px">无目标 URL。</div></div>
+      <div class="action-card"><div class="action-title">DENY / NOT_FOUND / CHALLENGE</div><div id="act-deny" style="font-size:11px">未触发。</div></div>
+    </div>
+  </div>
+  <!-- 请求日志 -->
+  <div class="card">
+    <div class="card-title">请求日志 <button class="btn btn-sm" onclick="clearLog()" style="float:right">清空</button></div>
+    <div id="log-list" style="max-height:200px;overflow-y:auto"></div>
+  </div>
+</div>
+</div>
+<script>
+// ── Config ──
+const $ = id => document.getElementById(id);
+
+document.getElementById('cfg-ingress').addEventListener('change', function() {
+  document.getElementById('field-ip').style.display = this.value === 'adapter' ? 'block' : 'none';
+});
+
+setInterval(() => {
+  $('ts-display').textContent = new Date().toLocaleTimeString('zh-CN') + '  ts=' + Math.floor(Date.now()/1000);
+}, 1000);
+
+// ── Signing (must match Python build_sign_payload) ──
+function sortDeep(val) {
+  if (Array.isArray(val)) return val.map(sortDeep);
+  if (val !== null && typeof val === 'object') {
+    const s = {};
+    Object.keys(val).sort().forEach(k => { s[k] = sortDeep(val[k]); });
+    return s;
+  }
+  return val;
+}
+
+function signValue(v) {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (typeof v === 'object') return JSON.stringify(sortDeep(v));
+  return String(v);
+}
+
+function buildPayload(params) {
+  const parts = [];
+  for (const key of Object.keys(params).sort()) {
+    if (key === 'sign') continue;
+    const raw = params[key];
+    if (raw === null || raw === undefined || raw === '') continue;
+    const v = signValue(raw);
+    if (v === null || v === '') continue;
+    parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(v)}`);
+  }
+  return parts.join('&');
+}
+
+async function computeHmac(secret, message) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name:'HMAC', hash:'SHA-256' }, false, ['sign']);
+  const sig  = await crypto.subtle.sign('HMAC', key, enc.encode(message));
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+function genNonce() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+function genFp() {
+  return 'fp_' + Array.from(crypto.getRandomValues(new Uint8Array(8))).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+// ── Scenes ──
+const SCENES = {
+  normal: {
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    ip: '218.17.12.100',
+    evercookieRestored: false,
+    behaviorEvents: [{ type:'mousemove', ts: Date.now() }, { type:'click', ts: Date.now()+400 }],
+  },
+  python_crawler: {
+    userAgent: 'python-requests/2.31.0',
+    ip: '45.33.32.156',
+    evercookieRestored: false,
+    behaviorEvents: [],
+  },
+  tor_exit: {
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/115.0',
+    ip: '185.220.101.1',
+    evercookieRestored: false,
+    behaviorEvents: [],
+  },
+  datacenter: {
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+    ip: '34.102.136.180',
+    evercookieRestored: false,
+    behaviorEvents: [],
+  },
+  headless: {
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/124.0.0.0 Safari/537.36',
+    ip: '203.0.113.9',
+    evercookieRestored: true,
+    behaviorEvents: [],
+  },
+  direct: {
+    userAgent: 'curl/7.88.1',
+    ip: '1.2.3.4',
+    evercookieRestored: false,
+    behaviorEvents: [],
+  },
+};
+
+let _currentScene = null;
+
+function loadScene(name) {
+  const s = SCENES[name];
+  if (!s) return;
+  _currentScene = s;
+  // Update cfg-ip field with scene IP (for adapter ingress)
+  $('cfg-ip').value = s.ip;
+  $('cfg-ingress').value = 'adapter';
+  $('field-ip').style.display = 'block';
+  appendLog(`加载场景：${name} (IP=${s.ip})`, 'ok');
+}
+
+// ── Build request body ──
+function buildBody(scene) {
+  const ingress = $('cfg-ingress').value;
+  const appId   = parseInt($('cfg-appid').value, 10);
+  const fp      = $('ctx-fp').value.trim() || genFp();
+  const visit   = $('ctx-visit').value.trim() || 'https://example.com/';
+  const referer = $('ctx-referer').value.trim();
+  const repeat  = $('ctx-repeat').value.trim();
+
+  const ctx = {
+    appId,
+    ingress,
+    fingerprint: fp,
+    userAgent: scene ? scene.userAgent : navigator.userAgent,
+    visitUrl: visit,
+    ...(referer ? { referer } : {}),
+    ...(repeat  ? { repeatKey: '_sd_0000', repeatValue: repeat } : {}),
+    ...(ingress === 'adapter' ? { ip: scene ? scene.ip : $('cfg-ip').value } : {}),
+    ...(scene && scene.evercookieRestored !== undefined ? { evercookieRestored: scene.evercookieRestored } : {}),
+    ...(scene && scene.behaviorEvents && scene.behaviorEvents.length > 0 ? { behaviorEvents: scene.behaviorEvents } : {}),
+  };
+  return ctx;
+}
+
+// ── Main decision request ──
+async function runDecide() {
+  const secret = $('cfg-secret').value.trim();
+  const apiKey = $('cfg-apikey').value.trim();
+  const url    = $('cfg-url').value.trim().replace(/\/$/, '') + '/v2/decide';
+
+  if (!secret) { appendLog('⚠ 请填写 App Secret', 'err'); return; }
+  if (!apiKey) { appendLog('⚠ 请填写 API Key', 'err'); return; }
+
+  $('sign-status').textContent = '⏳ 签名中…';
+  $('resp-display').textContent = '（请求中…）';
+  $('verdict-area').classList.add('hidden');
+
+  const body = buildBody(_currentScene);
+  let signed;
+  try {
+    const nonce     = genNonce();
+    const timestamp = Math.floor(Date.now() / 1000);
+    const payload   = { ...body, nonce, timestamp };
+    const sign      = await computeHmac(secret, buildPayload(payload));
+    signed = { ...payload, sign };
+    $('sign-status').textContent = `✓ sign=${sign.slice(0,12)}…  nonce=${nonce.slice(0,8)}…`;
+  } catch (e) {
+    appendLog('签名失败：' + e.message, 'err');
+    return;
+  }
+
+  $('req-display').textContent = JSON.stringify(signed, null, 2);
+
+  const t0 = performance.now();
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-App-Key': apiKey,
+      },
+      body: JSON.stringify(signed),
+    });
+    const ms   = (performance.now() - t0).toFixed(0);
+    const data = await resp.json();
+    renderResponse(data, resp.status, ms);
+    appendLog(`${resp.status} ${data.verdict ?? '?'} / ${data.mechanism ?? '?'}  ${ms}ms`, resp.ok ? 'ok' : 'err');
+  } catch (e) {
+    const ms = (performance.now() - t0).toFixed(0);
+    $('resp-display').textContent = 'NETWORK ERROR: ' + e.message;
+    appendLog(`网络错误 ${ms}ms: ${e.message}`, 'err');
+  }
+}
+
+// ── Render response ──
+function renderResponse(data, httpStatus, ms) {
+  $('resp-display').textContent = JSON.stringify(data, null, 2);
+  $('resp-latency').textContent = ms + 'ms';
+  $('verdict-area').classList.remove('hidden');
+
+  const v = (data.verdict || '').toLowerCase();
+  const badge = $('badge-verdict');
+  badge.className = 'verdict-badge ' + ({'trusted':'v-trusted','suspect':'v-suspect','hostile':'v-hostile'}[v] || '');
+  badge.textContent = data.verdict || '—';
+
+  $('badge-mechanism').textContent  = data.mechanism || '—';
+  $('badge-target-kind').textContent = data.targetKind || '—';
+  $('badge-target-url').textContent  = data.targetUrl  || '';
+
+  const score = data.score ?? 0;
+  $('ri-score').textContent   = score;
+  $('ri-score-bar').style.width = Math.min(score, 100) + '%';
+  $('ri-decided-by').textContent = data.decidedBy || '—';
+  $('ri-status').textContent  = httpStatus;
+
+  // Action simulation
+  const mech = (data.mechanism || '').toLowerCase();
+  $('act-pass').style.color     = '#8b949e';
+  $('act-redirect').style.color = '#8b949e';
+  $('act-deny').style.color     = '#8b949e';
+
+  if (mech === 'pass' || mech === 'serve_alt') {
+    $('act-pass').style.color   = '#56d364';
+    $('act-pass').textContent   = mech === 'serve_alt'
+      ? `Adapter 返回备用页面内容（page_content 已注入）。`
+      : '正常放行，继续渲染原始页面。';
+  } else if (mech === 'redirect') {
+    $('act-redirect').style.color   = '#e3b341';
+    $('act-redirect').textContent   = data.targetUrl
+      ? `Adapter 发起 302 跳转 → ${data.targetUrl}`
+      : 'redirect 但无 targetUrl（配置问题？）';
+  } else if (mech === 'deny') {
+    $('act-deny').style.color   = '#f85149';
+    $('act-deny').textContent   = `Adapter 返回 ${data.httpStatus ?? 403} 并终止请求。`;
+  } else if (mech === 'not_found') {
+    $('act-deny').style.color   = '#f85149';
+    $('act-deny').textContent   = 'Adapter 返回 404。';
+  } else if (mech === 'challenge') {
+    $('act-deny').style.color   = '#e3b341';
+    $('act-deny').textContent   = `Challenge：${data.challengeKind ?? '?'}  token=${(data.challengeToken||'').slice(0,12)}…`;
+  }
+}
+
+// ── Stress test ──
+let _stressResults = [];
+async function runStress(n) {
+  const secret = $('cfg-secret').value.trim();
+  const apiKey = $('cfg-apikey').value.trim();
+  const url    = $('cfg-url').value.trim().replace(/\/$/, '') + '/v2/decide';
+  if (!secret || !apiKey) { appendLog('⚠ 填写 API Key + Secret', 'err'); return; }
+  appendLog(`开始压力测试 ×${n}…`, 'ok');
+
+  const promises = Array.from({ length: n }, async (_, i) => {
+    const body  = buildBody(null);
+    const nonce = genNonce();
+    const ts    = Math.floor(Date.now() / 1000);
+    const pl    = { ...body, nonce, timestamp: ts };
+    const sign  = await computeHmac(secret, buildPayload(pl));
+    const t0    = performance.now();
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-App-Key': apiKey },
+        body: JSON.stringify({ ...pl, sign }),
+      });
+      const ms   = (performance.now() - t0).toFixed(0);
+      const data = await resp.json().catch(() => ({}));
+      return { ok: resp.ok, status: resp.status, ms: +ms, verdict: data.verdict, mechanism: data.mechanism };
+    } catch (e) {
+      return { ok: false, status: 0, ms: +(performance.now() - t0).toFixed(0), err: e.message };
+    }
+  });
+
+  const results = await Promise.all(promises);
+  _stressResults.push(...results);
+  renderStressSummary(_stressResults);
+}
+
+function renderStressSummary(results) {
+  const total  = results.length;
+  const ok     = results.filter(r => r.ok).length;
+  const fail   = total - ok;
+  const avgMs  = total > 0 ? (results.reduce((a, r) => a + r.ms, 0) / total).toFixed(0) : 0;
+  const maxMs  = total > 0 ? Math.max(...results.map(r => r.ms)) : 0;
+  const vcounts = {};
+  results.forEach(r => { if (r.verdict) vcounts[r.verdict] = (vcounts[r.verdict]||0)+1; });
+  const vhtml  = Object.entries(vcounts).map(([v,c]) => `<span class="tag">${v}×${c}</span>`).join('');
+  $('stress-summary').innerHTML = `
+    <div class="stress-stat"><div class="sv">${total}</div><div class="sl">Total</div></div>
+    <div class="stress-stat"><div class="sv" style="color:#56d364">${ok}</div><div class="sl">OK</div></div>
+    <div class="stress-stat"><div class="sv" style="color:#f85149">${fail}</div><div class="sl">Fail</div></div>
+    <div class="stress-stat"><div class="sv">${avgMs}ms</div><div class="sl">Avg</div></div>
+    <div class="stress-stat"><div class="sv">${maxMs}ms</div><div class="sl">Max</div></div>
+    <div style="align-self:center">${vhtml}</div>
+  `;
+}
+
+function clearStress() {
+  _stressResults = [];
+  $('stress-summary').innerHTML = '';
+  appendLog('压力测试记录已清空', 'ok');
+}
+
+// ── Log ──
+function appendLog(msg, level='ok') {
+  const el = document.createElement('div');
+  el.className = `log-entry log-${level}`;
+  el.textContent = new Date().toLocaleTimeString('zh-CN') + '  ' + msg;
+  const list = $('log-list');
+  list.appendChild(el);
+  list.scrollTop = list.scrollHeight;
+}
+
+function clearLog() {
+  $('log-list').innerHTML = '';
+}
+</script>
+</body>
+</html>

@@ -7,6 +7,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+from fangyu_shared.utils.time import local_now
+
 
 class AuditAction(str, Enum):
     CREATE = "create"
@@ -23,7 +25,7 @@ class AuditAction(str, Enum):
 @dataclass(slots=True)
 class AuditLog:
     id: int | None = None
-    occurred_at: datetime = field(default_factory=datetime.utcnow)
+    occurred_at: datetime = field(default_factory=local_now)
     user_id: int | None = None
     username: str = ""
     method: str = ""

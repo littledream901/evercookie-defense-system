@@ -19,6 +19,10 @@ htmlcov/
 # 环境
 .env
 .env.local
+.env.production
+.env.staging
+!.env.example
+!.env.production.example
 .venv/
 venv/
 # 前端 .env 是构建配置（端口/权限模式/部署路径），非密钥；
@@ -37,8 +41,9 @@ dashboard-ui/dist/
 dashboard-ui/.pnpm-debug.log
 client-sdk/dist/
 client-sdk/node_modules/
-web/dist/
-web/.pnpm-debug.log
+
+# vite testPagesPlugin 在 buildStart 时从 tests/pages/ 拷贝生成，源文件不在此处
+dashboard-ui/public/testing-pages/
 
 # Claude Code 工作区（内含外层仓库的 worktree 检出）
 .claude/
@@ -46,6 +51,9 @@ web/.pnpm-debug.log
 # 数据
 *.mmdb
 data/
+deploy/backups/
+deploy/.deploy-state/
+deploy/.logs/
 
 # 日志
 *.log

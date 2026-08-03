@@ -23,8 +23,11 @@ from fangyu_shared.schemas.disposition import Disposition, allow
 class DecidedBy(str, Enum):
     """处置来源。落库后支撑「为什么是这个处置」的查询。"""
 
+    WHITELIST = "whitelist"
+    CHALLENGE_PASS = "challenge_pass"
     CLOCK_BAN = "clock_ban"
     CLOCK_RATE_LIMIT = "clock_rate_limit"
+    HYBRID_LAYER = "hybrid_layer"
     DECISION_RULE = "decision_rule"
     GROUP_NO_MATCH = "group_no_match"
     THREAT_INTEL = "threat_intel"
@@ -35,13 +38,24 @@ class DecidedBy(str, Enum):
 
     @property
     def is_time_sensitive(self) -> bool:
-        """结论是否与时间强相关，不可写入决策缓存。
+        """结论是否不可写入决策缓存。
 
         频控与封禁的结论只在当前时间窗内成立。若按 ``ttl_seconds`` 缓存，
         访客在窗口早已滑过之后仍会被拒——这类误伤极难排查，因为规则侧
         看不出任何拦截原因。
+
+        白名单同样排除，但理由是配置时效而非时间窗：白名单是绕过全部风控的
+        高危配置，误加一条后运维删除必须**立即**生效。若缓存了它产出的
+        allow，删除后仍有一个 TTL 周期的放行窗口。
+
+        挑战通行同理：凭据只在自身 TTL 内成立，缓存它会让通行期比凭据本身更长。
         """
-        return self in (DecidedBy.CLOCK_BAN, DecidedBy.CLOCK_RATE_LIMIT)
+        return self in (
+            DecidedBy.WHITELIST,
+            DecidedBy.CHALLENGE_PASS,
+            DecidedBy.CLOCK_BAN,
+            DecidedBy.CLOCK_RATE_LIMIT,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +90,34 @@ SYSTEM_DEFAULT_DISPOSITION = allow()
 
 class DispositionResolver:
     """处置解析器：按固定优先级选出最终处置。"""
+
+    @staticmethod
+    def from_whitelist(*, reason: str) -> ResolvedDisposition:
+        """白名单命中：无条件放行。
+
+        不接受外部传入的 disposition——白名单的语义就是 allow，留出参数只会
+        让「白名单里配了个 deny」这种自相矛盾的状态变得可表达。
+        """
+        return ResolvedDisposition(
+            disposition=allow(),
+            decided_by=DecidedBy.WHITELIST,
+            decided_stage="whitelist",
+            reason=reason,
+        )
+
+    @staticmethod
+    def from_challenge_pass(*, reason: str = "challenge_verified") -> ResolvedDisposition:
+        """挑战通行凭据命中：放行。
+
+        访客已在 ``/v2/challenge/verify`` 完成挑战校验，凭据 TTL 内不再重复挑战。
+        与白名单同样固定为 allow：凭据只证明「不是机器人」，不携带任何处置意图。
+        """
+        return ResolvedDisposition(
+            disposition=allow(),
+            decided_by=DecidedBy.CHALLENGE_PASS,
+            decided_stage="challenge_pass",
+            reason=reason,
+        )
 
     @staticmethod
     def from_clock_ban(disposition: Disposition, *, reason: str) -> ResolvedDisposition:
@@ -140,6 +182,16 @@ class DispositionResolver:
             disposition=disposition,
             decided_by=DecidedBy.SECURITY,
             decided_stage="security",
+            reason=reason,
+        )
+
+    @staticmethod
+    def from_server_layer(disposition: Disposition, *, reason: str) -> ResolvedDisposition:
+        """服务端第一层（CF Worker / Nginx）已判定的结论，SDK 二次请求时直接复用。"""
+        return ResolvedDisposition(
+            disposition=disposition,
+            decided_by=DecidedBy.HYBRID_LAYER,
+            decided_stage="hybrid_lookup",
             reason=reason,
         )
 

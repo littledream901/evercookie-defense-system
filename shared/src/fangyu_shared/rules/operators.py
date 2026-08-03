@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import ipaddress
 import re
-from collections.abc import Callable, Iterable
-from typing import Any
+from collections.abc import Callable, Iterable, Sequence
+from typing import Any, Protocol
 
 _MAX_REGEX_LENGTH = 512
 
@@ -101,6 +101,15 @@ def op_contains(actual: Any, expected: Any) -> bool:
 
 
 def op_not_contains(actual: Any, expected: Any) -> bool:
+    """包含取反。
+
+    对不可能「包含」任何东西的实际值（None、数值、布尔）返回 False 而非 True。
+    否则运营把该操作符用在数值/布尔字段上时条件恒成立，若处置是 deny
+    就等于对全部流量放开阻断。与 not_in / not_in_ci / asn_not_in 的
+    守卫策略保持一致。
+    """
+    if not isinstance(actual, str) and not _is_seq(actual):
+        return False
     return not op_contains(actual, expected)
 
 
@@ -256,3 +265,38 @@ def read_path(context: dict[str, Any], path: str) -> Any:
         else:
             return None
     return current
+
+
+class _Condition(Protocol):
+    """条件三元组的最小结构约定。
+
+    用 Protocol 而非 import RuleCondition：算子层不应反向依赖 schema 层，
+    否则 schemas.rule 与本模块互相 import。
+    """
+
+    field: str
+    op: str
+    value: Any
+
+
+def evaluate_condition(condition: _Condition, context: dict[str, Any]) -> bool:
+    """求值单个条件。"""
+    return apply_operator(condition.op, read_path(context, condition.field), condition.value)
+
+
+def evaluate_conditions(
+    conditions: Sequence[_Condition],
+    context: dict[str, Any],
+    *,
+    match_all: bool,
+) -> bool:
+    """求值条件组，是 gateway 决策与 admin 试跑的唯一入口。
+
+    空条件返回 False（fail-closed）：配错的空条件规则不应命中全部流量并
+    施加其处置动作。规则 schema 已有 min_length=1，这里是第二道防线。
+    """
+    if not conditions:
+        return False
+    if match_all:
+        return all(evaluate_condition(c, context) for c in conditions)
+    return any(evaluate_condition(c, context) for c in conditions)

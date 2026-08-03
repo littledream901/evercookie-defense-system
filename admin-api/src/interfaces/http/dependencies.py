@@ -20,14 +20,21 @@ from src.application.services.app_service import AppService
 from src.application.services.audit_service import AuditService
 from src.application.services.auth_service import AuthService
 from src.application.services.clock_service import ClockService
+from src.application.services.page_resource_service import PageResourceService
+from src.application.services.reputation_sync_service import ReputationSyncService
 from src.application.services.role_service import RoleService
 from src.application.services.rule_service import RuleService
+from src.application.services.scoring_service import ScoringService
+from src.application.services.intel_service import IntelService
 from src.application.services.threat_intel_service import ThreatIntelService
 from src.application.services.user_service import UserService
+from src.application.services.whitelist_service import WhitelistService
 from src.config import AdminSettings, get_settings
 from src.domain.rbac.policy import PermissionContext
 from src.domain.user.password import PasswordService
+from fangyu_shared.cache.profile_cache import ProfileCache as SharedProfileCache
 from src.infrastructure.cache.app_key_sync import AppKeyRedisSync
+from src.infrastructure.cache.page_resource_cache import PageResourceCache
 from src.infrastructure.cache.permission_cache import PermissionCache
 from src.infrastructure.cache.rule_cache import RuleCache
 from src.infrastructure.clickhouse.analytics_query import AnalyticsQueryService
@@ -35,9 +42,13 @@ from src.infrastructure.clock_sync import ClockSync
 from src.infrastructure.database import Database
 from src.infrastructure.repositories.app_repository import AppRepository
 from src.infrastructure.repositories.audit_repository import AuditLogRepository
+from src.infrastructure.repositories.page_resource_repository import PageResourceRepository
 from src.infrastructure.repositories.rbac_repository import RbacRepository
 from src.infrastructure.repositories.rule_repository import RuleAdminRepository
+from src.infrastructure.repositories.scoring_repository import ScoringRepository
 from src.infrastructure.repositories.user_repository import UserRepository
+from src.infrastructure.scoring_sync import ScoringSync
+from src.infrastructure.whitelist_sync import WhitelistSync
 
 
 # ---------- 基础设施 ----------
@@ -178,11 +189,63 @@ def get_threat_intel_service(
     return ThreatIntelService(session)
 
 
+def get_intel_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> IntelService:
+    return IntelService(session)
+
+
 def get_clock_service(
     session: AsyncSession = Depends(get_db_session),
     redis: Redis = Depends(get_redis),
 ) -> ClockService:
     return ClockService(session, ClockSync(redis))
+
+
+def get_whitelist_service(
+    redis: Redis = Depends(get_redis),
+) -> WhitelistService:
+    """白名单服务。不需要 DB session——白名单只存 Redis。"""
+    return WhitelistService(WhitelistSync(redis))
+
+
+def get_page_resource_repo(
+    session: AsyncSession = Depends(get_db_session),
+) -> PageResourceRepository:
+    return PageResourceRepository(session)
+
+
+def get_scoring_repo(
+    session: AsyncSession = Depends(get_db_session),
+) -> ScoringRepository:
+    return ScoringRepository(session)
+
+
+def get_page_resource_cache(
+    redis: Redis = Depends(get_redis),
+) -> PageResourceCache:
+    return PageResourceCache(redis)
+
+
+def get_page_resource_service(
+    resource_repo: PageResourceRepository = Depends(get_page_resource_repo),
+    resource_cache: PageResourceCache = Depends(get_page_resource_cache),
+) -> PageResourceService:
+    return PageResourceService(
+        resource_repo=resource_repo,
+        resource_cache=resource_cache,
+    )
+
+
+def get_scoring_sync(redis: Redis = Depends(get_redis)) -> ScoringSync:
+    return ScoringSync(redis)
+
+
+def get_scoring_service(
+    repo: ScoringRepository = Depends(get_scoring_repo),
+    sync: ScoringSync = Depends(get_scoring_sync),
+) -> ScoringService:
+    return ScoringService(repo, sync)
 
 
 # ---------- 认证与鉴权 ----------
@@ -206,6 +269,16 @@ async def get_current_permissions(
     auth_service: AuthService = Depends(get_auth_service),
 ) -> PermissionContext:
     return await auth_service.get_permission_context(user_id)
+
+
+def get_reputation_sync_service(
+    clickhouse: ClickHouseClient = Depends(get_clickhouse),
+    redis: Redis = Depends(get_redis),
+) -> ReputationSyncService:
+    return ReputationSyncService(
+        clickhouse=clickhouse,
+        profile_cache=SharedProfileCache(redis, ttl=86_400),
+    )
 
 
 def require_permission(code: str):

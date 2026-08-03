@@ -20,6 +20,8 @@ from fangyu_shared.schemas.rule import DecisionRule
 
 from src.domain.rule.evaluator import ConditionEvaluator
 from src.domain.rule.matcher import DecisionRuleMatcher
+from src.infrastructure.rule_repo.rule_repository import RuleRepository
+from src.interfaces.http.dependencies import get_decision_service
 from src.interfaces.http.middleware.app_key import ResolvedAppKey, require_app_key
 
 router = APIRouter(tags=["rule"])
@@ -49,10 +51,39 @@ async def rule_test(
     matcher = DecisionRuleMatcher(ConditionEvaluator())
     result = matcher.match([payload.rule], payload.context)
     rule = result.rule
+    # 必须走 effective_match_disposition：新式规则只传 disposition_match，
+    # 直接读 rule.disposition 会是 None 并抛 AttributeError。
+    disposition = rule.effective_match_disposition if rule else None
     data = RuleTestResponse(
         matched=rule is not None,
         ruleId=rule.id if rule else None,
-        verdict=rule.disposition.verdict if rule else None,
-        mechanism=rule.disposition.mechanism if rule else None,
+        verdict=disposition.verdict if disposition else None,
+        mechanism=disposition.mechanism if disposition else None,
     )
     return SuccessResponse[RuleTestResponse](data=data)
+
+
+@router.get(
+    "/rules/debug",
+    summary="调试：读取站点当前缓存的决策规则",
+)
+async def list_rules_debug(
+    resolved: ResolvedAppKey = Depends(require_app_key),
+    svc=Depends(get_decision_service),
+) -> SuccessResponse[dict]:
+    repo: RuleRepository = svc._deps.rule_repository
+    rule_set = await repo.get_rule_set(resolved.app_id)
+    rules = []
+    for r in rule_set.decision_rules:
+        rules.append({
+            "id": r.id,
+            "name": r.name,
+            "status": r.status.value,
+            "matchAll": r.match_all,
+            "conditions": [{"field": c.field, "op": c.op, "value": c.value} for c in r.conditions],
+            "disposition": {
+                "verdict": r.effective_match_disposition.verdict.value,
+                "mechanism": r.effective_match_disposition.mechanism.value,
+            },
+        })
+    return SuccessResponse(data={"appId": resolved.app_id, "total": len(rules), "rules": rules})

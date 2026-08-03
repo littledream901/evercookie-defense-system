@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from fangyu_shared.utils.time import local_now
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -98,32 +99,66 @@ class ApplicationModel(Base, TimestampMixin):
     __tablename__ = "biz_application"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    site_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    """站点唯一标识，格式 site_<hex8>，同时作为 X-App-Key（API Key）。"""
     name: Mapped[str] = mapped_column(String(128), nullable=False)
-    api_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
-    owner_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("sys_user.id"))
-    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
-    description: Mapped[str] = mapped_column(String(512), default="")
-    domains: Mapped[list[str]] = mapped_column(MySQLJSON, default=list)
+    domain: Mapped[str] = mapped_column(String(512), nullable=False)
+    """主域名，创建后不可修改，用作站点业务标识。"""
+    alt_domains: Mapped[list[str]] = mapped_column(MySQLJSON, default=list, nullable=False)
+    access_mode: Mapped[str] = mapped_column(String(16), default="adapter", nullable=False)
+    """接入模式：cloud（云端转发）/ sdk（SDK接入）。"""
+    app_secret: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    """HMAC 验签密钥，仅创建/轮换时返回一次。"""
+    sdk_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    gateway_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    """站点专属网关地址；留空则用部署级默认网关（前端从环境变量读取）。"""
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    owner_user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("sys_user.id"), nullable=True)
+    clock_stats_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    log_retention_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class RuleSiteModel(Base):
+    """规则 ↔ 站点关联表（多对多）。
+
+    一条规则可被多个站点复用；一个站点可绑定多条规则。
+    发布时按此表把规则写入每个站点的 Redis 分片 fangyu:rules:{site_id}。
+    """
+
+    __tablename__ = "biz_rule_site"
+    __table_args__ = (
+        UniqueConstraint("rule_id", "site_id", name="uk_rule_site"),
+        Index("ix_biz_rule_site_site", "site_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    rule_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("biz_rule.id", ondelete="CASCADE"), nullable=False
+    )
+    site_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("biz_application.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=local_now, nullable=False)
 
 
 class RuleModel(Base, TimestampMixin):
     __tablename__ = "biz_rule"
     __table_args__ = (
-        Index("ix_biz_rule_app_status", "app_id", "status"),
+        Index("ix_biz_rule_status", "status"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    app_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("biz_application.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str] = mapped_column(String(512), default="")
     status: Mapped[str] = mapped_column(String(16), default="draft", nullable=False)
     priority: Mapped[str] = mapped_column(String(16), default="normal", nullable=False)
     kind: Mapped[str] = mapped_column(String(16), default="decision", nullable=False)
-    """规则种类：decision（命中即终止）/ scoring（仅贡献权重）。"""
-    weight: Mapped[int] = mapped_column(Integer, default=0)
-    """仅 kind=scoring 时有意义。"""
-    disposition: Mapped[dict | None] = mapped_column(MySQLJSON, nullable=True)
-    """处置三层结构（verdict/mechanism/target），仅 kind=decision 时非空。"""
+    weight: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    disposition_match: Mapped[dict | None] = mapped_column(MySQLJSON, nullable=True)
+    """命中条件时的处置动作（mechanism/target/challengeKind/ttlSeconds）。"""
+    disposition_miss: Mapped[dict | None] = mapped_column(MySQLJSON, nullable=True)
+    """未命中条件时的处置动作，默认 pass 继续执行后续规则。"""
     conditions: Mapped[list[dict]] = mapped_column(MySQLJSON, default=list)
     match_all: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     rule_group: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -138,11 +173,11 @@ class RuleGroupModel(Base, TimestampMixin):
 
     __tablename__ = "biz_rule_group"
     __table_args__ = (
-        UniqueConstraint("app_id", "name", name="uk_rule_group_app_name"),
+        UniqueConstraint("site_id", "name", name="uk_rule_group_site_name"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    app_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("biz_application.id"), nullable=False)
+    site_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("biz_application.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     mode: Mapped[str] = mapped_column(String(16), default="blocklist", nullable=False)
     priority: Mapped[str] = mapped_column(String(16), default="normal", nullable=False)
@@ -186,6 +221,156 @@ class ThreatIntelModel(Base, TimestampMixin):
     extra: Mapped[dict | None] = mapped_column(MySQLJSON, nullable=True)
 
 
+class AsnIntelModel(Base, TimestampMixin):
+    """ASN 情报：按自治域号标注运营商类型与风险。
+
+    与 GeoLite2-ASN.mmdb 的关系是「覆盖」而非「替代」：MMDB 提供 asn 与
+    asn_org 的事实解析，本表提供人工维护的 network_type / risk_score，
+    决策时以本表为准。
+    """
+
+    __tablename__ = "biz_intel_asn"
+    __table_args__ = (
+        UniqueConstraint("asn", name="uk_intel_asn"),
+        Index("ix_intel_asn_active", "is_active"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    asn: Mapped[int] = mapped_column(Integer, nullable=False)
+    operator: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    network_type: Mapped[str] = mapped_column(String(32), default="DATACENTER", nullable=False)
+    risk_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    note: Mapped[str] = mapped_column(String(512), default="")
+
+
+class CrawlerIntelModel(Base, TimestampMixin):
+    """爬虫特征情报：按 UA / Header 等特征串识别爬虫。
+
+    ``is_legitimate`` 区分搜索引擎正规爬虫与恶意采集器——前者通常放行，
+    后者按 risk_score 参与评分。
+    """
+
+    __tablename__ = "biz_intel_crawler"
+    __table_args__ = (
+        UniqueConstraint("feature_type", "pattern", name="uk_intel_crawler_pattern"),
+        Index("ix_intel_crawler_category", "crawler_category"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    feature_type: Mapped[str] = mapped_column(String(32), default="user_agent", nullable=False)
+    pattern: Mapped[str] = mapped_column(String(256), nullable=False)
+    crawler_category: Mapped[str] = mapped_column(String(32), default="unknown", nullable=False)
+    crawler_name: Mapped[str] = mapped_column(String(128), default="")
+    is_legitimate: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    risk_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    note: Mapped[str] = mapped_column(String(512), default="")
+
+
+class FingerprintIntelModel(Base, TimestampMixin):
+    """设备指纹情报：已知的自动化工具 / 农场设备指纹。
+
+    ``hit_count`` 由决策链路命中时累加，用于识别高频复用指纹。
+    """
+
+    __tablename__ = "biz_intel_fingerprint"
+    __table_args__ = (
+        UniqueConstraint("finger_id", name="uk_intel_fingerprint_id"),
+        Index("ix_intel_fingerprint_type", "finger_type"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    finger_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    finger_type: Mapped[str] = mapped_column(String(32), default="device", nullable=False)
+    risk_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    hit_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    source: Mapped[str] = mapped_column(String(64), default="manual", nullable=False)
+    canvas_hash: Mapped[str] = mapped_column(String(128), default="")
+    webgl_params: Mapped[str] = mapped_column(String(256), default="")
+    audio_hash: Mapped[str] = mapped_column(String(128), default="")
+    screen_info: Mapped[str] = mapped_column(String(64), default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    note: Mapped[str] = mapped_column(String(512), default="")
+
+
+class GeoIpIntelModel(Base, TimestampMixin):
+    """GeoIP 手工覆盖：按 CIDR 纠正 MMDB 的地理归属。
+
+    MMDB 的国家判定偶有偏差（尤其是新分配段与 anycast），本表提供人工覆盖，
+    决策时优先于 MMDB 结果。
+    """
+
+    __tablename__ = "biz_intel_geo_ip"
+    __table_args__ = (
+        UniqueConstraint("cidr", name="uk_intel_geo_ip_cidr"),
+        Index("ix_intel_geo_ip_country", "country"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    cidr: Mapped[str] = mapped_column(String(64), nullable=False)
+    country: Mapped[str] = mapped_column(String(8), default="", nullable=False)
+    region: Mapped[str] = mapped_column(String(64), default="")
+    city: Mapped[str] = mapped_column(String(64), default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    note: Mapped[str] = mapped_column(String(512), default="")
+
+
+class IpProfileIntelModel(Base, TimestampMixin):
+    """IP 网段画像：按 CIDR 标注代理 / VPN / Tor 属性。
+
+    与 ``fangyu:profile:ip:*`` 的运行时画像不同，本表是按网段维护的静态情报，
+    覆盖面更广且不依赖历史流量。
+    """
+
+    __tablename__ = "biz_intel_ip_profile"
+    __table_args__ = (
+        UniqueConstraint("cidr", name="uk_intel_ip_profile_cidr"),
+        Index("ix_intel_ip_profile_active", "is_active"),
+        # 外部源按 note 前缀（``external:<源 id>``）统计各源贡献量，
+        # note 只取前 64 字符建前缀索引，足够区分源标记且避免 512 字符全列索引。
+        Index(
+            "ix_intel_ip_profile_active_note",
+            "is_active",
+            "note",
+            mysql_length={"note": 64},
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    cidr: Mapped[str] = mapped_column(String(64), nullable=False)
+    network_type: Mapped[str] = mapped_column(String(32), default="DATACENTER", nullable=False)
+    is_vpn: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_proxy: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_tor: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    risk_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    note: Mapped[str] = mapped_column(String(512), default="")
+
+
+class AsnProfileIntelModel(Base, TimestampMixin):
+    """ASN 画像：按自治域维护国别与网络类型。
+
+    与 :class:`AsnIntelModel` 的分工——前者面向「这个 ASN 有多可疑」，
+    本表面向「这个 ASN 是什么」，供画像补全使用。
+    """
+
+    __tablename__ = "biz_intel_asn_profile"
+    __table_args__ = (
+        UniqueConstraint("asn", name="uk_intel_asn_profile_asn"),
+        Index("ix_intel_asn_profile_country", "country"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    asn: Mapped[int] = mapped_column(Integer, nullable=False)
+    operator: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    network_type: Mapped[str] = mapped_column(String(32), default="DATACENTER", nullable=False)
+    country: Mapped[str] = mapped_column(String(8), default="")
+    risk_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    note: Mapped[str] = mapped_column(String(512), default="")
+
+
 class ClockLimitsModel(Base, TimestampMixin):
     """站点级频控阈值。
 
@@ -202,10 +387,63 @@ class ClockLimitsModel(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     app_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    """站点 ID；``0`` 为全局配置哨兵值，故不设外键。"""
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     windows: Mapped[dict] = mapped_column(MySQLJSON, default=dict, nullable=False)
     ban_seconds: Mapped[int] = mapped_column(Integer, default=900, nullable=False)
     ban_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class PageResourceModel(Base, TimestampMixin):
+    """页面资源：serve_alt 机制的内容来源。
+
+    admin 在此维护「安全页」和「落地页」的 HTML 片段，保存后同步到
+    Redis ``fangyu:page_resources:{app_id}``，gateway serve_alt 命中时
+    按 ``target.url``（资源名）取出内容直接回传给 adapter。
+    """
+
+    __tablename__ = "biz_page_resource"
+    __table_args__ = (
+        UniqueConstraint("app_id", "name", name="uk_page_resource_app_name"),
+        Index("ix_page_resource_app_enabled", "app_id", "enabled"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    app_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    """站点 ID；``0`` 为全局资源哨兵值，故不设外键。"""
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    """资源标识符，对应 serve_alt(page=...) 的 page 参数。"""
+    kind: Mapped[str] = mapped_column(String(16), default="safe", nullable=False)
+    """safe | landing。safe 投给可信访客，landing 投给嫌疑访客。"""
+    content: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    """页面 HTML 内容（含内联脚本）。"""
+    content_type: Mapped[str] = mapped_column(String(64), default="text/html; charset=utf-8", nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class ScoringConfigModel(Base, TimestampMixin):
+    """站点评分配置。
+
+    每个站点对应唯一一条记录（UPSERT 语义）。
+    ``weights`` 存 {维度key: 权重0-100}，缺失维度由 gateway 回退到默认权重。
+    ``disposition_suspect`` / ``disposition_hostile`` 为 JSON，null 表示沿用规则链默认处置。
+    """
+
+    __tablename__ = "biz_scoring_config"
+    __table_args__ = (
+        UniqueConstraint("app_id", name="uk_scoring_config_app"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    app_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    """站点 ID；``0`` 为全局配置哨兵值，故不设外键。"""
+    name: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    threshold_suspect: Mapped[int] = mapped_column(Integer, default=40, nullable=False)
+    threshold_hostile: Mapped[int] = mapped_column(Integer, default=70, nullable=False)
+    weights: Mapped[dict] = mapped_column(MySQLJSON, default=dict, nullable=False)
+    disposition_suspect: Mapped[dict | None] = mapped_column(MySQLJSON, nullable=True)
+    disposition_hostile: Mapped[dict | None] = mapped_column(MySQLJSON, nullable=True)
 
 
 class AuditLogModel(Base):

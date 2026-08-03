@@ -29,11 +29,20 @@ WORKDIR /app
 COPY --from=builder /install /usr/local
 COPY admin-api/src /app/src
 
+# 迁移脚本随镜像发布：容器内执行 `alembic upgrade head` 是生产的标准迁移入口，
+# 缺了这两项会导致部署时无法建表。
+COPY admin-api/alembic     /app/alembic
+COPY admin-api/alembic.ini /app/alembic.ini
+
+# 预建 MMDB 目录并归属 fangyu：挂载空命名卷时 Docker 会连属主一起复制进卷，
+# 否则卷默认 root:root，admin-api 以 uid 1000 运行会写入失败。
+RUN mkdir -p /data/mmdb && chown -R fangyu:fangyu /data/mmdb
+
 USER fangyu
 EXPOSE 8081
 
 HEALTHCHECK --interval=15s --timeout=3s --retries=5 --start-period=20s \
-  CMD curl -fsS http://127.0.0.1:${ADMIN_PORT}/v2/health || exit 1
+  CMD curl -fsS http://127.0.0.1:${ADMIN_PORT}/v2/healthz || exit 1
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 # shell 形式：让 ${ADMIN_PORT} / ${ADMIN_WORKERS} 在运行时展开，

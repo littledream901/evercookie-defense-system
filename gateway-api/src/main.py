@@ -18,8 +18,11 @@ from src.config import GatewaySettings, get_settings
 from src.interfaces.http.dependencies import (
     build_app_key_resolver,
     build_decision_service,
+    build_health_prober,
     get_app_key_resolver,
     get_gateway_settings,
+    get_health_prober,
+    get_nonce_store,
     reset_dependencies,
 )
 from src.interfaces.http.middleware import AppKeyEnforcementMiddleware, DecisionRateLimitMiddleware
@@ -87,6 +90,7 @@ def create_app() -> FastAPI:
         AppKeyEnforcementMiddleware,
         resolver_provider=get_app_key_resolver,
         settings_provider=get_gateway_settings,
+        nonce_store_provider=get_nonce_store,
     )
     app.add_middleware(PrometheusMiddleware, service_name=settings.service_name)
     app.add_middleware(RequestContextMiddleware)

@@ -123,6 +123,8 @@ class EventTransformer:
                 raw.get("crawlerCategory") or raw.get("crawler_category") or ""
             ),
             "crawler_vendor": str(raw.get("crawlerVendor") or raw.get("crawler_vendor") or ""),
+            # 客户端语言偏好
+            "accept_language": str(raw.get("acceptLanguage") or raw.get("accept_language") or ""),
             # 访客追踪
             "repeat_key": str(raw.get("repeatKey") or raw.get("repeat_key") or ""),
             "repeat_value": str(raw.get("repeatValue") or raw.get("repeat_value") or ""),

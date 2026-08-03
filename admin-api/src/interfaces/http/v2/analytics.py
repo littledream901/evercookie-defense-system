@@ -27,7 +27,7 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 def _base(payload: AnalyticsBaseRequest) -> AnalyticsQuerySpec:
     return AnalyticsQuerySpec(
-        app_id=payload.app_id,
+        app_id=payload.site_id,
         start=payload.start,
         end=payload.end,
         filters=dict(payload.filters),

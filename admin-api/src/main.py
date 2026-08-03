@@ -25,13 +25,21 @@ from src.infrastructure.repositories.audit_repository import AuditLogRepository
 from src.infrastructure.scheduler import start_scheduler, stop_scheduler
 from src.interfaces.http.middleware import AuditLogMiddleware, LoginRateLimitMiddleware
 
+# 必须在所有 get_logger() 调用之前完成日志配置，否则 structlog 的
+# cache_logger_on_first_use=True 会让模块级 logger 缓存住未配置的处理链。
+_early_settings = get_settings()
+configure_logging(
+    level=_early_settings.log_level,
+    fmt=_early_settings.log_format,  # type: ignore[arg-type]
+    service_name=_early_settings.service_name,
+)
+
 _logger = get_logger("admin.main")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: AdminSettings = get_settings()
-    configure_logging(level=settings.log_level, fmt=settings.log_format, service_name=settings.service_name)  # type: ignore[arg-type]
     setup_tracing(
         service_name=settings.service_name,
         service_version=settings.version,
@@ -60,7 +68,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     await _bootstrap_app_key_bindings(settings)
     await _bootstrap_threat_intel_sync()
+    await _bootstrap_intelligence_sync()
     await _bootstrap_clock_limits_sync()
+    await _bootstrap_scoring_config_sync()
     start_scheduler(sync_interval_seconds=getattr(settings, "threat_intel_sync_interval", 3600))
 
     _logger.info("admin_started", version=settings.version, port=settings.port)
@@ -89,9 +99,9 @@ async def _bootstrap_app_key_bindings(settings: AdminSettings) -> None:
         )
         async with Database.session() as session:
             repo = AppRepository(session)
-            bindings = await repo.list_active_key_bindings()
-        for api_key, app_id in bindings:
-            await sync.bind(api_key, app_id)
+            bindings = await repo.list_active_app_bindings()
+        for api_key, app_id, app_secret in bindings:
+            await sync.bind(api_key, app_id, app_secret)
         _logger.info("app_key_bootstrap_done", count=len(bindings))
     except Exception as exc:  # pragma: no cover - 引导失败不阻塞启动
         _logger.error("app_key_bootstrap_failed", error=str(exc))
@@ -115,9 +125,20 @@ async def _bootstrap_threat_intel_sync() -> None:
         _logger.error("threat_intel_bootstrap_failed", error=str(exc))
 
 
+async def _bootstrap_intelligence_sync() -> None:
+    """启动时做一次六类维度情报全量同步到 Redis。"""
+    try:
+        from src.infrastructure.scheduler import sync_intelligence
+        counts = await sync_intelligence()
+        _logger.info("intelligence_bootstrap_done", total=sum(counts.values()))
+    except Exception as exc:  # pragma: no cover
+        _logger.error("intelligence_bootstrap_failed", error=str(exc))
+
+
 async def _bootstrap_clock_limits_sync() -> None:
     """启动时把 DB 中所有 Clock 阈值配置全量写入 Redis。"""
     try:
+        from src.application.services.clock_service import ClockService
         from src.infrastructure.clock_sync import ClockSync
         from src.infrastructure.repositories.clock_limits_repository import ClockLimitsRepository
         redis = RedisManager.get_client()
@@ -126,10 +147,36 @@ async def _bootstrap_clock_limits_sync() -> None:
             repo = ClockLimitsRepository(session)
             rows = await repo.list_all()
         for row in rows:
-            await sync.put_limits(row)
+            # 必须先转换为 ClockLimits pydantic 对象，ClockSync.put_limits 不接受 ORM row
+            await sync.put_limits(ClockService._to_limits(row))
         _logger.info("clock_limits_bootstrap_done", count=len(rows))
     except Exception as exc:  # pragma: no cover
         _logger.error("clock_limits_bootstrap_failed", error=str(exc))
+
+
+async def _bootstrap_scoring_config_sync() -> None:
+    """启动时把 DB 中所有评分配置全量写入 Redis。"""
+    try:
+        from src.infrastructure.repositories.scoring_repository import ScoringRepository
+        from src.infrastructure.scoring_sync import ScoringSync
+        redis = RedisManager.get_client()
+        sync = ScoringSync(redis)
+        async with Database.session() as session:
+            repo = ScoringRepository(session)
+            rows = await repo.list_all()
+        for row in rows:
+            await sync.put(
+                row.app_id,
+                enabled=row.enabled,
+                threshold_suspect=row.threshold_suspect,
+                threshold_hostile=row.threshold_hostile,
+                weights=dict(row.weights or {}),
+                disposition_suspect=row.disposition_suspect,
+                disposition_hostile=row.disposition_hostile,
+            )
+        _logger.info("scoring_config_bootstrap_done", count=len(rows))
+    except Exception as exc:  # pragma: no cover
+        _logger.error("scoring_config_bootstrap_failed", error=str(exc))
 
 
 async def _record_audit(payload: dict) -> None:
@@ -176,7 +223,9 @@ def create_app() -> FastAPI:
 
     register_exception_handlers(app)
 
+    from src.interfaces.http.v1 import v1_router
     from src.interfaces.http.v2 import v2_router
+    app.include_router(v1_router)
     app.include_router(v2_router)
 
     return app

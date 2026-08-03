@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-import logging
 import traceback
 from typing import TYPE_CHECKING
 
+import structlog
 from fastapi import Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -17,7 +17,7 @@ from .base import BusinessException
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def _make_response(

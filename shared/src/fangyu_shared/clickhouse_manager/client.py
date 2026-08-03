@@ -22,6 +22,11 @@ class ClickHouseClient:
         self._client = chclient
         self._config = config
 
+    @property
+    def database(self) -> str:
+        """当前连接的库名。供需要拼接全限定表名的查询层读取。"""
+        return self._config.database
+
     async def fetch(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """执行 SELECT 并返回 list[dict]。"""
         rows = await self._client.fetch(sql, params=params or {})

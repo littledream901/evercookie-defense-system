@@ -62,6 +62,9 @@ CREATE TABLE IF NOT EXISTS fangyu.decision_events
     crawler_category LowCardinality(String) DEFAULT '',
     crawler_vendor   LowCardinality(String) DEFAULT '',
 
+    -- 客户端语言偏好
+    accept_language  String DEFAULT '',
+
     -- 访客追踪（Evercookie 自愈）
     repeat_key         String DEFAULT '',
     repeat_value       String DEFAULT '',
@@ -229,3 +232,39 @@ AS SELECT
 FROM fangyu.decision_events
 WHERE decided_by IN ('clock_rate_limit', 'clock_ban')
 GROUP BY hour, app_id, decided_by, ingress;
+
+-- ==================== 物化视图：IP 声誉（每日） ====================
+-- 为 IpReputationScorer 提供数据源；reputation_writer / admin /sync 读此 MV。
+-- SummingMergeTree 累加字段跨分区重复，查询时必须 GROUP BY + sum()。
+-- 现有 mv_device_hourly 按 device_type 聚合，喂不了单 IP reputation，
+-- 故此 MV 补全该缺失。
+CREATE MATERIALIZED VIEW IF NOT EXISTS fangyu.mv_ip_reputation_daily
+ENGINE = SummingMergeTree()
+PARTITION BY toYYYYMM(log_date)
+ORDER BY (log_date, app_id, ip)
+AS SELECT
+    toDate(occurred_at)                                              AS log_date,
+    app_id,
+    ip,
+    count()                                                          AS total_count,
+    countIf(mechanism IN ('deny', 'not_found', 'challenge'))         AS blocked_count
+FROM fangyu.decision_events
+WHERE ip != ''
+GROUP BY log_date, app_id, ip;
+
+-- ==================== 物化视图：设备指纹声誉（每日） ====================
+-- 现有 mv_device_hourly 按 device_type 聚合，不含单个 fingerprint，
+-- 无法喂单设备 reputation；此 MV 补全这一缺失。
+CREATE MATERIALIZED VIEW IF NOT EXISTS fangyu.mv_fingerprint_reputation_daily
+ENGINE = SummingMergeTree()
+PARTITION BY toYYYYMM(log_date)
+ORDER BY (log_date, app_id, fingerprint)
+AS SELECT
+    toDate(occurred_at)                                              AS log_date,
+    app_id,
+    fingerprint,
+    count()                                                          AS total_count,
+    countIf(mechanism IN ('deny', 'not_found', 'challenge'))         AS blocked_count
+FROM fangyu.decision_events
+WHERE fingerprint != ''
+GROUP BY log_date, app_id, fingerprint;

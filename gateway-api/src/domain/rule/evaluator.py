@@ -10,12 +10,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from fangyu_shared.rules.operators import OPERATOR_NAMES, apply_operator, read_path
+from fangyu_shared.rules.operators import (
+    OPERATOR_NAMES,
+    evaluate_condition,
+    evaluate_conditions,
+)
 from fangyu_shared.schemas.rule import RuleCondition
 
 
 class ConditionEvaluator:
-    """按操作符白名单派发的条件求值器。"""
+    """条件求值器。
+
+    组合逻辑与单条求值全部委托给 fangyu_shared.rules.operators，本类只做
+    领域层的薄封装。admin 的规则试跑调用同一组函数，因此「后台预览命中」
+    与「线上决策命中」不可能出现分歧。
+    """
 
     __slots__ = ()
 
@@ -24,17 +33,10 @@ class ConditionEvaluator:
         return OPERATOR_NAMES
 
     def evaluate(self, condition: RuleCondition, context: dict[str, Any]) -> bool:
-        actual = read_path(context, condition.field)
-        return apply_operator(condition.op, actual, condition.value)
+        return evaluate_condition(condition, context)
 
     def evaluate_all(self, conditions: list[RuleCondition], context: dict[str, Any]) -> bool:
-        if not conditions:
-            # fail-closed：空条件不应命中全部流量。规则 schema 已强制
-            # min_length=1，这里是第二道防线（例如手工构造的条件列表）。
-            return False
-        return all(self.evaluate(c, context) for c in conditions)
+        return evaluate_conditions(conditions, context, match_all=True)
 
     def evaluate_any(self, conditions: list[RuleCondition], context: dict[str, Any]) -> bool:
-        if not conditions:
-            return False
-        return any(self.evaluate(c, context) for c in conditions)
+        return evaluate_conditions(conditions, context, match_all=False)
