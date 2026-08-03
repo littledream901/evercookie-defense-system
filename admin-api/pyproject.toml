@@ -12,6 +12,10 @@ dependencies = [
     "pydantic-settings>=2.1",
     "sqlalchemy[asyncio]>=2.0",
     "aiomysql>=0.2",
+    # MySQL 8 默认认证插件是 caching_sha2_password，aiomysql 依赖的 pymysql
+    # 需要 cryptography 才能做 RSA 加密传输口令。缺失时连接阶段直接抛
+    # RuntimeError，与驱动是否装好无关。
+    "cryptography>=42.0",
     "alembic>=1.13",
     "bcrypt>=4.1",
     "pyjwt>=2.8",
