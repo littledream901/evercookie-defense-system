@@ -15,9 +15,10 @@ WORKDIR /sdk
 ARG PNPM_VERSION=9.15.9
 
 COPY client-sdk/package.json client-sdk/pnpm-lock.yaml* ./
-COPY client-sdk/pnpm-workspace.yaml* ./
 # pnpm-workspace.yaml 里 allowBuilds.esbuild=true 必须生效，
 # 否则 esbuild 缺平台二进制，vite build 会直接失败。
+# 该文件已显式声明 packages: ['.']，不会触发 workspace 解析报错。
+COPY client-sdk/pnpm-workspace.yaml* ./
 RUN if [ -f pnpm-lock.yaml ]; then \
       corepack enable \
       && if ! grep -q '"packageManager"' package.json; then \
