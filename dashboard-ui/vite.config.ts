@@ -183,11 +183,20 @@ function testPagesPlugin() {
       })
     },
     buildStart() {
+      // 源目录在仓库根的 tests/pages，而生产镜像只 COPY dashboard-ui，
+      // 容器内该路径不存在。此时跳过——public/testing-pages 已随源码入库，
+      // 测试页面对生产构建非必需。
+      if (!fs.existsSync(testPagesDir)) {
+        return
+      }
       if (!fs.existsSync(targetPublic)) {
         fs.mkdirSync(targetPublic, { recursive: true })
       }
       for (const f of fs.readdirSync(testPagesDir)) {
-        fs.copyFileSync(path.join(testPagesDir, f), path.join(targetPublic, f))
+        const src = path.join(testPagesDir, f)
+        if (fs.statSync(src).isFile()) {
+          fs.copyFileSync(src, path.join(targetPublic, f))
+        }
       }
     }
   }
