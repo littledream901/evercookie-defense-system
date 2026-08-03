@@ -16,6 +16,13 @@ dependencies = [
     "redis[hiredis]>=5.0,<6",
     "clickhouse-driver>=0.2.9,<1",
     "aiochclient>=2.5,<3",
+    # clickhouse_manager/client.py 直接 import aiohttp（aiochclient 的传输层）。
+    # 此前漏声明，worker 因自己列了 aiohttp 而侥幸可用，gateway 与 admin
+    # 则在导入 ClickHouseManager 时 ModuleNotFoundError 启动失败。
+    "aiohttp>=3.9,<4",
+    # cache/profile_cache.py 直接 import orjson。同 aiohttp 的情形：
+    # 目前三个下游服务各自都声明了 orjson 才未暴露，但依赖应由使用方声明。
+    "orjson>=3.9,<4",
     "structlog>=24.1,<25",
     "prometheus-client>=0.20,<1",
     "fastapi>=0.109,<1",

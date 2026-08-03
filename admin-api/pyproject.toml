@@ -22,6 +22,10 @@ dependencies = [
     "orjson>=3.9",
     "python-multipart>=0.0.9",
     "maxminddb>=2.5",
+    # cidr_intel_fetcher.py 与 external_intel_fetcher.py 在运行时 import httpx。
+    # 此前只列在 dev extras 里，靠 fangyu-shared 的主依赖间接可用 ——
+    # shared 一旦调整 httpx 位置，本服务会启动失败。显式声明。
+    "httpx>=0.27",
     "apscheduler>=3.10",
     "opentelemetry-api>=1.24,<2",
     "opentelemetry-sdk>=1.24,<2",
