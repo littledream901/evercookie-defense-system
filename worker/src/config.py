@@ -2,8 +2,22 @@
 
 from __future__ import annotations
 
+import os
+import socket
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _default_consumer_name() -> str:
+    """按进程生成唯一消费者名。
+
+    Redis Stream 的 pending 列表以「消费者名」为归属单位。多个副本若共用同一个
+    名字，XREADGROUP 取 "0" 时会读到**彼此**的 pending 消息并各写一遍
+    ClickHouse，横向扩容直接变成重复写入；XAUTOCLAIM 也会互相抢占。
+    hostname + pid 在容器与裸机下都能保证同一时刻不重名。
+    """
+    return f"{socket.gethostname()}-{os.getpid()}"
 
 
 class WorkerSettings(BaseSettings):
@@ -32,7 +46,9 @@ class WorkerSettings(BaseSettings):
     # Stream
     stream_name: str = "fangyu:events:decision"
     consumer_group: str = "fangyu-worker"
-    consumer_name: str = "worker-1"
+    consumer_name: str = Field(default_factory=_default_consumer_name)
+    """消费者名，默认按进程唯一。显式设置 WORKER_CONSUMER_NAME 可覆盖，
+    但多副本部署时务必保证各副本取值不同。"""
     stream_batch_size: int = 200
     # 必须显著小于 Redis 客户端的 socket_timeout（默认 5s）。
     # 若两者相等，XREADGROUP BLOCK 阻塞满时长返回空结果的瞬间，
@@ -51,6 +67,11 @@ class WorkerSettings(BaseSettings):
     max_backoff_seconds: float = 30.0
     dead_letter_stream: str = "fangyu:events:decision:dlq"
     dead_letter_maxlen: int = 100_000
+    max_delivery_count: int = Field(default=5, ge=1)
+    """同一消息最多投递几次。超过则直接转入 DLQ。
+
+    没有这个上限，一条稳定触发 ClickHouse 超时的「毒丸」消息会被无限重投，
+    每轮都拖着同批次的正常消息一起失败，消费进度永久卡住。"""
 
     # Health
     health_port: int = 9091
@@ -71,6 +92,15 @@ class WorkerSettings(BaseSettings):
     """IP 画像在 Redis 中的过期时间（秒）。"""
     reputation_device_ttl: int = 86_400
     """设备画像过期时间（秒）。"""
+
+    # 可观测性
+    # 字段必须存在于此：entrypoints/main.py 用
+    # getattr(settings, "otlp_endpoint", None) 读取，缺字段时永远拿到 None，
+    # 导出器静默不启用。带前缀读取即 WORKER_OTLP_ENDPOINT。
+    otlp_endpoint: str | None = None
+    """OTLP gRPC endpoint，如 http://jaeger:4317。为空则不导出 trace。"""
+    trace_sample_rate: float = Field(default=1.0, ge=0.0, le=1.0)
+    """采样率。生产建议 0.1~0.2，全采样在高 QPS 下开销显著。"""
 
 
 _settings: WorkerSettings | None = None

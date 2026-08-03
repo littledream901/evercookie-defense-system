@@ -19,8 +19,6 @@ x-common-env: &common-env
   # ClickHouse 库名固定 fangyu：analytics_query.py / reputation_sync_service.py
   # 里的表前缀是硬编码的，改库名会导致查不到表。
   CLICKHOUSE_DATABASE: fangyu
-  OTLP_ENDPOINT: http://jaeger:4317
-  TRACE_SAMPLE_RATE: "1.0"
 
 services:
   redis:
@@ -93,6 +91,10 @@ services:
       <<: *common-env
       GATEWAY_HOST: 0.0.0.0
       GATEWAY_PORT: "8080"
+      # 必须带 GATEWAY_ 前缀：GatewaySettings 的 env_prefix 是 GATEWAY_，
+      # 无前缀的 OTLP_ENDPOINT 读不到，trace 导出器不会启用。
+      GATEWAY_OTLP_ENDPOINT: http://jaeger:4317
+      GATEWAY_TRACE_SAMPLE_RATE: "1.0"
     depends_on:
       redis: { condition: service_healthy }
       mysql: { condition: service_healthy }
@@ -139,6 +141,9 @@ services:
       WORKER_CONSUMER_GROUP: fangyu-worker
       WORKER_CONSUMER_NAME: worker-1
       WORKER_HEALTH_PORT: "9091"
+      # 必须带 WORKER_ 前缀，同 gateway 的理由
+      WORKER_OTLP_ENDPOINT: http://jaeger:4317
+      WORKER_TRACE_SAMPLE_RATE: "1.0"
     depends_on:
       redis: { condition: service_healthy }
       clickhouse: { condition: service_healthy }

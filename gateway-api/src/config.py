@@ -58,12 +58,20 @@ class GatewaySettings(BaseSettings):
     app_key_required: bool = True
     app_key_header: str = "X-App-Key"
     app_key_redis_prefix: str = "fangyu:app_keys:"
+    app_secret_redis_prefix: str = "fangyu:app_secrets:"
+    """app_id → app_secret 反向索引前缀，供挑战凭据签发/校验按 app_id 取密钥。"""
     app_key_cache_ttl: int = 60
     app_key_cache_max_size: int = 4096
 
     # 请求签名（防伪造画像与重放）
-    signature_required: bool = False
-    """默认关闭：存量适配器尚未带 sign 字段，开启前需先完成客户端灰度。"""
+    signature_required: bool = True
+    """默认开启：关闭时任何人都能伪造 fingerprint / ip / behavior 上报，
+    整条风控链路的输入不可信，等于没有防护。
+
+    三个服务端适配器与浏览器 SDK 均已实现签名（待签串由 sign_vectors.json 锁定），
+    所以默认开启不会拦掉自家流量。仅当存在未改造的第三方接入方时才临时置为
+    false，且应视为待偿技术债——期间画像可被任意伪造。
+    """
     signature_window: int = 300
     """timestamp 允许的双向偏差秒数，同时作为 nonce 的 Redis TTL。"""
 
@@ -88,6 +96,14 @@ class GatewaySettings(BaseSettings):
     # 浏览器会直接拒绝整个响应，等于所有跨域请求失效。
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
     cors_allow_credentials: bool = False
+
+    # 可观测性
+    # 字段必须存在于此：main.py 用 getattr(settings, "otlp_endpoint", None) 读取，
+    # 缺字段时永远拿到 None，导出器静默不启用。带前缀读取即 GATEWAY_OTLP_ENDPOINT。
+    otlp_endpoint: str | None = None
+    """OTLP gRPC endpoint，如 http://jaeger:4317。为空则不导出 trace。"""
+    trace_sample_rate: float = Field(default=1.0, ge=0.0, le=1.0)
+    """采样率。生产建议 0.1~0.2，全采样在高 QPS 下开销显著。"""
 
 
 _settings: GatewaySettings | None = None

@@ -129,7 +129,8 @@ services:
       GATEWAY_BLOCK_THRESHOLD: ${GATEWAY_BLOCK_THRESHOLD:-75.0}
       GATEWAY_BLOCK_TOR: ${GATEWAY_BLOCK_TOR:-true}
       GATEWAY_APP_KEY_REQUIRED: ${GATEWAY_APP_KEY_REQUIRED:-true}
-      GATEWAY_SIGNATURE_REQUIRED: ${GATEWAY_SIGNATURE_REQUIRED:-false}
+      # 默认与代码一致（true）。关闭后画像可被任意伪造，见 .env.production.example 说明。
+      GATEWAY_SIGNATURE_REQUIRED: ${GATEWAY_SIGNATURE_REQUIRED:-true}
       GATEWAY_EVENT_STREAM_NAME: ${STREAM_NAME:-fangyu:events:decision}
       GATEWAY_MMDB_COUNTRY_PATH: /data/mmdb/GeoLite2-Country.mmdb
       GATEWAY_MMDB_ASN_PATH: /data/mmdb/GeoLite2-ASN.mmdb
@@ -176,9 +177,9 @@ services:
       ADMIN_LOGIN_RATE_LIMIT_PER_MINUTE: ${ADMIN_LOGIN_RATE_LIMIT_PER_MINUTE:-10}
       MMDB_DIR: /data/mmdb
       ABUSEIPDB_API_KEY: ${ABUSEIPDB_API_KEY:-}
-      MAXMIND_LICENSE_KEY: ${MAXMIND_LICENSE_KEY:-}
-      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
-      TRACE_SAMPLE_RATE: ${TRACE_SAMPLE_RATE:-0.1}
+      # 必须带 ADMIN_ 前缀，同 gateway 的理由
+      ADMIN_OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
+      ADMIN_TRACE_SAMPLE_RATE: ${TRACE_SAMPLE_RATE:-0.1}
     volumes:
       - mmdb-data:/data/mmdb
     depends_on:
@@ -209,13 +210,19 @@ services:
       # 必须与 gateway-api 的 GATEWAY_EVENT_STREAM_NAME 完全一致
       WORKER_STREAM_NAME: ${STREAM_NAME:-fangyu:events:decision}
       WORKER_CONSUMER_GROUP: ${WORKER_CONSUMER_GROUP:-fangyu-worker}
-      WORKER_CONSUMER_NAME: ${WORKER_CONSUMER_NAME:-worker-1}
+      # 故意不注入 WORKER_CONSUMER_NAME：代码按 hostname-pid 生成唯一名字
+      # （见 worker/src/config.py 的 _default_consumer_name）。
+      # 固定成 worker-1 后，`up -d --scale worker=N` 各副本同名，会互相读到
+      # 彼此的 pending 消息并各写一遍 ClickHouse，扩容直接变成重复写入。
+      # 注意也不能写成 ${WORKER_CONSUMER_NAME:-}：空字符串在 pydantic 里是
+      # 有效值，会覆盖 default_factory，导致所有副本同取空名。
       WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE:-500}
       WORKER_HEALTH_PORT: "9091"
       WORKER_METRICS_PORT: "9092"
       WORKER_REPUTATION_ENABLED: ${WORKER_REPUTATION_ENABLED:-true}
-      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
-      TRACE_SAMPLE_RATE: ${TRACE_SAMPLE_RATE:-0.1}
+      # 必须带 WORKER_ 前缀，同 gateway 的理由
+      WORKER_OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
+      WORKER_TRACE_SAMPLE_RATE: ${TRACE_SAMPLE_RATE:-0.1}
     depends_on:
       redis: { condition: service_healthy }
       clickhouse: { condition: service_healthy }

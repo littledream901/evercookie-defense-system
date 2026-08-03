@@ -64,6 +64,14 @@ class AdminSettings(BaseSettings):
     # Rate limiter
     login_rate_limit_per_minute: int = 10
 
+    # 可观测性
+    # 字段必须存在于此：main.py 用 getattr(settings, "otlp_endpoint", None) 读取，
+    # 缺字段时永远拿到 None，导出器静默不启用。带前缀读取即 ADMIN_OTLP_ENDPOINT。
+    otlp_endpoint: str | None = None
+    """OTLP gRPC endpoint，如 http://jaeger:4317。为空则不导出 trace。"""
+    trace_sample_rate: float = Field(default=1.0, ge=0.0, le=1.0)
+    """采样率。生产建议 0.1~0.2，全采样在高 QPS 下开销显著。"""
+
 
 _settings: AdminSettings | None = None
 
