@@ -55,6 +55,28 @@ def _resolve_context_ip(payload: DecisionRequest, request: Request) -> DecisionR
     return payload.model_copy(update={"context": ctx.model_copy(update={"ip": peer})})
 
 
+def _resolve_client_language(payload: DecisionRequest, request: Request) -> DecisionRequest:
+    """客户端未上报语言时，从 Accept-Language 请求头回填。
+
+    适配器可能不采集该字段，内联脚本也可能遗漏。HTTP 头是最稳兜底：
+    浏览器默认发送、与 navigator.language 口径一致。
+    """
+    ctx = payload.context
+    if ctx.client_language:
+        return payload
+
+    accept_lang = request.headers.get("accept-language")
+    if not accept_lang:
+        return payload
+
+    # Accept-Language: zh-CN,zh;q=0.9,en;q=0.8 → 取权重最高的第一段
+    primary = accept_lang.split(",")[0].strip().split(";")[0].strip()
+    if not primary:
+        return payload
+
+    return payload.model_copy(update={"context": ctx.model_copy(update={"client_language": primary})})
+
+
 def _guard_app_id(payload: DecisionRequest, resolved: ResolvedAppKey) -> DecisionRequest:
     """比对 payload.appId 与 API Key 解析出的 app_id，冲突即拒绝。
 
@@ -87,7 +109,9 @@ async def decide(
     resolved: ResolvedAppKey = Depends(require_app_key),
     service: DecisionService = Depends(get_decision_service),
 ) -> SuccessResponse[DecisionResponse]:
-    guarded = _resolve_context_ip(_guard_app_id(payload, resolved), request)
+    guarded = _resolve_client_language(
+        _resolve_context_ip(_guard_app_id(payload, resolved), request), request
+    )
     response = await service.decide(guarded)
     return SuccessResponse[DecisionResponse](data=response, request_id=response.request_id)
 
@@ -103,6 +127,8 @@ async def decide_fast(
     resolved: ResolvedAppKey = Depends(require_app_key),
     service: DecisionService = Depends(get_decision_service),
 ) -> DecisionResponse:
-    guarded = _resolve_context_ip(_guard_app_id(payload, resolved), request)
+    guarded = _resolve_client_language(
+        _resolve_context_ip(_guard_app_id(payload, resolved), request), request
+    )
     fast_payload = guarded.model_copy(update={"require_details": False})
     return await service.decide(fast_payload)
