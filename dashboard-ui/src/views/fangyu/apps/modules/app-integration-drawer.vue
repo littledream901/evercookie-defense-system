@@ -188,6 +188,63 @@
         </div>
       </ElTabPane>
 
+      <!-- ── Shopify ──────────────────────────────────── -->
+      <ElTabPane label="Shopify" name="shopify">
+        <!-- 适用场景 -->
+        <div class="section-block">
+          <div class="section-title">适用场景</div>
+          <p class="section-desc">Shopify 托管商店，只能通过编辑 theme.liquid 接入。采用「内联快筛 + SDK 兜底」双层策略：回访用户读缓存零网络跳转，首访交给 SDK 完整判定。</p>
+          <div class="tag-row">
+            <ElTag size="small">客户端模式</ElTag>
+            <ElTag type="warning" size="small">Secret 不可用</ElTag>
+            <ElTag size="small">两层防护</ElTag>
+          </div>
+        </div>
+        <!-- 前提条件 -->
+        <div class="section-block">
+          <div class="section-title">前提条件</div>
+          <ul class="prereq-list">
+            <li><ElIcon class="check"><CircleCheckFilled /></ElIcon>Shopify 店铺管理员权限（编辑主题代码）</li>
+            <li><ElIcon class="check"><CircleCheckFilled /></ElIcon>当前主题已发布（编辑未发布的主题不生效）</li>
+          </ul>
+        </div>
+        <!-- 步骤 1：清理旧代码 -->
+        <div class="section-block">
+          <div class="section-title">步骤 1：清理旧接入代码</div>
+          <ul class="note-list">
+            <li>打开 <strong>Online Store → Themes → Edit code</strong></li>
+            <li>在左侧搜索框输入 <code>sd-sdk</code>，删除所有包含 <code>SdSdk.protect</code> 或 <code>SdSdk.guard</code> 的代码片段</li>
+            <li>常见位置：<code>layout/theme.liquid</code>、<code>snippets/scripts.liquid</code></li>
+            <li><strong>特别注意</strong>：<code>{{ "{{ content_for_header }}" }}</code> 只能在 theme.liquid 中出现一次，如有重复需删除</li>
+          </ul>
+        </div>
+        <!-- 代码 -->
+        <div class="code-section">
+          <div class="code-header">layout/theme.liquid — 在 &lt;head&gt; 下面第一行插入</div>
+          <pre class="code-block">{{ shopifyCode }}</pre>
+          <ElButton size="small" class="copy-btn" @click="copy(shopifyCode)">复制</ElButton>
+        </div>
+        <!-- 步骤 2：部署 -->
+        <div class="section-block">
+          <div class="section-title">步骤 2：保存并验证</div>
+          <ul class="note-list">
+            <li>点击右上角 <strong>Save</strong></li>
+            <li>清空浏览器缓存或用隐私模式访问产品页</li>
+            <li>右键 → <strong>查看网页源代码</strong>，搜索 <code>_fh</code>，能搜到说明已生效</li>
+          </ul>
+        </div>
+        <!-- 注意事项 -->
+        <div class="section-block">
+          <div class="section-title">注意事项</div>
+          <ul class="note-list">
+            <li><strong>工作原理</strong>：内联脚本只在检测到 <code>_sd_0000</code> cookie 时才发起同步请求（回访用户），首访用户跳过快筛、直接由 SDK 完整判定。这避免了低区分度指纹污染身份识别。</li>
+            <li><strong>首访延迟</strong>：首访需下载 SDK（300-500ms）+ 采集指纹（100-200ms）+ 网关决策（200ms），总延迟约 600-900ms。回访命中缓存时 < 10ms。</li>
+            <li><strong>测试规则注意</strong>：「所有人都跳转」的测试规则会影响真实顾客，测试完记得删除或改成条件触发。</li>
+            <li><strong>更彻底的方案</strong>：需要服务端层拦截（连 HTML 都不下发）的场景，应使用 Cloudflare Worker 部署 <code>adapters/shopify/cloudflare_worker/worker.js</code>，本 tab 的客户端方案无法阻止请求到达 Shopify。</li>
+          </ul>
+        </div>
+      </ElTabPane>
+
       <!-- ── 直接 API ───────────────────────────────── -->
       <ElTabPane label="直接 API" name="api">
         <!-- 适用场景 -->
@@ -359,8 +416,27 @@ define('FANGYU_APP_SECRET',  '${appSecret.value}');`)
   });
 <\/script>`)
 
+  const shopifyCode = computed(() => `<head>
+  <meta charset="utf-8">
+
+  {%- comment -%}Fangyu 防护{%- endcomment -%}
+  <style id="_fh">html{visibility:hidden!important;opacity:0!important}</style>
+  <script>
+!function(){function e(){var e=document.getElementById("_fh");e&&e.remove(),document.documentElement.style.cssText="visibility:visible;opacity:1"}var t=document.cookie.match(/_sd_0000=([^;]+)/);if(!t)return void e();var n="_fr",o=sessionStorage.getItem(n);if(o===location.href)return sessionStorage.removeItem(n),void e();var r=null;try{r=JSON.parse(sessionStorage.getItem("_fc")||"null")}catch(e){}if(r&&r.e>Date.now()){if("redirect"===r.m&&r.u)return sessionStorage.setItem(n,location.href),void location.replace(r.u);if("pass"===r.m)return void e()}var a=new XMLHttpRequest;a.open("POST","${gw.value}/v2/decide",!1),a.setRequestHeader("Content-Type","application/json"),a.setRequestHeader("X-App-Key","${siteId.value}");var i=decodeURIComponent(t[1]);try{if(a.send(JSON.stringify({context:{appId:${numericAppId.value},ingress:"sdk",fingerprint:i,userAgent:navigator.userAgent,visitUrl:location.href,path:location.pathname,method:"GET",repeatKey:"_sd_0000",repeatValue:i}})),200===a.status){var c=JSON.parse(a.responseText),s=c.data||c;if(s.mechanism&&s.ttlSeconds>0&&sessionStorage.setItem("_fc",JSON.stringify({m:s.mechanism,u:s.targetUrl,e:Date.now()+Math.min(1e3*s.ttlSeconds,3e5)})),"redirect"===s.mechanism&&s.targetUrl)return sessionStorage.setItem(n,location.href),void location.replace(s.targetUrl);if("deny"===s.mechanism)return void(document.documentElement.innerHTML='<body style="text-align:center;padding:100px;font:sans-serif"><h1>403</h1></body>')}e()}catch(t){e()}}();
+  <\/script>
+  <script src="${gw.value}/sdk/sd-sdk.min.js" defer><\/script>
+  <script>
+document.addEventListener('DOMContentLoaded',function(){if(typeof SdSdk!=='undefined'){SdSdk.protect({apiBase:'${gw.value}',apiKey:'${siteId.value}',appId:${numericAppId.value},collectBehavior:true})}});
+  <\/script>
+
+  {%- if settings.favicon != blank -%}
+    <link rel="icon" type="image/png" href="{{ "{{ settings.favicon | image_url: width: 32, height: 32 }}" }}">
+  {%- endif -%}
+  
+  <!-- 后续原有代码保持不变 -->`)
+
   const curlCode = computed(() => `curl -X POST ${gw.value}/v2/decide \\
-  -H "Content-Type: application/json" \\
+  -H "Content-Type" application/json" \\
   -H "X-App-Key: ${siteId.value}" \\
   -d '{
     "context": {

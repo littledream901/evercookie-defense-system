@@ -63,9 +63,15 @@
         <!-- 1. 访客编号：域名 / request_id / 时间 -->
         <template #request_id="{ row }">
           <div class="cell-stack">
-            <span class="cell-line cell-domain">
-              {{ row.host || extractDomain(row.referer) || '-' }}
+            <ElTooltip v-if="row.host" placement="top" :content="row.host" :show-after="300">
+              <span class="cell-line cell-domain">
+                {{ row.host }}
+              </span>
+            </ElTooltip>
+            <span v-else-if="extractDomain(row.referer)" class="cell-line cell-domain">
+              {{ extractDomain(row.referer) }}
             </span>
+            <span v-else class="cell-line text-placeholder">-</span>
             <span class="cell-line text-code">{{ row.request_id || '-' }}</span>
             <span class="cell-line cell-time">{{ fmtTime(row.occurred_at) }}</span>
           </div>
@@ -124,9 +130,13 @@
           </div>
         </template>
 
-        <!-- 5. 访问来路 -->
+        <!-- 5. 访问来路：两行显示 + tooltip -->
         <template #referer="{ row }">
-          <span v-if="row.referer" class="cell-line text-secondary">{{ row.referer }}</span>
+          <ElTooltip v-if="row.referer" placement="top" :content="row.referer" :show-after="300">
+            <div class="cell-referer">
+              {{ row.referer }}
+            </div>
+          </ElTooltip>
           <span v-else class="text-placeholder">-</span>
         </template>
 
@@ -462,6 +472,20 @@
   text-decoration: none;
 }
 .cell-link:hover { text-decoration: underline; }
+
+/* ── 访问来路：最多两行，超出省略 ── */
+.cell-referer {
+  font-size: 12px;
+  color: #606266;
+  line-height: 1.5;
+  word-break: break-all;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  cursor: default;
+}
 
 /* ── IP 详情 hover ── */
 .cell-isp {
