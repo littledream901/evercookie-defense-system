@@ -215,7 +215,7 @@
             <li>打开 <strong>Online Store → Themes → Edit code</strong></li>
             <li>在左侧搜索框输入 <code>sd-sdk</code>，删除所有包含 <code>SdSdk.protect</code> 或 <code>SdSdk.guard</code> 的代码片段</li>
             <li>常见位置：<code>layout/theme.liquid</code>、<code>snippets/scripts.liquid</code></li>
-            <li><strong>特别注意</strong>：<code>{{ "{{ content_for_header }}" }}</code> 只能在 theme.liquid 中出现一次，如有重复需删除</li>
+            <li><strong>特别注意</strong>：<code>{{ LIQUID_HEADER }}</code> 只能在 theme.liquid 中出现一次，如有重复需删除</li>
           </ul>
         </div>
         <!-- 代码 -->
@@ -337,6 +337,12 @@
   // 两者用途不同：site_id 走 X-App-Key header 做身份识别，id 是租户维度。
   const numericAppId = computed(() => props.app?.id ?? 0)
 
+  // Liquid 的双花括号会被 Vue 模板编译器当成插值解析，必须拆开拼接后再输出
+  const LB = '{{'
+  const RB = '}}'
+  const LIQUID_HEADER = `${LB} content_for_header ${RB}`
+  const LIQUID_FAVICON = `${LB} settings.favicon | image_url: width: 32, height: 32 ${RB}`
+
   const REDIRECT_VARS = [
     { ph: '{url}',             desc: '访客原始 URL（明文）' },
     { ph: '{url_enc}',         desc: '访客原始 URL（URL 编码），适合做 redirect-back 参数' },
@@ -430,7 +436,7 @@ document.addEventListener('DOMContentLoaded',function(){if(typeof SdSdk!=='undef
   <\/script>
 
   {%- if settings.favicon != blank -%}
-    <link rel="icon" type="image/png" href="{{ "{{ settings.favicon | image_url: width: 32, height: 32 }}" }}">
+    <link rel="icon" type="image/png" href="${LIQUID_FAVICON}">
   {%- endif -%}
   
   <!-- 后续原有代码保持不变 -->`)
