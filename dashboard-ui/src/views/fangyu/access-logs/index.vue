@@ -352,9 +352,14 @@
 
   function extractDomain(raw?: string | null): string {
     if (!raw) return ''
+    // 相对路径（/products/xxx）补上协议头后会被解析成 https:///products/xxx，
+    // 首个路径段会被误当作 hostname，需先排除
+    const trimmed = raw.trim()
+    if (!trimmed || trimmed.startsWith('/')) return ''
     try {
-      const u = new URL(raw.startsWith('http') ? raw : `https://${raw}`)
-      return u.hostname
+      const u = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`)
+      // 合法域名至少含一个点号，可排除 products、localhost 段等误判
+      return u.hostname.includes('.') ? u.hostname : ''
     } catch { return '' }
   }
 
