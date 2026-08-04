@@ -18,10 +18,15 @@ from fangyu_shared.schemas.rule import (
     ScoringRule,
 )
 
+from src.domain.rule.state_machine import SYNCABLE_STATUSES
 from src.domain.rule.version import RuleVersion
 from src.infrastructure.repositories.models import RuleModel, RuleSiteModel, RuleVersionModel
 
 AnyRule = DecisionRule | ScoringRule
+
+# SQL 层比较的是字符串列，故从领域层的状态集合派生出 value 列表，
+# 而不是另手写一份（两份不一致就会出现「查得到但下发不了」的静默失效）。
+_SYNCABLE_STATUS_VALUES = sorted(s.value for s in SYNCABLE_STATUSES)
 
 
 def _parse_disposition(raw: dict | str | None) -> dict | None:
@@ -123,13 +128,18 @@ class RuleAdminRepository:
         )
 
     async def list_published_by_site(self, site_id: int) -> list[AnyRule]:
-        """取某站点全部已发布规则，用于同步 Redis 分片。
+        """取某站点全部需下发规则（已发布 + 影子），用于同步 Redis 分片。
 
         返回的规则 app_id 已置为该 site_id，便于直接写入 fangyu:rules:{site_id}。
+
+        过滤条件用 SYNCABLE_STATUSES 而非硬编码 PUBLISHED：scheduler 的例行全量
+        重建走的正是这个查询，只查 PUBLISHED 会把刚置为影子的规则从 Redis 抹掉，
+        影子模式表现为「先生效、几分钟后失效」。SHADOW 进 Redis 但不参与真实处置，
+        由 gateway 匹配器的 is_shadow 分支保证。
         """
         stmt = (
             select(RuleModel)
-            .where(RuleModel.status == RuleStatus.PUBLISHED.value)
+            .where(RuleModel.status.in_(_SYNCABLE_STATUS_VALUES))
             .where(
                 RuleModel.id.in_(
                     select(RuleSiteModel.rule_id).where(RuleSiteModel.site_id == site_id)
@@ -340,11 +350,15 @@ class RuleAdminRepository:
         )
 
     async def list_app_ids_with_published_rules(self) -> list[int]:
-        """返回绑定了已发布规则的所有 site_id，供 scheduler 全量同步缓存使用。"""
+        """返回绑定了需下发规则（已发布 + 影子）的所有 site_id，供 scheduler 全量同步缓存使用。
+
+        必须把影子规则也算进来：只绑定影子规则的站点若不在这个列表里，
+        scheduler 根本不会为它调 list_published_by_site，影子规则也就到不了 Redis。
+        """
         stmt = (
             select(RuleSiteModel.site_id)
             .join(RuleModel, RuleModel.id == RuleSiteModel.rule_id)
-            .where(RuleModel.status == RuleStatus.PUBLISHED.value)
+            .where(RuleModel.status.in_(_SYNCABLE_STATUS_VALUES))
             .distinct()
         )
         result = await self._session.execute(stmt)

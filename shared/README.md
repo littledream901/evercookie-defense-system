@@ -13,6 +13,7 @@ Evercookie Defense System V2 的跨服务共享库，供 gateway-api / admin-api
 | `fangyu_shared.logging` | 结构化日志 |
 | `fangyu_shared.metrics` | Prometheus 指标封装 |
 | `fangyu_shared.schemas` | 跨服务 Pydantic 模型 |
+| `fangyu_shared.reputation` | 声誉聚合 SQL、评分公式与 ProfileCache 写回（worker 周期任务与 admin 手动触发共用） |
 | `fangyu_shared.utils` | 通用工具（时间/加密/校验/异步） |
 
 ## 使用

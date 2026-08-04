@@ -792,5 +792,55 @@ declare namespace Api {
       disposition_hostile?: DecisionDisposition | null
       enabled?: boolean
     }
+
+    /** 单一接入来源（sdk / adapter）的实测指标 */
+    interface IngressStat {
+      ingress: string
+      total: number
+      /** 指纹由网关按 IP+UA 派生的请求数；SDK 侧出现即说明埋码没真正采到指纹 */
+      derived_count: number
+      /** 带行为时序的请求数，SDK 独有信号 */
+      behavior_count: number
+      /** Evercookie 跨存储自愈命中数 */
+      restore_count: number
+      unknown_verdict_count: number
+      hostile_count: number
+      suspicious_count: number
+      clean_count: number
+      clock_banned_count: number
+      unique_fingerprints: number
+      unique_ips: number
+      avg_cost_ms: number
+      first_seen_at: string | null
+      last_seen_at: string | null
+    }
+
+    /** 一条可执行的诊断结论 */
+    interface IntegrationFinding {
+      level: 'ok' | 'warning' | 'error'
+      code: string
+      title: string
+      detail: string
+      suggestion: string
+    }
+
+    /** 接入诊断结果：配置侧声明 vs 遥测侧实测 */
+    interface IntegrationDiagnostics {
+      site_id: number
+      site_name: string
+      domain: string
+      is_active: boolean
+      /** 站点配置的接入模式，与决策请求的 ingress 一一对应 */
+      configured_access_mode: string
+      configured_sdk_version: string | null
+      gateway_url: string | null
+      window_hours: number
+      total_requests: number
+      last_seen_at: string | null
+      /** no_data 表示窗口内无任何决策记录，无法区分未接入与验签失败 */
+      status: 'ok' | 'warning' | 'error' | 'no_data'
+      ingress_stats: IngressStat[]
+      findings: IntegrationFinding[]
+    }
   }
 }

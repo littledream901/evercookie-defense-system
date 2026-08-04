@@ -5,9 +5,14 @@
 
 from __future__ import annotations
 
+import math
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from itertools import pairwise
+
+from fangyu_shared.clock.behavior import BehaviorKind
+from fangyu_shared.schemas.clock import BehaviorEvent
 
 from src.domain.profile.builder import ProfileSnapshot
 
@@ -237,6 +242,15 @@ class DeviceScorer(RiskScorer):
 
 
 class BehaviorScorer(RiskScorer):
+    """请求层异常特征：非常规 method、超长 path。
+
+    名字里的 "behavior" 是历史包袱，它看的是**HTTP 请求属性**，与浏览器采集的
+    人机行为时序无关。后者由 :class:`InteractionScorer` 负责——两者拆开是因为
+    ``applies`` 只能表达一个「有没有输入」：请求属性每条流量都有，行为事件只有
+    SDK 路径才有。合成一个 scorer 就必须二选一，要么让 Adapter 流量因为没有
+    行为数据而被判可疑，要么让行为信号永远无法报「无数据」。
+    """
+
     name = "behavior"
     weight = 1.0
 
@@ -254,6 +268,170 @@ class BehaviorScorer(RiskScorer):
             parts.append("long_path")
         reason = "+".join(parts) if parts else None
         return ScorerOutput(name=self.name, score=score, reason=reason, weight=self.weight)
+
+
+_INTERACTION_KINDS: frozenset[BehaviorKind] = frozenset(
+    {
+        BehaviorKind.MOUSE_MOVE,
+        BehaviorKind.CLICK,
+        BehaviorKind.SCROLL,
+        BehaviorKind.KEY_PRESS,
+    }
+)
+"""算作「真人在操作」的事件类型。
+
+不含 page_view / focus / blur / submit：
+- page_view 是 SDK ``start()`` 无条件补的第一条，与用户操作无关；
+- focus / blur 由窗口切换触发，无头浏览器加载页面时同样会产生；
+- submit 可以由脚本 ``form.submit()`` 直接触发，不代表有人点过。
+"""
+
+_THROTTLED_KINDS: frozenset[BehaviorKind] = frozenset(
+    {BehaviorKind.MOUSE_MOVE, BehaviorKind.SCROLL, BehaviorKind.KEY_PRESS}
+)
+"""SDK 侧按 ``sampleIntervalMs``（默认 200ms）做过同类节流的事件类型。
+
+**判定时序规律性时必须排除这几类。** 采样器给同类事件设了最小间隔，真人连续
+移动鼠标时被采下来的点几乎恰好每 200ms 一个——间隔标准差天然接近 0。把这个
+采样地板当成「脚本回放的规律性」，等于把所有认真滑动页面的真人判成机器人。
+"""
+
+_MIN_TIMING_SAMPLES = 6
+"""判定时序规律性所需的最小间隔数（即至少 7 条非节流事件）。
+
+样本太少时低方差没有统计意义：两次点击间隔恰好相同是巧合，不是证据。
+"""
+
+_MIN_MEAN_INTERVAL_MS = 250.0
+"""平均间隔下限。低于此值的一律不判规律性。
+
+同一个 JS tick 里批量 ``record()`` 出来的事件间隔接近 0，方差也接近 0，但这更
+可能是 SDK 自身或页面初始化的批量行为，而不是定时回放。定时回放的特征是
+「间隔稳定且不小」。
+"""
+
+_MAX_TIMING_CV = 0.05
+"""间隔的变异系数（标准差 / 均值）上限。
+
+真人点击、切换窗口的间隔波动很大，CV 普遍在 0.3 以上；``setInterval`` 驱动的
+回放脚本 CV 通常低于 0.01。取 0.05 留出定时器抖动的余量，同时离真人的分布
+足够远。
+"""
+
+_NO_INTERACTION_SPAN_MS = 3000
+"""判定「有页面停留但零交互」所需的最小缓冲区时间跨度。
+
+首次 ``decide()`` 紧跟在 SDK ``start()`` 之后触发，缓冲区里通常只有那条
+page_view，跨度约为 0——此时用户根本还没有机会操作，不能算信号。要求缓冲区
+横跨至少 3 秒，才能说「这段时间里确实没有任何人在操作」。
+"""
+
+_MIN_REPEAT_KEYS = 8
+"""判定按键 repeat 异常所需的最小 key_press 数。"""
+
+_REPEAT_RATIO_THRESHOLD = 0.9
+"""key_press 中 ``repeat=true`` 的占比阈值。
+
+``repeat`` 由浏览器在**长按**时置位，正常输入的绝大多数按键该值为 false。
+接近全量 repeat 说明要么是长按（真人删长文本也会这样），要么是伪造载荷统一
+填了 true。因此这条只给很低的分，仅作为弱信号参与累加。
+"""
+
+
+class InteractionScorer(RiskScorer):
+    """人机交互识别：消费 SDK 采集的行为时序。
+
+    与 :class:`BehaviorScorer` 的分工见后者的文档。
+
+    ``applies=False`` 的语义在这里尤其关键
+    --------------------------------------
+    没有行为事件时**必须**报「不参与判定」，而不是判成可疑。行为事件只有浏览器
+    SDK 路径才会有：Adapter（站点服务端转发）流量在结构上不可能带，站点也可以
+    通过 init 下发的 ``collectBehavior=false`` 关停采集。若把「没有行为数据」
+    当作风险，所有纯服务端接入会因为「没装浏览器 SDK」而被恒定加分——这不是
+    风控结论，而是接入方式的差异。
+
+    各信号都刻意取保守阈值：这里的误判直接表现为真人被拦，代价远高于漏放。
+    """
+
+    name = "interaction"
+    weight = 0.8
+
+    def score(self, snapshot: ProfileSnapshot) -> ScorerOutput:
+        events = snapshot.behavior_events
+        if not events:
+            return self._skip("no_behavior_events")
+
+        score = 0.0
+        parts: list[str] = []
+
+        if self._has_page_view_without_interaction(events):
+            # 20 分：单独不足以越过挑战线（20 × 0.8 = 16），需与其他维度累加。
+            # 真人读完一屏不滚动就离开也会命中，不能让它单独定罪。
+            score += 20
+            parts.append("no_interaction")
+
+        cv = self._interval_cv(events)
+        if cv is not None and cv < _MAX_TIMING_CV:
+            # 30 分：定时回放是本 scorer 里最硬的信号，但仍压在挑战线之下
+            # （30 × 0.8 = 24），留给 IP / 设备 / UA 维度共同定性。
+            score += 30
+            parts.append(f"regular_timing:cv={cv:.4f}")
+
+        if self._is_repeat_key_burst(events):
+            score += 12
+            parts.append("key_repeat_burst")
+
+        reason = "+".join(parts) if parts else None
+        # 注意：无信号时返回 score=0 且 applies=True —— 「已评估，无风险」，
+        # 与上面的 _skip（拿不到输入）是不同结论，排障时必须能区分。
+        return ScorerOutput(
+            name=self.name, score=min(score, 100.0), reason=reason, weight=self.weight
+        )
+
+    @staticmethod
+    def _has_page_view_without_interaction(events: tuple[BehaviorEvent, ...]) -> bool:
+        """有 page_view、跨度够长，却没有任何交互类事件。
+
+        无头/脚本流量的典型形状：page_view + focus/blur 齐全（这些由页面加载
+        本身触发），但鼠标、滚动、键盘全空。
+        """
+        if not any(e.kind == BehaviorKind.PAGE_VIEW for e in events):
+            return False
+        if any(e.kind in _INTERACTION_KINDS for e in events):
+            return False
+        timestamps = [e.client_ts_ms for e in events]
+        span = max(timestamps) - min(timestamps)
+        return span >= _NO_INTERACTION_SPAN_MS
+
+    @staticmethod
+    def _interval_cv(events: tuple[BehaviorEvent, ...]) -> float | None:
+        """非节流事件的相邻间隔变异系数。``None`` 表示样本不足以判定。
+
+        只取非节流类型，避免把 SDK 的 200ms 采样地板误读成脚本的规律性
+        （见 :data:`_THROTTLED_KINDS`）。
+        """
+        timestamps = sorted(
+            e.client_ts_ms for e in events if e.kind not in _THROTTLED_KINDS
+        )
+        if len(timestamps) < _MIN_TIMING_SAMPLES + 1:
+            return None
+
+        intervals = [float(b - a) for a, b in pairwise(timestamps)]
+        mean = sum(intervals) / len(intervals)
+        if mean < _MIN_MEAN_INTERVAL_MS:
+            return None
+        variance = sum((i - mean) ** 2 for i in intervals) / len(intervals)
+        return math.sqrt(variance) / mean
+
+    @staticmethod
+    def _is_repeat_key_burst(events: tuple[BehaviorEvent, ...]) -> bool:
+        """key_press 数量够多且几乎全部带 ``repeat`` 标记。"""
+        presses = [e for e in events if e.kind == BehaviorKind.KEY_PRESS]
+        if len(presses) < _MIN_REPEAT_KEYS:
+            return False
+        repeats = sum(1 for e in presses if e.data.get("repeat") is True)
+        return repeats / len(presses) >= _REPEAT_RATIO_THRESHOLD
 
 
 class IntelScorer(RiskScorer):

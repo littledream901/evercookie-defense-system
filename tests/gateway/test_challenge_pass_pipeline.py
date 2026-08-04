@@ -105,7 +105,7 @@ class _StubProfileCache:
     async def get_device(self, app_id, fingerprint):
         return None
 
-    async def get_ip(self, ip):
+    async def get_ip(self, app_id, ip):
         return None
 
 
@@ -236,6 +236,8 @@ async def test_challenge_pass_hit_published_to_event() -> None:
     service, _, publisher, _, _, _ = _build_service(granted=True)
 
     await service.decide(_request())
+    # 事件发布已挪出决策关键路径，响应返回时任务可能还没跑。
+    await service.drain_events()
 
     assert len(publisher.events) == 1
     event = publisher.events[0]

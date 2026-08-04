@@ -13,6 +13,7 @@ from src.domain.analytics.query_spec import (
     AnalyticsQuerySpec,
     DecisionTimelineSpec,
     DispositionBreakdownSpec,
+    RuleHitRateSpec,
     TopEntitySpec,
 )
 from src.interfaces.http.dependencies import (
@@ -20,7 +21,12 @@ from src.interfaces.http.dependencies import (
     require_permission,
 )
 
-from .schemas import AnalyticsBaseRequest, TimelineRequest, TopEntityRequest
+from .schemas import (
+    AnalyticsBaseRequest,
+    RuleHitRateRequest,
+    TimelineRequest,
+    TopEntityRequest,
+)
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -43,7 +49,11 @@ async def timeline(
     payload: TimelineRequest,
     service: AnalyticsService = Depends(get_analytics_service),
 ) -> SuccessResponse[list[dict[str, Any]]]:
-    spec = DecisionTimelineSpec(base=_base(payload), granularity=payload.granularity)
+    spec = DecisionTimelineSpec(
+        base=_base(payload),
+        granularity=payload.granularity,
+        dimension=payload.dimension,
+    )
     rows = await service.get_timeline(spec)
     return SuccessResponse(data=rows)
 
@@ -75,4 +85,29 @@ async def top_entities(
         base=_base(payload), dimension=payload.dimension, limit=payload.limit
     )
     rows = await service.get_top_entities(spec)
+    return SuccessResponse(data=rows)
+
+
+@router.post(
+    "/rule-hit-rate",
+    response_model=SuccessResponse[list[dict[str, Any]]],
+    dependencies=[Depends(require_permission("analytics.read"))],
+)
+async def rule_hit_rate(
+    payload: RuleHitRateRequest,
+    service: AnalyticsService = Depends(get_analytics_service),
+) -> SuccessResponse[list[dict[str, Any]]]:
+    """规则命中率。
+
+    返回每条规则的命中数、按裁决拆分的分布、加权平均分与恶意率，按命中数降序。
+    ``rule_name`` 不在此返回（规则元数据在 Postgres，跨库取不到），前端用
+    rule_id 与规则列表做本地映射。
+    """
+    spec = RuleHitRateSpec(
+        app_id=payload.site_id,
+        start=payload.start,
+        end=payload.end,
+        limit=payload.limit,
+    )
+    rows = await service.get_rule_hit_rate(spec)
     return SuccessResponse(data=rows)

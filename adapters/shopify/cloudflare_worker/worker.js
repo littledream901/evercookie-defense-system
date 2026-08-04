@@ -184,6 +184,8 @@ function serverSessionToken() {
  */
 function injectSdk(originResponse, env, serverDecision, serverToken) {
   const siteId     = env.FANGYU_SITE_ID    || '';
+  // SDK 的 appId 必须是正整数；siteId 是字符串键，只能作 X-App-Key 用。
+  const appId      = Number.parseInt(env.FANGYU_APP_ID || '0', 10) || 0;
   const gatewayUrl = (env.FANGYU_GATEWAY_URL || '').replace(/\/$/, '');
   const sdkSrc     = env.FANGYU_SDK_URL    || `${gatewayUrl}/sdk/fangyu-sdk.min.js`;
   const blockedUrl = env.FANGYU_BLOCKED_URL || '/blocked';
@@ -192,8 +194,11 @@ function injectSdk(originResponse, env, serverDecision, serverToken) {
   const snippet = `
 <script>
 window.__fy_server_ctx = ${JSON.stringify({
-    siteId,
-    gatewayUrl,
+    // 键名对齐 SdkConfig：apiBase / apiKey / appId。
+    // 旧的 gatewayUrl / siteId 在 SDK 中不存在，validateConfig() 会抛错。
+    apiBase: gatewayUrl,
+    apiKey: siteId,
+    appId,
     serverVerdict: serverDecision?.verdict || 'unknown',
     serverToken,
     blockedUrl,
@@ -213,26 +218,31 @@ document.addEventListener('DOMContentLoaded', function () {
     return;
   }
   if (typeof SdSdk === 'undefined') return;  // SDK 加载失败时静默放行
+  if (!ctx.apiBase || !ctx.apiKey || !ctx.appId) return;
+  // protect() 返回 Promise<{decision, applied}>。SDK 无 onDecision 配置项，
+  // 处置回调必须从返回的 Promise 取，否则永远不会被调用。
   SdSdk.protect({
-    gatewayUrl:      ctx.gatewayUrl,
-    siteId:          ctx.siteId,
-    serverToken:     ctx.serverToken,   // 网关用此字段关联服务端预判
+    apiBase:         ctx.apiBase,
+    apiKey:          ctx.apiKey,
+    appId:           ctx.appId,
+    serverToken:     ctx.serverToken || '',   // 网关用此字段关联服务端预判
     autoApply:       false,
-    collectBehavior: true,
-    onDecision: function (d) {
-      sessionStorage.setItem('_fy_v', JSON.stringify({
-        v: d.verdict, exp: Date.now() + (d.ttlSeconds || 300) * 1000
-      }));
-      if (d.mechanism === 'redirect') {
-        location.replace(d.target && d.target.url ? d.target.url : ctx.blockedUrl);
-      } else if (d.mechanism === 'challenge') {
-        location.replace(ctx.challengeUrl + '?next=' + encodeURIComponent(location.href));
-      } else if (d.mechanism === 'deny') {
-        document.documentElement.innerHTML =
-          '<body style="font:sans-serif;text-align:center;padding:80px"><h1>403</h1></body>';
-      }
+    collectBehavior: true
+  }).then(function (outcome) {
+    var d = outcome && outcome.decision;
+    if (!d) return;
+    sessionStorage.setItem('_fy_v', JSON.stringify({
+      v: d.verdict, exp: Date.now() + (d.ttlSeconds || 300) * 1000
+    }));
+    if (d.mechanism === 'redirect') {
+      location.replace(d.targetUrl || ctx.blockedUrl);
+    } else if (d.mechanism === 'challenge') {
+      location.replace(ctx.challengeUrl + '?next=' + encodeURIComponent(location.href));
+    } else if (d.mechanism === 'deny') {
+      document.documentElement.innerHTML =
+        '<body style="font:sans-serif;text-align:center;padding:80px"><h1>403</h1></body>';
     }
-  });
+  }).catch(function () { /* SDK 异常不影响页面 */ });
 });
 </script>`.trim();
 
@@ -336,6 +346,11 @@ function buildContext(request, env) {
     ingress: 'adapter',
     ip,
     visitUrl: request.url,
+    // path / method 必须显式上报：规则引擎的 request.path 直接取该字段，不从
+    // visitUrl 派生。漏报会让路径类规则永不命中，而否定条件（路径不在白名单
+    // 则拦截）反而会因取值恒为 '/' 而误拦全站流量。
+    path: url.pathname,
+    method: request.method,
     userAgent: request.headers.get('User-Agent') || '',
   };
 

@@ -19,11 +19,17 @@ from fangyu_shared.schemas.rule import DecisionRule, RuleGroup, RuleSet, Scoring
 _REDIS_PREFIX = "fangyu:rules"
 _GROUP_PREFIX = "fangyu:rule_groups"
 
+# admin 侧 RuleCache 换页时随快照写入的代次字段，不是规则，解析时必须跳过，
+# 否则每次加载都会对它 model_validate 失败、刷一条无意义的脏数据日志。
+# 规则 id 都是数字串，这个双下划线名字不会与任何 field 相撞。
+_VERSION_FIELD = "__version__"
+
 
 @dataclass(slots=True)
 class _CacheEntry:
     rule_set: RuleSet
     expires_at: float
+    version: str | None = None
 
 
 @dataclass(slots=True)
@@ -56,19 +62,35 @@ class RuleRepository:
             entry = self._local.get(app_id)
             if entry and entry.expires_at > now:
                 return entry.rule_set
-            rule_set = await self._load_from_redis(app_id)
+            rule_set, version = await self._load_from_redis(app_id)
             self._local[app_id] = _CacheEntry(
                 rule_set=rule_set,
                 expires_at=now + self._config.local_ttl_seconds,
+                version=version,
             )
             self._trim_local()
             return rule_set
 
-    async def _load_from_redis(self, app_id: int) -> RuleSet:
+    async def snapshot_version(self, app_id: int) -> str | None:
+        """当前本地生效的快照代次，用于观测「gateway 是否已看到最新快照」。
+
+        走 ``get_rule_set`` 同一条缓存，不额外打 Redis，因此也不改变 30s TTL 行为。
+        """
+        await self.get_rule_set(app_id)
+        entry = self._local.get(app_id)
+        return entry.version if entry else None
+
+    async def _load_from_redis(self, app_id: int) -> tuple[RuleSet, str | None]:
         raw_items: dict[str, Any] = await self._redis.hgetall(f"{_REDIS_PREFIX}:{app_id}")
         decision_rules: list[DecisionRule] = []
         scoring_rules: list[ScoringRule] = []
-        for raw in raw_items.values():
+        version: str | None = None
+        for field, raw in raw_items.items():
+            # 连接可能未开 decode_responses，field 统一归一化成 str 再比对
+            name = field.decode() if isinstance(field, bytes) else str(field)
+            if name == _VERSION_FIELD:
+                version = raw.decode() if isinstance(raw, bytes) else str(raw)
+                continue
             try:
                 data = orjson.loads(raw)
             except orjson.JSONDecodeError:
@@ -91,12 +113,13 @@ class RuleRepository:
             except (orjson.JSONDecodeError, ValueError):
                 continue
 
-        return RuleSet(
+        rule_set = RuleSet(
             appId=app_id,
             decisionRules=decision_rules,
             scoringRules=scoring_rules,
             groups=groups,
         )
+        return rule_set, version
 
     async def invalidate(self, app_id: int) -> None:
         self._local.pop(app_id, None)

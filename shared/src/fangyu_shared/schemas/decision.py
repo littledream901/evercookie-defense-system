@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from enum import Enum
 from typing import Any
+from urllib.parse import urlparse
 
 from pydantic import Field, IPvAnyAddress, model_validator
 
@@ -89,6 +90,31 @@ class DecisionContext(BaseSchema):
     那个恒为 0 分的 behavior stage 让前端「AI 得分」长期显示 0，是负资产。
     """
     extra: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _derive_path_from_visit_url(self) -> DecisionContext:
+        """``path`` 缺省时从 ``visit_url`` 解析补齐。
+
+        存在原因：三个服务端适配器（nginx-lua / CF Worker / WordPress）历史上
+        只上报 ``visitUrl``，不上报 ``path``。而 ``path`` 的默认值是 ``"/"``，
+        规则引擎的 ``request.path`` 直接取该字段，不做任何派生。后果有两层：
+
+        - 正向条件永不命中：内置模板「敏感路径阻断」（critical 优先级，
+          ``regex ^/(admin|checkout)(/|$)``）对适配器流量完全失效；
+        - 否定条件误命中：「路径不在白名单则拦截」会因取值恒为 ``"/"``
+          而拦下全部适配器流量。
+
+        兜底放在 schema 而非各适配器，是为了让已部署的存量适配器无需升级即可
+        恢复正确行为；适配器侧也已同步补上显式上报，两者一致。
+
+        只在 ``path`` 仍为默认值时派生，绝不覆盖显式上报值——否则 SDK 明确传来的
+        ``location.pathname`` 会被 ``visitUrl`` 的解析结果顶掉。
+        """
+        if self.path == "/" and self.visit_url:
+            parsed = urlparse(self.visit_url)
+            if parsed.path:
+                object.__setattr__(self, "path", parsed.path[:1024])
+        return self
 
     @model_validator(mode="after")
     def _resolve_fingerprint(self) -> DecisionContext:

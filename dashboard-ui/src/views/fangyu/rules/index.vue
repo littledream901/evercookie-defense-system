@@ -349,9 +349,9 @@
   </div>
 </template>
 <script setup lang="ts">
-  import { Delete, Plus, QuestionFilled, Edit, Upload, VideoPause, Box, RefreshLeft, Files } from '@element-plus/icons-vue'
+  import { Delete, Plus, QuestionFilled, Edit, Upload, VideoPause, Box, RefreshLeft, Files, View } from '@element-plus/icons-vue'
   import { useTable } from '@/hooks/core/useTable'
-  import { fetchArchiveRule, fetchCreateGlobalRule, fetchDeleteRule, fetchDisableRule, fetchPublishRule, fetchUnarchiveRule, fetchUpdateRule, fetchSetRuleSites, fetchGetAllRules, fetchGetRuleTemplates } from '@/api/rules'
+  import { fetchArchiveRule, fetchCreateGlobalRule, fetchDeleteRule, fetchDisableRule, fetchPublishRule, fetchShadowRule, fetchUnarchiveRule, fetchUpdateRule, fetchSetRuleSites, fetchGetAllRules, fetchGetRuleTemplates } from '@/api/rules'
   import { fetchGetAppList } from '@/api/apps'
   import { RULE_PRIORITY_OPTIONS, RULE_STATUS_TAGS, RULE_STATUS_LABELS, pruneParams } from '@/constants/fangyu'
   import {
@@ -602,8 +602,16 @@
             }
             if (s === 'draft') {
               btns.push(btn('success', Upload, '发布', () => publishRule(r)))
+              btns.push(btn('primary', View, '影子', () => shadowRule(r)))
               btns.push(btn('warning', Box, '归档', () => archiveRule(r)))
               btns.push(btn('danger',  Delete, '删除', () => deleteRule(r)))
+            } else if (s === 'shadow') {
+              // 影子只有三条出路，与状态机 _TRANSITIONS[SHADOW] 一一对应：
+              // 观察合格→发布、有问题→退回草稿、直接放弃→归档。没有「停用」，
+              // 因为 shadow→disabled 被状态机禁止（两者都不参与真实处置）。
+              btns.push(btn('success', Upload, '发布', () => publishRule(r)))
+              btns.push(btn('primary', RefreshLeft, '退回草稿', () => unarchiveRule(r)))
+              btns.push(btn('warning', Box, '归档', () => archiveRule(r)))
             } else if (s === 'published') {
               btns.push(btn('warning', VideoPause, '停用', () => disableRule(r)))
               btns.push(btn('warning', Box, '归档', () => archiveRule(r)))
@@ -737,6 +745,12 @@
     ElMessageBox.confirm(`发布规则「${r.name}」？发布后立即对线上流量生效。`, '发布规则',
       { confirmButtonText: '发布', cancelButtonText: '取消', type: 'success' }
     ).then(async () => { await fetchPublishRule(r.id); ElMessage.success('已发布'); await fetchData() })
+  }
+  function shadowRule(r: Rule) {
+    ElMessageBox.confirm(
+      `将规则「${r.name}」置为灰度影子？规则会下发到线上求值并记录命中影响面，但不会真的拦截流量。`,
+      '灰度影子', { confirmButtonText: '进入影子', cancelButtonText: '取消', type: 'info' }
+    ).then(async () => { await fetchShadowRule(r.id); ElMessage.success('已进入灰度影子'); await fetchData() })
   }
   function disableRule(r: Rule) {
     ElMessageBox.confirm(`停用规则「${r.name}」？`, '停用规则', { confirmButtonText: '停用', type: 'warning' })

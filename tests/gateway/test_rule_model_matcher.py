@@ -228,6 +228,96 @@ def test_shadow_miss_not_recorded(matcher: DecisionRuleMatcher) -> None:
     assert result.shadow_matches == ()
 
 
+def test_shadow_never_wins_over_group_no_match(matcher: DecisionRuleMatcher) -> None:
+    """影子规则命中也不能顶替 allowlist 组兜底。
+
+    winner 为空时匹配器会转去问兜底，影子命中若被算作 winner，这条流量就会
+    拿到影子规则的处置而不是组兜底——影子规则直接改变了真实结果。
+    """
+    group = RuleGroup(appId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=not_found())
+    member = _decision(rid=1, group="office", conditions=[_cond(value="CN")])
+    shadow = _decision(
+        rid=2, name="shadow", status=RuleStatus.SHADOW, disposition=deny(),
+        conditions=[_cond(value="US")],
+    )
+    result = matcher.match([member, shadow], {"ip": {"country": "US"}}, groups=[group])
+
+    # 处置来自组兜底，不是那条命中的影子规则
+    assert result.is_group_no_match is True
+    assert result.rule is None
+    assert result.group is not None
+    assert result.group.on_no_match.mechanism == Mechanism.NOT_FOUND
+    assert [s.rule.id for s in result.shadow_matches] == [2]
+
+
+# ---------- 影子规则 × allowlist 组兜底 ----------
+def test_shadow_member_does_not_satisfy_allowlist_group(
+    matcher: DecisionRuleMatcher,
+) -> None:
+    """组内影子成员命中，不得抑制该组兜底。
+
+    ``_unmatched_allowlist`` 的成员集合按 ``is_active`` 过滤（SHADOW 为 False），
+    所以影子成员不算「白名单放行了这次访问」。反过来若把它算进去，一条还在观察
+    期的规则就能让访客绕过白名单兜底——影子规则实打实地改变了真实处置。
+    """
+    group = RuleGroup(appId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=not_found())
+    active_member = _decision(rid=1, group="office", conditions=[_cond(value="JP")])
+    shadow_member = _decision(
+        rid=2, name="shadow", group="office", status=RuleStatus.SHADOW,
+        disposition=allow(), conditions=[_cond(value="US")],
+    )
+    result = matcher.match(
+        [active_member, shadow_member], {"ip": {"country": "US"}}, groups=[group]
+    )
+
+    # 影子成员命中了，但兜底照旧生效
+    assert result.is_group_no_match is True
+    assert [s.rule.id for s in result.shadow_matches] == [2]
+
+
+def test_shadow_only_allowlist_group_stays_inert(matcher: DecisionRuleMatcher) -> None:
+    """组内只有影子成员时，该组等同于空组——不得凭空拦下全部流量。
+
+    这是「影子规则开始下发到 Redis」这个改动最危险的副作用面：若成员集合不按
+    is_active 过滤，一个只含影子成员的白名单组会突然对所有未命中流量施加
+    on_no_match，把观察行为变成全站拦截。
+    """
+    group = RuleGroup(appId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=deny())
+    shadow_member = _decision(
+        rid=1, name="shadow", group="office", status=RuleStatus.SHADOW,
+        disposition=allow(), conditions=[_cond(value="CN")],
+    )
+    result = matcher.match([shadow_member], {"ip": {"country": "US"}}, groups=[group])
+
+    assert result.matched is False
+    assert result.is_group_no_match is False
+
+
+def test_promoting_member_to_shadow_does_not_change_verdict(
+    matcher: DecisionRuleMatcher,
+) -> None:
+    """把组内成员置为影子，兜底结论必须与该成员处于 draft（不下发）时一致。
+
+    这正是 published→shadow 被状态机禁止的理由所在：一旦允许降级，
+    组的兜底面会随之变化，而管理员以为自己只是「转为观察」。
+    """
+    group = RuleGroup(appId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=deny())
+    other = _decision(rid=1, group="office", conditions=[_cond(value="JP")])
+    ctx = {"ip": {"country": "US"}}
+
+    as_shadow = matcher.match(
+        [other, _decision(
+            rid=2, group="office", status=RuleStatus.SHADOW,
+            disposition=allow(), conditions=[_cond(value="US")],
+        )],
+        ctx, groups=[group],
+    )
+    # draft 规则根本不会下发到 Redis，等价于组内只有 rid=1
+    as_absent = matcher.match([other], ctx, groups=[group])
+
+    assert as_shadow.is_group_no_match == as_absent.is_group_no_match is True
+
+
 # ---------- 求值器 fail-closed ----------
 def test_evaluator_empty_conditions_never_match() -> None:
     ev = ConditionEvaluator()

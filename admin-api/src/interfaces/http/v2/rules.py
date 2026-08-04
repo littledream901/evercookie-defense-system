@@ -161,6 +161,29 @@ async def publish_rule(
 
 
 @router.post(
+    "/{rule_id}/shadow",
+    response_model=SuccessResponse[AnyRule],
+    dependencies=[Depends(require_permission("rule.publish"))],
+)
+async def shadow_rule(
+    site_id: int,
+    rule_id: int,
+    user_id: int = Depends(get_current_user_id),
+    service: RuleService = Depends(get_rule_service),
+) -> SuccessResponse[AnyRule]:
+    """把规则置为灰度影子：下发到 gateway 求值但不影响真实处置。
+
+    权限沿用 rule.publish 而非 rule.write：这是一次下发到数据面的操作，
+    风险等级与发布同级（会改变 gateway 读到的规则集），不该让只有编辑权
+    的人触发。
+    """
+    rule = await service.get(rule_id)
+    _check_rule_access(rule, site_id)
+    rule = await service.to_shadow(rule_id, author_id=user_id)
+    return SuccessResponse(data=rule)
+
+
+@router.post(
     "/{rule_id}/disable",
     response_model=SuccessResponse[AnyRule],
     dependencies=[Depends(require_permission("rule.publish"))],
@@ -202,7 +225,7 @@ async def unarchive_rule(
     rule_id: int,
     service: RuleService = Depends(get_rule_service),
 ) -> SuccessResponse[AnyRule]:
-    """归档规则恢复为草稿。"""
+    """规则恢复为草稿：归档规则恢复编辑，或影子规则退回修改。"""
     rule = await service.get(rule_id)
     _check_rule_access(rule, site_id)
     rule = await service.unarchive(rule_id)

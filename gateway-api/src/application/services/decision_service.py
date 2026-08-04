@@ -34,13 +34,24 @@ SecurityChecker 前面不够用：真正把人误伤到需要人工干预的，�
 --------
 ``target_url`` 的占位符渲染发生在 :meth:`_render`，即**缓存之后**。
 缓存 key 不含 URL，提前渲染会导致同一访客不同页面复用同一跳转地址。
+
+事件发布不在关键路径上
+--------------------
+决策事件通过 :meth:`DecisionService._schedule_event` 交给后台任务发布，响应
+不等待 Redis XADD 完成。此前是 inline ``await``，等于把 Redis 的 P99 加进
+每一次决策的 P99——事件只供离线分析，没有任何理由让它决定同步决策的延迟。
+
+代价是进程被强杀时在飞的事件会丢。用 :meth:`drain_events` 在 lifespan 关闭
+阶段等待排空把这个窗口收敛到「正常关闭时不丢」。
 """
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import Any
 
 from fangyu_shared.clock.windows import ClockDimension
 from fangyu_shared.challenge_token import issue_challenge_token, DEFAULT_TTL as DEFAULT_CHALLENGE_TTL
@@ -68,7 +79,7 @@ from fangyu_shared.schemas.disposition import (
     not_found,
     resolve_http_status,
 )
-from fangyu_shared.schemas.event import DecisionEvent
+from fangyu_shared.schemas.event import ConditionTraceEvent, DecisionEvent
 from fangyu_shared.schemas.target_render import pick_target, render_pool, resolve_rotation_order
 from fangyu_shared.utils.crypto import sha256_hex
 from fangyu_shared.utils.time import utcnow_ms
@@ -85,7 +96,12 @@ from src.domain.profile.builder import ProfileBuilder, ProfileSnapshot
 from src.domain.risk.pipeline import RiskPipeline
 from src.domain.risk.security import SecurityChecker
 from src.domain.rule.matcher import DecisionRuleMatcher
-from src.infrastructure.cache.decision_cache import CachedDecision, DecisionCache
+from src.domain.rule.tracer import collect_condition_traces, should_trace
+from src.infrastructure.cache.decision_cache import (
+    CachedDecision,
+    CachedShadowHit,
+    DecisionCache,
+)
 from src.infrastructure.cache.page_resource_cache import PageResourceCache
 from src.infrastructure.cache.profile_cache import ProfileCache
 from src.infrastructure.cache.scoring_config_cache import ScoringConfigCache
@@ -141,6 +157,10 @@ class DecisionServiceDeps:
     """PoolQuotaStore，用于单地址配额限制。"""
     health_prober: Any = None
     """PoolHealthProber，用于注册地址池到健康探测任务。"""
+    trace_enabled: bool = True
+    """是否采集规则条件命中明细（写 ``decision_traces`` 冷表）。"""
+    trace_sample_rate: float = 0.01
+    """trusted 流量的明细采样率；非 trusted 一律全量留痕。"""
 
 
 class DecisionService:
@@ -148,6 +168,14 @@ class DecisionService:
 
     def __init__(self, deps: DecisionServiceDeps) -> None:
         self._deps = deps
+        self._publish_tasks: set[asyncio.Task[None]] = set()
+        """在飞的事件发布任务。
+
+        必须持一份强引用：``asyncio.create_task`` 返回的 Task 只被事件循环弱
+        引用，本地变量出作用域后 GC 可能在协程跑完前回收它，事件就静默消失了
+        （连日志都不会有）。set + done callback 是官方文档给的标准解法，同时
+        让 :meth:`drain_events` 有东西可等。
+        """
 
     async def decide(self, request: DecisionRequest) -> DecisionResponse:
         ctx = request.context
@@ -165,6 +193,11 @@ class DecisionService:
         wl_outcome = await self._run_whitelist(ctx)
         if wl_outcome is not None:
             cost_ms = int((time.perf_counter() - started) * 1000)
+            # 不传 shadow：本分支在规则匹配之前短路，此刻**还没有**影子数据，
+            # 补一个空列表不是丢数据而是如实反映「没评估过」。要在这里测算影响面
+            # 就得为白名单流量跑一遍画像构建 + 规则匹配，等于抵消掉这条短路的
+            # 全部收益。后果：影子影响面报表不含白名单流量，读数时应理解为
+            # 「进入规则匹配的流量里的占比」而非全站占比。其余短路分支同理。
             response = await self._respond(
                 disposition=wl_outcome.disposition,
                 ctx=ctx,
@@ -176,7 +209,7 @@ class DecisionService:
                 decided_stage=wl_outcome.decided_stage,
                 details=self._details(wl_outcome) if request.require_details else [],
             )
-            await self._publish_event(ctx, response, wl_outcome, None, cost_ms)
+            self._schedule_event(ctx, response, wl_outcome, None, cost_ms)
             decision_requests_total.labels(
                 app_id=str(ctx.app_id),
                 verdict=wl_outcome.disposition.verdict.value,
@@ -187,6 +220,7 @@ class DecisionService:
         pass_outcome = await self._run_challenge_pass(ctx)
         if pass_outcome is not None:
             cost_ms = int((time.perf_counter() - started) * 1000)
+            # 同白名单分支：规则匹配未发生，影子影响面在此有意不测算。
             response = await self._respond(
                 disposition=pass_outcome.disposition,
                 ctx=ctx,
@@ -198,7 +232,7 @@ class DecisionService:
                 decided_stage=pass_outcome.decided_stage,
                 details=self._details(pass_outcome) if request.require_details else [],
             )
-            await self._publish_event(ctx, response, pass_outcome, None, cost_ms)
+            self._schedule_event(ctx, response, pass_outcome, None, cost_ms)
             decision_requests_total.labels(
                 app_id=str(ctx.app_id),
                 verdict=pass_outcome.disposition.verdict.value,
@@ -209,6 +243,7 @@ class DecisionService:
         clock_outcome = await self._run_clock(ctx)
         if clock_outcome is not None:
             cost_ms = int((time.perf_counter() - started) * 1000)
+            # 同白名单分支：频控拦截要尽可能便宜，不为影子测算做规则匹配。
             response = await self._respond(
                 disposition=clock_outcome.disposition,
                 ctx=ctx,
@@ -220,7 +255,7 @@ class DecisionService:
                 decided_stage=clock_outcome.decided_stage,
                 details=self._details(clock_outcome) if request.require_details else [],
             )
-            await self._publish_event(ctx, response, clock_outcome, None, cost_ms)
+            self._schedule_event(ctx, response, clock_outcome, None, cost_ms)
             decision_requests_total.labels(
                 app_id=str(ctx.app_id),
                 verdict=clock_outcome.disposition.verdict.value,
@@ -234,6 +269,8 @@ class DecisionService:
         hybrid_outcome = await self._run_hybrid_lookup(ctx)
         if hybrid_outcome is not None:
             cost_ms = int((time.perf_counter() - started) * 1000)
+            # 同白名单分支：第一层已给出结论，第二层不再跑规则匹配，
+            # 因此这条流量也不参与影子影响面测算。
             response = await self._respond(
                 disposition=hybrid_outcome.disposition,
                 ctx=ctx,
@@ -245,7 +282,7 @@ class DecisionService:
                 decided_stage=hybrid_outcome.decided_stage,
                 details=self._details(hybrid_outcome) if request.require_details else [],
             )
-            await self._publish_event(ctx, response, hybrid_outcome, None, cost_ms)
+            self._schedule_event(ctx, response, hybrid_outcome, None, cost_ms)
             decision_requests_total.labels(
                 app_id=str(ctx.app_id),
                 verdict=hybrid_outcome.disposition.verdict.value,
@@ -255,6 +292,7 @@ class DecisionService:
         cached = await self._try_cache(ctx)
         if cached is not None:
             decision_cache_hits_total.labels(app_id=str(ctx.app_id), layer="decision").inc()
+            cached_outcome = self._outcome_from_cache(cached)
             cached_resp = await self._respond(
                 disposition=cached.disposition,
                 ctx=ctx,
@@ -263,15 +301,27 @@ class DecisionService:
                 rule_ids=tuple(cached.rule_ids),
                 reason=cached.reason,
                 decided_by=cached.decided_by,
-                decided_stage=cached.decided_stage,
+                decided_stage=PipelineStage.CACHE.value,
+                # 影子命中来自原次完整评估、随缓存一起存下来的，不是重新算的。
+                shadow=self._shadow(cached_outcome),
             )
             # adapter 请求携带 serverToken 时，即使命中缓存也要把结论写入
             # ServerSessionCache，否则 SDK 二次请求的 hybrid_lookup 永远查不到。
-            await self._save_server_session(ctx, cached)
+            await self._save_server_session(ctx, cached_outcome)
+            # cost_ms 在 _respond 之后测：缓存命中路径的耗时几乎全在这里
+            # （地址池选址、配额、serve_alt 取页、挑战签发都要打 Redis），
+            # 在 _try_cache 之后就取会得到一个恒等于 0 的假数据。
+            cost_ms = int((time.perf_counter() - started) * 1000)
+            # 缓存命中也必须发事件。此前直接 return，稳态下缓存命中是流量主体，
+            # 于是 ClickHouse 里的事件数远少于真实请求数——所有按「总量」做分母
+            # 的下游全被系统性拉偏，尤其离线 IP/设备信誉计算（拦截数 / 总数）
+            # 会因为分母缺失而把信誉分算高。
+            self._schedule_event(ctx, cached_resp, cached_outcome, None, cost_ms)
             return cached_resp
 
         snapshot = await self._build_snapshot(ctx)
         outcome = await self._run_pipeline(ctx, snapshot)
+        outcome = await self._attach_condition_traces(ctx, snapshot, outcome)
 
         if outcome.is_cacheable:
             await self._deps.decision_cache.set(
@@ -285,6 +335,17 @@ class DecisionService:
                     reason=outcome.reason,
                     decidedBy=outcome.decided_by.value,
                     decidedStage=outcome.decided_stage,
+                    # 影子命中随决策一起缓存：后续缓存命中就能复用这次评估的
+                    # 影响面数据，不必为了测算而重跑规则匹配。
+                    shadowHits=[
+                        CachedShadowHit(
+                            ruleId=h.rule_id,
+                            ruleName=h.rule_name,
+                            verdict=h.verdict,
+                            mechanism=h.mechanism,
+                        )
+                        for h in outcome.shadow_hits
+                    ],
                 ),
             )
 
@@ -306,7 +367,7 @@ class DecisionService:
             details=self._details(outcome) if request.require_details else [],
             shadow=self._shadow(outcome),
         )
-        await self._publish_event(ctx, response, outcome, snapshot, cost_ms)
+        self._schedule_event(ctx, response, outcome, snapshot, cost_ms)
 
         decision_requests_total.labels(
             app_id=str(ctx.app_id), verdict=outcome.disposition.verdict.value
@@ -584,10 +645,51 @@ class DecisionService:
         with decision_latency_seconds.labels(app_id=str(ctx.app_id), stage="cache").time():
             return await self._deps.decision_cache.get(ctx.app_id, ctx.fingerprint, str(ctx.ip))
 
+    @staticmethod
+    def _outcome_from_cache(cached: CachedDecision) -> DecisionOutcome:
+        """把缓存条目还原成 DecisionOutcome，供事件发布与 Hybrid 存储复用。
+
+        ``decided_stage`` 覆写为 ``cache`` 而 ``decided_by`` 保持原值，是为了让
+        下游能区分「这条事件是缓存服务的」：
+        - ClickHouse 的 ``decided_stage`` 列已存在且是 LowCardinality(String)，
+          直接承载 ``cache`` 不需要加列，也不需要动 schema 版本；
+        - ``decided_by`` 回答的是「为什么是这个处置」，改掉它等于抹掉原始拦截
+          原因，排障时反而更糟。两个字段合起来读作「当初由 X 判定、这次由缓存
+          服务」，正是排障需要的信息量。
+
+        ``decided_by`` 无法解析成枚举时退回 ``SYSTEM_DEFAULT``。写入侧一律用
+        ``outcome.decided_by.value``，正常不会走到这里；留着是防手工改过的
+        缓存条目——为了一个脏字符串让整条事件发不出去不值得。
+        """
+        try:
+            decided_by = DecidedBy(cached.decided_by)
+        except ValueError:
+            decided_by = DecidedBy.SYSTEM_DEFAULT
+        return DecisionOutcome(
+            disposition=cached.disposition,
+            decided_by=decided_by,
+            decided_stage=PipelineStage.CACHE.value,
+            score=cached.score,
+            rule_ids=tuple(cached.rule_ids),
+            reason=cached.reason,
+            shadow_hits=tuple(
+                ShadowHit(
+                    rule_id=h.rule_id,
+                    rule_name=h.rule_name,
+                    verdict=h.verdict,
+                    mechanism=h.mechanism,
+                )
+                for h in cached.shadow_hits
+            ),
+        )
+
     async def _build_snapshot(self, ctx: DecisionContext) -> ProfileSnapshot:
         with decision_latency_seconds.labels(app_id=str(ctx.app_id), stage="profile").time():
             device = await self._deps.profile_cache.get_device(ctx.app_id, ctx.fingerprint)
-            ip_profile = await self._deps.profile_cache.get_ip(str(ctx.ip))
+            # IP 画像按 app_id 分键：声誉分是「本站点观测到的拦截率」的结论，
+            # 不是 IP 的客观属性。读侧必须与回流任务的写侧同键，否则查不到数据
+            # 且不会报错——IpReputationScorer 只会一直走 no_reputation_data。
+            ip_profile = await self._deps.profile_cache.get_ip(ctx.app_id, str(ctx.ip))
             ip_lookup = self._deps.mmdb_reader.lookup(str(ctx.ip))
             intel = None
             if self._deps.intel_reader is not None:
@@ -619,7 +721,7 @@ class DecisionService:
             )
 
         shadow_hits = tuple(
-            ShadowHit(
+            ShadowHit.from_disposition(
                 rule_id=m.rule.id,
                 rule_name=m.rule.name,
                 disposition=m.rule.effective_match_disposition,
@@ -797,6 +899,54 @@ class DecisionService:
             shadow_hits=shadow_hits,
         )
 
+    async def _attach_condition_traces(
+        self,
+        ctx: DecisionContext,
+        snapshot: ProfileSnapshot,
+        outcome: DecisionOutcome,
+    ) -> DecisionOutcome:
+        """按采样策略补上规则条件命中明细，供 worker 写 ``decision_traces``。
+
+        为什么在这里做而不是在匹配器里
+        ------------------------------
+        匹配器的 ``_hits`` 只返回 bool，逐条件的实际值在算子层就被丢掉了。要在
+        匹配时留下明细，就得给**每个请求的每条规则的每个条件**都构造一条记录，
+        而其中 99% 的流量既不写库也不会有人查。这里改为决策完成后、只对已经
+        决定要留痕的请求重算一遍——重算安全，因为 ``read_path`` 与
+        ``apply_operator`` 都是纯函数，同样的 context 必然得到同样的结论。
+
+        为什么不在这里写 ClickHouse
+        ---------------------------
+        明细只挂到事件上，由 worker 批量写入。gateway 侧再开一路同步 CH 写入会
+        把 ClickHouse 的 P99 加进每一次决策的 P99，与「事件发布不在关键路径上」
+        的既有取舍矛盾。
+
+        失败一律 fail-open：留痕是排障辅助，不值得为它让决策失败。
+        """
+        if not self._deps.trace_enabled:
+            return outcome
+        if not should_trace(
+            verdict_is_trusted=outcome.disposition.verdict == Verdict.TRUSTED,
+            sample_rate=self._deps.trace_sample_rate,
+        ):
+            return outcome
+
+        try:
+            rule_set = await self._deps.rule_repository.get_rule_set(ctx.app_id)
+            # 只对参与过求值的规则重算：匹配器跳过非 active/shadow 的规则，
+            # 且不提前 break（影子规则要完整评估），因此这个筛选与它实际算过的
+            # 集合一致。给没参与决策的规则留痕只会放大写入量。
+            evaluated = [r for r in rule_set.decision_rules if r.is_active or r.is_shadow]
+            if not evaluated:
+                return outcome
+            traces = collect_condition_traces(evaluated, snapshot.to_evaluation_context())
+            if not traces:
+                return outcome
+            return replace(outcome, condition_traces=tuple(traces))
+        except Exception as exc:
+            _logger.warning("collect_condition_traces_failed", error=str(exc))
+            return outcome
+
     @staticmethod
     def _render(
         *,
@@ -888,8 +1038,8 @@ class DecisionService:
             ShadowOutcome(
                 ruleId=hit.rule_id,
                 ruleName=hit.rule_name,
-                verdict=hit.disposition.verdict,
-                mechanism=hit.disposition.mechanism,
+                verdict=hit.verdict,
+                mechanism=hit.mechanism,
             )
             for hit in outcome.shadow_hits
         ]
@@ -934,7 +1084,10 @@ class DecisionService:
         )
         # 轮询选址成功后消费配额
         await self._consume_pool_quota(disposition, ctx, response.target_url)
-        return await self._enrich_serve_alt(response, disposition, ctx.app_id)
+        response = await self._enrich_serve_alt(response, disposition, ctx.app_id)
+        # 挑战凭据必须在此签发：客户端拿不到 token 就无法调 /challenge/verify，
+        # ChallengePassStore 永远不会 grant，整条挑战链路会静默失效。
+        return await self._sign_challenge_token(response, disposition, ctx)
 
     async def _resolve_pool_order(
         self,
@@ -1157,6 +1310,59 @@ class DecisionService:
             )
             return response
 
+    def _schedule_event(
+        self,
+        ctx: DecisionContext,
+        response: DecisionResponse,
+        outcome: DecisionOutcome,
+        snapshot: ProfileSnapshot | None,
+        cost_ms: int,
+    ) -> None:
+        """把事件发布挪到后台任务，响应不等它。
+
+        同步：只做 create_task，不 await。Redis XADD 的往返因此不再计入
+        ``/v2/decide`` 的延迟——事件只供离线分析，让它决定同步决策的 P99 是
+        纯粹的浪费。
+
+        ``create_task`` 需要运行中的事件循环。``decide()`` 本身就在协程里，
+        正常不会缺；真缺了（有人从同步上下文调）也只丢事件、不影响决策。
+        """
+        try:
+            task = asyncio.create_task(
+                self._publish_event(ctx, response, outcome, snapshot, cost_ms)
+            )
+        except RuntimeError as exc:
+            _logger.error("publish_decision_event_unscheduled", error=str(exc))
+            return
+        self._publish_tasks.add(task)
+        # 完成即摘除，否则 set 会随请求量无界增长。discard 而非 remove：
+        # drain_events 可能已经把它清掉了。
+        task.add_done_callback(self._publish_tasks.discard)
+
+    async def drain_events(self, *, timeout: float = 5.0) -> int:
+        """等待在飞的事件发布任务完成，返回等到的任务数。
+
+        关闭时必须调用，否则 lifespan 里 ``RedisManager.close()`` 一执行，
+        还没跑到 XADD 的任务会拿到已关闭的连接池——事件丢了，而且丢在「正常
+        重启」这种最频繁的场景里。
+
+        ``timeout`` 兜住 Redis 卡死的情况：超时后放弃等待并记日志，不能让关闭
+        流程被一个发不出去的事件无限期挂住。已经在飞的任务不取消——它们要么
+        自己超时失败，要么在进程退出时随事件循环一起消失。
+        """
+        pending = list(self._publish_tasks)
+        if not pending:
+            return 0
+        done, still_pending = await asyncio.wait(pending, timeout=timeout)
+        if still_pending:
+            _logger.warning(
+                "drain_decision_events_timeout",
+                drained=len(done),
+                pending=len(still_pending),
+                timeout=timeout,
+            )
+        return len(done)
+
     async def _publish_event(
         self,
         ctx: DecisionContext,
@@ -1219,7 +1425,20 @@ class DecisionService:
                 acceptLanguage=ctx.client_language,
                 # 影子评估
                 shadowRuleIds=[h.rule_id for h in outcome.shadow_hits if h.rule_id],
-                shadowVerdicts=[h.disposition.verdict.value for h in outcome.shadow_hits],
+                shadowVerdicts=[h.verdict.value for h in outcome.shadow_hits],
+                # 规则条件命中明细（采样后才非空），由 worker 写 decision_traces
+                conditionTraces=[
+                    ConditionTraceEvent(
+                        ruleId=t.rule_id,
+                        ruleName=t.rule_name,
+                        field=t.field_path,
+                        op=t.op,
+                        expected=t.expected,
+                        actual=t.actual,
+                        matched=t.matched,
+                    )
+                    for t in outcome.condition_traces
+                ],
                 # 接入来源与 Clock 计数
                 ingress=ctx.ingress.value,
                 fingerprintIsDerived=ctx.fingerprint_is_derived,

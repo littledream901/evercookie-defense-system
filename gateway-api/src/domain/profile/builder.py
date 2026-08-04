@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from fangyu_shared.schemas.clock import BehaviorEvent
 from fangyu_shared.schemas.decision import DecisionContext
 from fangyu_shared.schemas.profile import DeviceProfile, IpProfile
 
@@ -21,6 +22,23 @@ class ProfileSnapshot:
     ua: UAResult | None = None
     intel: IntelHit | None = None
     context: dict[str, Any] = field(default_factory=dict)
+    behavior_events: tuple[BehaviorEvent, ...] = ()
+    """本次请求携带的行为事件，供 InteractionScorer 判定人机交互特征。
+
+    为什么是独立的类型化字段而不是塞进 ``context``
+    ----------------------------------------------
+    ``context["request"]`` 会先展开客户端可控的 ``extra``，靠「固定键写在后面」
+    来防覆盖。行为事件如果也走那条路，就多了一处需要靠写入顺序保证安全的地方；
+    而且 ``to_evaluation_context()`` 会把 ``context`` 整体摊给规则引擎，等于让
+    规则的 ``request.*`` 命名空间凭空多出一个不在字段契约里的键。
+
+    这里改为独立字段：值只可能来自 ``DecisionContext.behavior_events``（已由
+    pydantic 按 :class:`BehaviorEvent` 校验过 kind 与时间戳），客户端无法通过
+    ``extra`` 伪造，规则侧也看不到它。
+
+    空元组表示**没有行为数据**（Adapter 服务端流量、或站点关停了行为采集），
+    与「有数据且判定为 0 分」是两件事——前者必须让 scorer 报 ``applies=False``。
+    """
 
     def to_evaluation_context(self) -> dict[str, Any]:
         """展开为规则条件可引用的扁平命名空间。
@@ -87,6 +105,8 @@ class ProfileBuilder:
             ip=ip,
             ua=ua,
             intel=intel,
+            # 直接取校验过的 schema 字段，不经 extra —— 见 behavior_events 的说明
+            behavior_events=tuple(context.behavior_events),
             context={
                 "intel": {
                     "matched": intel.matched if intel else False,

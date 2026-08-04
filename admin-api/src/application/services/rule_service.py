@@ -10,7 +10,7 @@ from fangyu_shared.logging import get_logger
 from fangyu_shared.schemas.rule import DecisionRule, RuleKind, RuleStatus, ScoringRule
 from fangyu_shared.utils.time import local_now
 
-from src.domain.rule.state_machine import RuleStateMachine
+from src.domain.rule.state_machine import SYNCABLE_STATUSES, RuleStateMachine
 from src.domain.rule.version import RuleVersion
 from src.infrastructure.cache.rule_cache import RuleCache
 from src.infrastructure.repositories.rule_repository import AnyRule, RuleAdminRepository
@@ -207,6 +207,41 @@ class RuleService:
         )
         return updated
 
+    async def to_shadow(self, rule_id: int, author_id: int) -> AnyRule:
+        """把规则置为灰度影子（shadow），下发到 Redis 但不参与真实处置。
+
+        与 :meth:`publish` 同构（版本快照 + 缓存下发），差别只有两点：
+        - 不写 published_at：影子规则还没上线，写了会让「发布时间」这一列说谎，
+          也会误导按 published_at 排序/统计的下游。
+        - 状态是 SHADOW，gateway 匹配器据此只记录命中、不施加处置。
+        """
+        rule = await self._repo.get(rule_id)
+        if rule is None:
+            raise ResourceNotFoundException(f"规则不存在: {rule_id}")
+        RuleStateMachine.ensure_transition(rule.status, RuleStatus.SHADOW)
+        rule.status = RuleStatus.SHADOW
+        rule.version += 1
+        updated = await self._repo.update(rule)
+        await self._repo.add_version(
+            RuleVersion(
+                id=None,
+                rule_id=rule_id,
+                version=updated.version,
+                snapshot=updated.model_dump(by_alias=True, mode="json"),
+                author_id=author_id,
+                change_summary="进入灰度影子",
+            )
+        )
+        # 必须写缓存：影子规则不进 Redis 就不会被 gateway 求值，也就测不出影响面
+        await self._cache.upsert_to_sites(updated, updated.site_ids)
+        _logger.info(
+            "rule_shadowed",
+            rule_id=rule_id,
+            version=updated.version,
+            site_count=len(updated.site_ids),
+        )
+        return updated
+
     async def disable(self, rule_id: int) -> AnyRule:
         rule = await self._repo.get(rule_id)
         if rule is None:
@@ -232,7 +267,13 @@ class RuleService:
         return updated
 
     async def unarchive(self, rule_id: int) -> AnyRule:
-        """归档规则恢复为草稿，之后可重新编辑发布。"""
+        """规则恢复为草稿，之后可重新编辑发布。
+
+        两个来源：archived（恢复编辑）与 shadow（影子测试不理想，退回修改）。
+        必须清缓存：shadow 规则是**在** Redis 里的，只改 DB 状态会让那份快照
+        一直留着，gateway 继续拿它做影子求值，运维看到「已退回草稿」的规则
+        仍在产生影响面数据。archived 来源本来就不在缓存里，hdel 是无害的空操作。
+        """
         rule = await self._repo.get(rule_id)
         if rule is None:
             raise ResourceNotFoundException(f"规则不存在: {rule_id}")
@@ -240,6 +281,7 @@ class RuleService:
         updated = await self._repo.update_status(rule_id, RuleStatus.DRAFT)
         if updated is None:
             raise ResourceNotFoundException(f"规则不存在: {rule_id}")
+        await self._cache.remove_from_sites(rule_id, updated.site_ids)
         _logger.info("rule_unarchived", rule_id=rule_id)
         return updated
 
@@ -293,17 +335,24 @@ class RuleService:
         """重建指定站点 Redis 分片（全量替换）。
 
         用游标分页替代 limit=9999，避免规则超量时静默截断。
+
+        逐状态查询而非一次查全部：``list_all`` 的 status 参数是单值，这里要下发
+        PUBLISHED + SHADOW 两种。漏掉 SHADOW 会让「刚置为影子的规则被下一次
+        例行同步从 Redis 抹掉」，影子模式表现为时好时坏。
         """
         all_rules: list[AnyRule] = []
         page_size = 500
-        while True:
-            batch, total = await self._repo.list_all(
-                status=RuleStatus.PUBLISHED, site_id=site_id,
-                offset=len(all_rules), limit=page_size,
-            )
-            all_rules.extend(batch)
-            if len(all_rules) >= total or not batch:
-                break
+        for status in sorted(SYNCABLE_STATUSES, key=lambda s: s.value):
+            fetched = 0
+            while True:
+                batch, total = await self._repo.list_all(
+                    status=status, site_id=site_id,
+                    offset=fetched, limit=page_size,
+                )
+                all_rules.extend(batch)
+                fetched += len(batch)
+                if fetched >= total or not batch:
+                    break
         await self._cache.replace_site(site_id, all_rules)
         _logger.info("rule_cache_synced", site_id=site_id, count=len(all_rules))
         return len(all_rules)

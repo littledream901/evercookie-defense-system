@@ -1,24 +1,25 @@
-"""Reputation 回流周期任务。
+"""Reputation 回流周期任务（worker 侧）。
 
-从 ClickHouse 物化视图读取过去 N 天的聚合数据，
-计算 reputation_score = 100 - clamp(拦截率×100, 0, 100)，
-通过 ProfileCache 写入 Redis，供 IpReputationScorer 使用。
+worker 是**周期回流的唯一执行者**：它属于数据面，本就常驻消费 decision_events，
+让产出声誉分的进程与产出原始事件的进程同源，避免 admin 重启/多副本时任务重复
+执行。admin 侧只保留 ``POST /threat-intel/sync`` 的手动触发。
 
-只写样本量 >= min_samples 的记录，避免单次访问就压低信誉分。
+聚合 SQL 与评分公式都在 :mod:`fangyu_shared.reputation`——两侧共用一份实现，
+本类只负责把 worker 的配置翻译过去。
 """
 
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass
 
 from fangyu_shared.cache.profile_cache import ProfileCache
 from fangyu_shared.clickhouse_manager import ClickHouseClient
-from fangyu_shared.logging import get_logger
-from fangyu_shared.schemas.profile import DeviceProfile, IpProfile
-
-_logger = get_logger("worker.reputation_writer")
+from fangyu_shared.reputation import (
+    ReputationSyncConfig,
+    ReputationSyncer,
+    calc_score,  # noqa: F401  兼容既有导入方（测试直接引用评分契约）
+)
+from fangyu_shared.reputation.syncer import ReputationSyncOutcome
 
 
 @dataclass(slots=True)
@@ -33,11 +34,8 @@ class ReputationWriterConfig:
     """设备画像 TTL（秒）。"""
 
 
-@dataclass(slots=True)
-class ReputationSyncResult:
-    ips_written: int = 0
-    devices_written: int = 0
-    errors: list[str] = field(default_factory=list)
+ReputationSyncResult = ReputationSyncOutcome
+"""保留旧名字：main.py 与既有测试按这个名字读 ips_written / devices_written。"""
 
 
 class ReputationWriter:
@@ -50,167 +48,16 @@ class ReputationWriter:
         profile_cache: ProfileCache,
         config: ReputationWriterConfig | None = None,
     ) -> None:
-        self._ch = clickhouse
-        self._cache = profile_cache
-        self._cfg = config or ReputationWriterConfig()
+        cfg = config or ReputationWriterConfig()
+        self._syncer = ReputationSyncer(
+            clickhouse=clickhouse,
+            profile_cache=profile_cache,
+            config=ReputationSyncConfig(
+                lookback_days=cfg.lookback_days,
+                min_samples=cfg.min_samples,
+            ),
+        )
 
     async def run_once(self) -> ReputationSyncResult:
-        """执行一次完整同步，返回写入统计。fail-open：任何子步骤失败不中断另一个。"""
-        result = ReputationSyncResult()
-
-        ip_task = asyncio.create_task(self._sync_ip_reputation(result))
-        fp_task = asyncio.create_task(self._sync_device_reputation(result))
-        await asyncio.gather(ip_task, fp_task, return_exceptions=True)
-
-        _logger.info(
-            "reputation_sync_done",
-            ips_written=result.ips_written,
-            devices_written=result.devices_written,
-            errors=len(result.errors),
-        )
-        return result
-
-    # ------------------------------------------------------------------
-    # IP 声誉
-    # ------------------------------------------------------------------
-
-    async def _sync_ip_reputation(self, result: ReputationSyncResult) -> None:
-        sql = """
-            SELECT
-                ip,
-                sum(total_count)   AS total,
-                sum(blocked_count) AS blocked
-            FROM fangyu.mv_ip_reputation_daily
-            WHERE log_date >= today() - {lookback_days}
-              AND ip != ''
-            GROUP BY ip
-            HAVING total >= {min_samples}
-        """
-        try:
-            rows = await self._ch.fetch(
-                sql,
-                params={
-                    "lookback_days": self._cfg.lookback_days,
-                    "min_samples": self._cfg.min_samples,
-                },
-            )
-        except Exception as exc:
-            msg = f"ip_reputation_query_failed: {exc}"
-            result.errors.append(msg)
-            _logger.warning(msg)
-            return
-
-        now = datetime.now(tz=UTC)
-
-        for row in rows:
-            ip: str = row["ip"]
-            total: int = int(row["total"])
-            blocked: int = int(row["blocked"])
-            score = _calc_score(total, blocked)
-
-            try:
-                existing = await self._cache.get_ip(ip)
-                if existing is not None:
-                    updated = existing.model_copy(
-                        update={
-                            "reputation_score": score,
-                            "reputation_samples": total,
-                            "total_requests": max(existing.total_requests, total),
-                            "last_seen_at": now,
-                        }
-                    )
-                else:
-                    updated = IpProfile(
-                        ip=ip,
-                        reputation_score=score,
-                        reputation_samples=total,
-                        total_requests=total,
-                    )
-                await self._cache.set_ip(updated)
-                result.ips_written += 1
-            except Exception as exc:
-                msg = f"ip_write_failed ip={ip}: {exc}"
-                result.errors.append(msg)
-                _logger.warning(msg)
-
-    # ------------------------------------------------------------------
-    # 设备指纹声誉
-    # ------------------------------------------------------------------
-
-    async def _sync_device_reputation(self, result: ReputationSyncResult) -> None:
-        sql = """
-            SELECT
-                app_id,
-                fingerprint,
-                sum(total_count)   AS total,
-                sum(blocked_count) AS blocked
-            FROM fangyu.mv_fingerprint_reputation_daily
-            WHERE log_date >= today() - {lookback_days}
-              AND fingerprint != ''
-            GROUP BY app_id, fingerprint
-            HAVING total >= {min_samples}
-        """
-        try:
-            rows = await self._ch.fetch(
-                sql,
-                params={
-                    "lookback_days": self._cfg.lookback_days,
-                    "min_samples": self._cfg.min_samples,
-                },
-            )
-        except Exception as exc:
-            msg = f"device_reputation_query_failed: {exc}"
-            result.errors.append(msg)
-            _logger.warning(msg)
-            return
-
-        dev_cache = self._cache
-        now = datetime.now(tz=UTC)
-
-        for row in rows:
-            app_id: int = int(row["app_id"])
-            fingerprint: str = row["fingerprint"]
-            total: int = int(row["total"])
-            blocked: int = int(row["blocked"])
-            score = _calc_score(total, blocked)
-
-            try:
-                existing = await dev_cache.get_device(app_id, fingerprint)
-                if existing is not None:
-                    updated = existing.model_copy(
-                        update={
-                            "reputation_score": score,
-                            "reputation_samples": total,
-                            "total_requests": max(existing.total_requests, total),
-                            "last_seen_at": now,
-                        }
-                    )
-                else:
-                    # last_seen_at 必须显式给：设备年龄类判定拿它当基准时间，
-                    # 缺失时新建的画像看起来「从未出现过」。admin 侧的
-                    # ReputationSyncService 同样设置，两处不能不一致。
-                    updated = DeviceProfile(
-                        fingerprint=fingerprint,
-                        reputation_score=score,
-                        reputation_samples=total,
-                        total_requests=total,
-                        last_seen_at=now,
-                    )
-                await dev_cache.set_device(app_id, updated)
-                result.devices_written += 1
-            except Exception as exc:
-                msg = f"device_write_failed app={app_id} fp={fingerprint}: {exc}"
-                result.errors.append(msg)
-                _logger.warning(msg)
-
-
-def _calc_score(total: int, blocked: int) -> float:
-    """reputation_score = 100 - clamp(拦截率×100, 0, 100)。
-
-    拦截率越高→信誉越低；全放行=100分；全拦截=0分。
-    结果保留两位小数以减少 JSON 体积。
-    """
-    if total <= 0:
-        return 50.0
-    rate = min(1.0, max(0.0, blocked / total))
-    return round(100.0 - rate * 100.0, 2)
+        """执行一次完整同步，返回写入统计。"""
+        return await self._syncer.run_once()

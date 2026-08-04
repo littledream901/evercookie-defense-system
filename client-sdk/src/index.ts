@@ -310,6 +310,9 @@ export class SdSdk {
       repeatValue: repeatValue ?? null,
       evercookieRestored: stored.restored,
       behaviorEvents: this.alignEventTimes(events),
+      // Hybrid 双层：适配器把第一层结论存在 Redis，SDK 靠这个 token 让网关取回。
+      // 不带时网关的 HYBRID_LOOKUP 直接返回 None，两层退化为互不相干的独立判定。
+      ...(this.config.serverToken ? { extra: { serverToken: this.config.serverToken } } : {}),
     };
   }
 

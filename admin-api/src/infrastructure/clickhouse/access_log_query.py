@@ -18,6 +18,7 @@ _SELECT_COLUMNS = """
     accept_language,
     repeat_key, repeat_value, evercookie_restore,
     shadow_rule_ids, shadow_verdicts,
+    ingress, fingerprint_is_derived,
     decision_cost_ms, request_id, occurred_at, schema_version, event_version
 """
 
@@ -34,6 +35,7 @@ _FILTERABLE = (
     "crawler_category",
     "connection_type",
     "repeat_value",
+    "ingress",
 )
 """白名单：可作为等值过滤条件的列。
 
@@ -191,6 +193,50 @@ class AccessLogQueryService:
             LIMIT 64
             """,
             params,
+        )
+
+    async def ingress_diagnostics(
+        self, *, app_id: int, start: datetime, end: datetime
+    ) -> list[dict[str, Any]]:
+        """按接入来源聚合站点接入健康度，用于「SDK / adapter 接了没接上」诊断。
+
+        一次 GROUP BY 拿完所有指标，避免前端按 ingress 逐个查造成 N+1。
+
+        各字段的诊断含义：
+
+        - ``derived_count``：指纹由网关按 IP+UA 派生的请求数。SDK 接入若出现
+          派生指纹，说明前端没采到 Evercookie 指纹（埋码位置不对或被 CSP 拦），
+          这是「装了 SDK 但等于没装」最典型的现场。
+        - ``behavior_count``：带行为事件的请求数。SDK 独有信号，长期为 0
+          说明只调了决策接口、没有真正采集行为时序。
+        - ``restore_count``：Evercookie 自愈命中数，可佐证跨存储恢复是否工作。
+        - ``unknown_verdict_count``：网关未能判定的请求，通常伴随入参缺失。
+        """
+        return await self._client.fetch(
+            f"""
+            SELECT ingress,
+                   count(*)                                   AS total,
+                   countIf(fingerprint_is_derived = 1)         AS derived_count,
+                   countIf(behavior_event_count > 0)           AS behavior_count,
+                   countIf(evercookie_restore = 1)             AS restore_count,
+                   countIf(verdict = 'unknown')                AS unknown_verdict_count,
+                   countIf(verdict = 'hostile')                AS hostile_count,
+                   countIf(verdict = 'suspicious')             AS suspicious_count,
+                   countIf(verdict = 'clean')                  AS clean_count,
+                   countIf(clock_banned = 1)                   AS clock_banned_count,
+                   uniqExact(fingerprint)                      AS unique_fingerprints,
+                   uniqExact(ip)                               AS unique_ips,
+                   avg(decision_cost_ms)                       AS avg_cost_ms,
+                   min(occurred_at)                            AS first_seen_at,
+                   max(occurred_at)                            AS last_seen_at
+            FROM {self._db}.decision_events
+            WHERE app_id = {{app_id}}
+              AND occurred_at >= {{start}}
+              AND occurred_at < {{end}}
+            GROUP BY ingress
+            ORDER BY total DESC
+            """,
+            {"app_id": app_id, "start": self._format_dt(start), "end": self._format_dt(end)},
         )
 
     async def shadow_impact(

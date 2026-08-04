@@ -1,0 +1,49 @@
+全链路冒烟：配置面 -> 判定面 -> 数据面
+（进程内 FakeRedis；app_id=7 site_id=site_629cc45b）
+
+>> ① 配置面：创建网站（绑定 API Key → app_id/secret）
+  [PASS] 网站已注册，正向映射可解析
+  [PASS] app_secret 反向索引已写入（挑战凭据签发依赖它）
+
+>> ② 配置面：创建规则
+  [PASS] 4 条规则构造成功（含 1 条影子规则）
+
+>> ③ 配置面：绑定规则到网站并原子下发 Redis
+  [PASS] 快照含 4 条规则 + 版本标记 -- 字段=['101', '102', '103', '104', '__version__']
+  [PASS] 下发使用 staging + RENAME 原子换切（无空窗） -- 命令序列=['delete', 'hset', 'rename']
+  [PASS] 影子规则已进入快照（否则网关无从评估）
+
+>> ④ 判定面：安全默认值
+  [PASS] signature_required 默认开启（关闭则画像可任意伪造） -- 当前=True
+
+>> ⑤ NORM：HMAC 验签 + Nonce 防重放
+  [PASS] 合法签名请求通过 -- HTTP 200
+  [PASS] 签名被篡改 → 401 -- HTTP 401
+  [PASS] 同一 nonce 重放 → 首次 200、二次 401 -- 首次=200 二次=401
+
+>> ⑥ MATCH + DISP：规则命中与三层处置
+  [PASS] 爬虫 UA 命中拦截规则 → hostile/deny -- verdict=hostile mechanism=deny decidedBy=decision_rule
+  [PASS] 拦截规则回传 httpStatus=403 -- 403
+  [PASS] 路径命中跳转规则 → redirect + targetUrl -- mechanism=redirect targetUrl=https://safe.example.com/notice
+  [PASS] redirect 的 targetKind=url 且 httpStatus 为 3xx -- targetKind=url httpStatus=302
+
+>> ⑦ DISP：人机挑战凭据签发（P0 修复验证）
+  [PASS] 命中挑战规则 → mechanism=challenge -- mechanism=challenge
+  [PASS] challengeToken 已签发（修复前恒为 None，整条挑战链断裂） -- token=eyJhcHBJZCI6NywiZXhwIjox…
+
+>> ⑧ 灰度影子：评估但不生效
+  [PASS] 存在会命中的 deny 影子规则，访客仍被放行 -- verdict=trusted mechanism=pass
+  [PASS] 影子命中被记录（供影响面测算） -- shadow=[{'ruleId': 104, 'ruleName': '影子观察：全站拦截（不应生效）', 'verdict': 'hostile', 'mechanism': 'deny'}]
+
+>> ⑨ CLOCK：滑动窗口频控前置生效
+  [PASS] 连发 45 次触发突发窗口频控（burst=30/10s） -- 末次 decidedBy=clock_ban
+  [PASS] 频控在缓存之前生效（缓存命中不会漏计数） -- decidedBy 分布={'scoring': 30, 'clock_ban': 14, 'clock_rate_limit': 1}
+
+>> ⑩ 数据面：决策事件异步投递 Redis Stream
+  [PASS] 决策事件已投递到 Stream -- 事件数=51
+  [PASS] 事件含裁决与评分字段（供 ClickHouse 落库与信誉计算） -- 字段样本=['acceptLanguage', 'appId', 'asn', 'behaviorEventCount', 'browserName', 'clockBanned', 'clockCounts', 'conditionTraces']
+  [PASS] 缓存命中路径也发事件（修复前此路径静默丢事件） -- 出现的 decidedStage=['cache', 'clock', 'decision_rule', 'default', 'risk_scoring']
+
+====================================================================
+总计 23 项：23 通过 / 0 失败 / 0 跳过
+====================================================================

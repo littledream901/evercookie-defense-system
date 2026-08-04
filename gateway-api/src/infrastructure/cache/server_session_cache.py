@@ -23,7 +23,10 @@ TTL 设为 5 分钟——绝大多数用户在首页加载后 5 分钟内完成 
 from __future__ import annotations
 
 import orjson
+from fangyu_shared.logging import get_logger
 from redis.asyncio import Redis
+
+_logger = get_logger("gateway.server_session_cache")
 
 _KEY_PREFIX = "fy:sst"
 _DEFAULT_TTL = 300  # 5 分钟
@@ -89,14 +92,29 @@ class ServerSessionCache:
         return f"{_KEY_PREFIX}:{token}"
 
     async def set(self, token: str, entry: ServerSessionEntry) -> None:
-        await self._redis.set(
-            self._key(token),
-            orjson.dumps(entry.to_dict()),
-            ex=self._ttl,
-        )
+        """写入第一层预判。
+
+        Redis 故障按**写入失败**静默处理（fail-open）：写不进去的后果是 SDK
+        二次请求的 HYBRID_LOOKUP 查不到，退化成只用第二层指纹判断——这正是
+        未启用 Hybrid 时的行为，不是安全缺口。反之让异常冒泡就是 adapter 侧
+        每个请求都 500，代价严重得多。
+        """
+        try:
+            await self._redis.set(
+                self._key(token),
+                orjson.dumps(entry.to_dict()),
+                ex=self._ttl,
+            )
+        except Exception as exc:
+            _logger.warning("server_session_set_failed", error=str(exc))
 
     async def get(self, token: str) -> ServerSessionEntry | None:
-        raw = await self._redis.get(self._key(token))
+        """读取第一层预判。故障与未命中同样处理：继续走完整流水线。"""
+        try:
+            raw = await self._redis.get(self._key(token))
+        except Exception as exc:
+            _logger.warning("server_session_get_failed", error=str(exc))
+            return None
         if raw is None:
             return None
         try:
@@ -105,5 +123,13 @@ class ServerSessionCache:
             return None
 
     async def delete(self, token: str) -> None:
-        """消费后删除，防止重放。"""
-        await self._redis.delete(self._key(token))
+        """消费后删除，防止重放。
+
+        删除失败只静默记日志：token 本身有 5 分钟 TTL 兜底，重放窗口上限就是
+        这个 TTL，而且重放拿到的是同一条第一层结论、不能提权。为了收紧这个
+        窄窗口而让决策返回 500 是明显划不来的交换。
+        """
+        try:
+            await self._redis.delete(self._key(token))
+        except Exception as exc:
+            _logger.warning("server_session_delete_failed", error=str(exc))

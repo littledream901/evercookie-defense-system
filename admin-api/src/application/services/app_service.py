@@ -132,7 +132,7 @@ class AppService:
             raise ResourceNotFoundException(f"应用不存在: {app_id}")
 
         if is_active is False:
-            await self._sync_unbind(existing.site_id)
+            await self._sync_unbind(existing.site_id, app_id)
         elif is_active is True:
             await self._sync_bind(updated)
 
@@ -162,7 +162,7 @@ class AppService:
         if app.status == ApplicationStatus.ACTIVE:
             raise BusinessRuleException("激活状态的应用需先暂停后再删除")
         await self._repo.delete(app_id)
-        await self._sync_unbind(app.site_id)
+        await self._sync_unbind(app.site_id, app_id)
         _logger.info("app_deleted", app_id=app_id)
 
     async def batch_delete(self, app_ids: list[int]) -> tuple[list[int], list[dict[str, str]]]:
@@ -246,10 +246,15 @@ class AppService:
         effective_secret = secret or app.app_secret
         await self._app_key_sync.bind(app.site_id, app.id, effective_secret)
 
-    async def _sync_unbind(self, site_id: str) -> None:
+    async def _sync_unbind(self, site_id: str, app_id: int | None = None) -> None:
+        """解绑 Redis 映射。
+
+        传 ``app_id`` 时会连带清理 ``fangyu:app_secrets:{app_id}`` 反向索引——
+        仅用于删除/停用，密钥轮换走 ``_sync_bind`` 覆盖写，不能清索引。
+        """
         if self._app_key_sync is None:
             return
-        await self._app_key_sync.unbind(site_id)
+        await self._app_key_sync.unbind(site_id, app_id)
 
     @staticmethod
     def _generate_app_secret() -> str:

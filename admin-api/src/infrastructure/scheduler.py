@@ -7,7 +7,11 @@
 - external_intel_sync: 每6小时 从 AbuseIPDB / Tor / URLhaus 拉取外部情报
 - clock_resync:        每1小时 DB → Redis 全量同步 Clock 阈值（Redis flush 恢复）
 - rule_cache_sync:     每5分钟 DB → Redis 全量同步已发布规则缓存
-- reputation_sync:     每1小时 ClickHouse MV → Redis 声誉回写
+- reputation_intel_feedback: 每6小时 高风险声誉 → biz_intel_ip_profile
+
+声誉分回写 Redis ProfileCache 的周期任务**不在这里**：由 worker 独占执行
+（``worker/src/application/writers/reputation_writer.py``）。admin 侧只保留
+``POST /threat-intel/sync`` 手动触发，以及 worker 做不到的情报库沉淀。
 """
 
 from __future__ import annotations
@@ -142,30 +146,44 @@ async def _sync_rule_cache() -> None:
         _logger.error("rule_cache_sync_failed", error=str(exc))
 
 
-# ---------- 声誉回写 ClickHouse→Redis ----------
+# ---------- 高风险声誉回流情报库（PROF→INTEL） ----------
 
-async def _sync_reputation() -> None:
-    """从 ClickHouse MV 拉取信誉分，写回 Redis ProfileCache。"""
+async def _feedback_reputation_intel() -> None:
+    """把离线画像算出的高风险 IP 沉淀成 ip_profile 情报条目。
+
+    这里**不写 Redis ProfileCache**：那份周期回流由 worker 独占（数据面常驻
+    进程）。此前 admin 也注册了完整的 reputation_sync 任务，两侧每小时各跑一次
+    同样的聚合并各写一遍 Redis——纯粹的重复劳动，且两份实现一旦调参不一致，
+    后跑的那次会把前一次的分数改掉。
+
+    admin 在这条链路上唯一不可替代的部分是写 MySQL 情报库（worker 依赖里没有
+    SQLAlchemy），故这个任务只保留该职责。
+    """
     try:
-        from src.application.services.reputation_sync_service import ReputationSyncService
-        from fangyu_shared.cache.profile_cache import ProfileCache
         from fangyu_shared.clickhouse_manager import ClickHouseManager
-        from fangyu_shared.redis_manager import RedisManager
-        redis = RedisManager.get_client()
+        from fangyu_shared.reputation import fetch_ip_reputation
+
+        from src.application.services.intel_service import IntelService
+        from src.infrastructure.reputation_intel_feedback import (
+            ReputationIntelFeedback,
+            ReputationIntelFeedbackConfig,
+        )
+
+        cfg = ReputationIntelFeedbackConfig()
+        if not cfg.enabled:
+            return
+
         ch = ClickHouseManager.get_client()
-        service = ReputationSyncService(
-            clickhouse=ch,
-            profile_cache=ProfileCache(redis, ttl=86_400),
-        )
-        result = await service.sync()
-        _logger.info(
-            "reputation_sync_done",
-            ips=result.ips_written,
-            devices=result.devices_written,
-            errors=len(result.errors),
-        )
+        # lookback 与 min_samples 直接用情报回流自己的门槛：这里不需要
+        # ProfileCache 那种低门槛（5 条样本）的行，取数时就按 200 过滤，
+        # 让 ClickHouse 承担筛选而不是把百万行拉到进程里再丢掉。
+        rows = await fetch_ip_reputation(ch, lookback_days=7, min_samples=cfg.min_samples)
+        async with Database.session() as session:
+            feedback = ReputationIntelFeedback(IntelService(session), cfg)
+            written = await feedback.write(rows)
+        _logger.info("reputation_intel_feedback_job_done", candidates=len(rows), written=written)
     except Exception as exc:
-        _logger.error("reputation_sync_failed", error=str(exc))
+        _logger.error("reputation_intel_feedback_failed", error=str(exc))
 
 
 # ---------- 调度器管理 ----------
@@ -219,13 +237,15 @@ def start_scheduler(
         replace_existing=True,
         misfire_grace_time=60,
     )
+    # 与外部情报拉取同频（默认 6 小时）而非每小时：情报条目是长期留存的结论，
+    # 没有小时级刷新的必要，低频也顺带压低对 MV 的扫描次数。
     _scheduler.add_job(
-        _sync_reputation,
-        trigger=IntervalTrigger(seconds=sync_interval_seconds),
-        id="reputation_sync",
-        name="声誉分定期从 ClickHouse 回写 Redis",
+        _feedback_reputation_intel,
+        trigger=IntervalTrigger(seconds=external_intel_interval_seconds),
+        id="reputation_intel_feedback",
+        name="高风险声誉定期沉淀为 IP 画像情报",
         replace_existing=True,
-        misfire_grace_time=120,
+        misfire_grace_time=300,
     )
 
     _scheduler.start()

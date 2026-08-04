@@ -132,12 +132,25 @@ function fangyu_defense_check() {
 		: '';
 	$referer     = Fangyu_Visitor::get_referer();
 
+	// path / method 必须显式上报：规则引擎的 request.path 直接取该字段，不从
+	// visitUrl 派生。漏报会让「敏感路径阻断」这类规则永不命中，而否定条件
+	// （路径不在白名单则拦截）反而会因取值恒为 '/' 而误拦全站流量。
+	$req_uri = isset( $_SERVER['REQUEST_URI'] )
+		? wp_unslash( $_SERVER['REQUEST_URI'] )
+		: '/';
+	$path    = wp_parse_url( $req_uri, PHP_URL_PATH );  // 去掉 query string
+	$method  = isset( $_SERVER['REQUEST_METHOD'] )
+		? strtoupper( sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) )
+		: 'GET';
+
 	$context = array(
 		'appId'        => Fangyu_Config::app_id(),
 		'ingress'      => 'adapter',
 		'ip'           => $ip,
 		'fingerprint'  => $fingerprint ?: null,
 		'visitUrl'     => $visit_url,
+		'path'         => $path ?: '/',
+		'method'       => $method,
 		'userAgent'    => $user_agent,
 		'repeatKey'    => Fangyu_Visitor::DEFAULT_REPEAT_KEY,
 		'repeatValue'  => $fingerprint ?: null,

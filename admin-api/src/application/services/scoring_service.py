@@ -40,8 +40,14 @@ SCORING_DIMENSIONS = [
     {
         "key": "behavior",
         "label": "请求异常",
-        "description": "非常规 HTTP method、超长路径等请求层异常特征",
+        "description": "非常规 HTTP method、超长路径等请求层异常特征。只看 HTTP 请求属性，不含浏览器行为时序",
         "defaultWeight": 10,
+    },
+    {
+        "key": "interaction",
+        "label": "人机交互特征",
+        "description": "浏览器 SDK 采集的行为时序：零交互停留、事件间隔过于规律（脚本回放）、按键长按异常。服务端接入（Adapter）无行为数据，不参与判定",
+        "defaultWeight": 8,
     },
     {
         "key": "intel",

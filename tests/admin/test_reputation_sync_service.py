@@ -1,14 +1,13 @@
 """admin 侧声誉同步（手动触发）单元测试。
 
-为什么单独测一遍
-----------------
-``ReputationSyncService`` 与 ``worker.ReputationWriter`` 是同一套逻辑的两份
-实现（HTTP 手动触发 / 周期任务）。两者产出的分数必须一致，否则「手动同步
-一次」会把定时任务写出的分数改成另一个值，而两边日志都显示成功。
+``ReputationSyncService`` 与 ``worker.ReputationWriter`` 现在都是
+``fangyu_shared.reputation.ReputationSyncer`` 的薄封装，不再各存一份复制的
+SQL 与评分公式。这里仍然从**入口类**测一遍而不是只测 shared：两个封装各自
+负责翻译配置与结果结构，写错了一样会让同步静默失真。
 
-跨进程导入不可行——admin-api 与 worker 共用 ``src`` 顶层包名，conftest 靠
-隔离 sys.path 才能各自跑通。因此这里用与 worker 测试**同一张分数表**钉住
-契约：任一侧改了算法，两个文件里必有一个失败。
+分数表与 ``tests/worker/test_reputation_writer.py`` 保持一致——它们现在验证
+的是同一个 ``calc_score``，重复一遍的成本极低，而一旦哪天又有人把公式复制
+回某一侧，这两个文件里必有一个先失败。
 """
 
 from __future__ import annotations
@@ -16,11 +15,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from fangyu_shared.reputation import calc_score as _calc_score
 from fangyu_shared.schemas.profile import DeviceProfile, IpProfile
-from src.application.services.reputation_sync_service import (
-    ReputationSyncService,
-    _calc_score,
-)
+from src.application.services.reputation_sync_service import ReputationSyncService
 
 
 class _FakeClickHouse:
@@ -55,23 +52,23 @@ class _FakeCache:
     def __init__(
         self,
         *,
-        ips: dict[str, IpProfile] | None = None,
+        ips: dict[tuple[int, str], IpProfile] | None = None,
         devices: dict[tuple[int, str], DeviceProfile] | None = None,
         set_ip_fails: bool = False,
     ) -> None:
         self.ips = ips or {}
         self.devices = devices or {}
         self._set_ip_fails = set_ip_fails
-        self.written_ips: list[IpProfile] = []
+        self.written_ips: list[tuple[int, IpProfile]] = []
         self.written_devices: list[tuple[int, DeviceProfile]] = []
 
-    async def get_ip(self, ip: str) -> IpProfile | None:
-        return self.ips.get(ip)
+    async def get_ip(self, app_id: int, ip: str) -> IpProfile | None:
+        return self.ips.get((app_id, ip))
 
-    async def set_ip(self, profile: IpProfile) -> None:
+    async def set_ip(self, app_id: int, profile: IpProfile) -> None:
         if self._set_ip_fails:
             raise ConnectionError("redis down")
-        self.written_ips.append(profile)
+        self.written_ips.append((app_id, profile))
 
     async def get_device(self, app_id: int, fingerprint: str) -> DeviceProfile | None:
         return self.devices.get((app_id, fingerprint))
@@ -113,29 +110,55 @@ def test_zero_samples_is_neutral_not_hostile() -> None:
 # ---------- IP 同步 ----------
 @pytest.mark.asyncio
 async def test_ip_written_with_score() -> None:
-    ch = _FakeClickHouse(ip_rows=[{"ip": "203.0.113.7", "total": 100, "blocked": 25}])
+    ch = _FakeClickHouse(
+        ip_rows=[{"app_id": 7, "ip": "203.0.113.7", "total": 100, "blocked": 25}]
+    )
     cache = _FakeCache()
 
     result = await _service(ch, cache).sync()
 
     assert result.ips_written == 1
-    written = cache.written_ips[0]
+    app_id, written = cache.written_ips[0]
+    assert app_id == 7
     assert written.ip == "203.0.113.7"
     assert written.reputation_score == 75.0
     assert written.reputation_samples == 100
 
 
 @pytest.mark.asyncio
+async def test_ip_reputation_is_per_tenant() -> None:
+    """同一 IP 在不同租户下各写一条，互不影响。
+
+    共享一条记录会让 A 站的爬虫流量压低 B 站对同一 IP 的评分——多租户隔离
+    破损，且运营无法解释 B 站正常访客为何信誉分很低。
+    """
+    ch = _FakeClickHouse(
+        ip_rows=[
+            {"app_id": 1, "ip": "203.0.113.7", "total": 100, "blocked": 100},
+            {"app_id": 2, "ip": "203.0.113.7", "total": 100, "blocked": 0},
+        ]
+    )
+    cache = _FakeCache()
+
+    await _service(ch, cache).sync()
+
+    by_app = {app_id: profile.reputation_score for app_id, profile in cache.written_ips}
+    assert by_app == {1: 0.0, 2: 100.0}
+
+
+@pytest.mark.asyncio
 async def test_existing_ip_profile_fields_preserved() -> None:
     """合并而非覆盖：MMDB 富化的国家/ASN 不能被声誉回写抹掉。"""
-    ch = _FakeClickHouse(ip_rows=[{"ip": "203.0.113.7", "total": 50, "blocked": 0}])
+    ch = _FakeClickHouse(
+        ip_rows=[{"app_id": 7, "ip": "203.0.113.7", "total": 50, "blocked": 0}]
+    )
     cache = _FakeCache(
-        ips={"203.0.113.7": IpProfile(ip="203.0.113.7", country="CN", asn=4134)}
+        ips={(7, "203.0.113.7"): IpProfile(ip="203.0.113.7", country="CN", asn=4134)}
     )
 
     await _service(ch, cache).sync()
 
-    written = cache.written_ips[0]
+    _, written = cache.written_ips[0]
     assert written.country == "CN"
     assert written.asn == 4134
     assert written.reputation_score == 100.0
@@ -144,25 +167,31 @@ async def test_existing_ip_profile_fields_preserved() -> None:
 @pytest.mark.asyncio
 async def test_total_requests_never_regresses() -> None:
     """MV 只覆盖 lookback 窗口，取 max 避免把历史累计量改小。"""
-    ch = _FakeClickHouse(ip_rows=[{"ip": "203.0.113.7", "total": 10, "blocked": 0}])
+    ch = _FakeClickHouse(
+        ip_rows=[{"app_id": 7, "ip": "203.0.113.7", "total": 10, "blocked": 0}]
+    )
     cache = _FakeCache(
-        ips={"203.0.113.7": IpProfile(ip="203.0.113.7", totalRequests=9_000)}
+        ips={(7, "203.0.113.7"): IpProfile(ip="203.0.113.7", totalRequests=9_000)}
     )
 
     await _service(ch, cache).sync()
 
-    assert cache.written_ips[0].total_requests == 9_000
+    assert cache.written_ips[0][1].total_requests == 9_000
 
 
 @pytest.mark.asyncio
 async def test_last_seen_at_refreshed() -> None:
-    ch = _FakeClickHouse(ip_rows=[{"ip": "203.0.113.7", "total": 10, "blocked": 0}])
+    ch = _FakeClickHouse(
+        ip_rows=[{"app_id": 7, "ip": "203.0.113.7", "total": 10, "blocked": 0}]
+    )
     old = datetime(2020, 1, 1, tzinfo=UTC)
-    cache = _FakeCache(ips={"203.0.113.7": IpProfile(ip="203.0.113.7", lastSeenAt=old)})
+    cache = _FakeCache(
+        ips={(7, "203.0.113.7"): IpProfile(ip="203.0.113.7", lastSeenAt=old)}
+    )
 
     await _service(ch, cache).sync()
 
-    assert cache.written_ips[0].last_seen_at > old
+    assert cache.written_ips[0][1].last_seen_at > old
 
 
 # ---------- 设备同步 ----------
@@ -217,7 +246,7 @@ async def test_ip_query_failure_does_not_stop_device_sync() -> None:
 async def test_device_query_failure_does_not_stop_ip_sync() -> None:
     ch = _FakeClickHouse(
         device_fails=True,
-        ip_rows=[{"ip": "203.0.113.7", "total": 10, "blocked": 0}],
+        ip_rows=[{"app_id": 7, "ip": "203.0.113.7", "total": 10, "blocked": 0}],
     )
     cache = _FakeCache()
 
@@ -232,8 +261,8 @@ async def test_redis_write_failure_recorded_not_raised() -> None:
     """单条写失败只记错误继续下一条，不能让整次同步中断。"""
     ch = _FakeClickHouse(
         ip_rows=[
-            {"ip": "203.0.113.7", "total": 10, "blocked": 0},
-            {"ip": "203.0.113.8", "total": 10, "blocked": 0},
+            {"app_id": 7, "ip": "203.0.113.7", "total": 10, "blocked": 0},
+            {"app_id": 7, "ip": "203.0.113.8", "total": 10, "blocked": 0},
         ]
     )
     cache = _FakeCache(set_ip_fails=True)
@@ -259,7 +288,10 @@ async def test_empty_result_writes_nothing() -> None:
 async def test_to_dict_caps_error_list() -> None:
     """错误列表回传上限 20 条，避免一次大范围故障撑爆响应体。"""
     ch = _FakeClickHouse(
-        ip_rows=[{"ip": f"203.0.113.{i}", "total": 10, "blocked": 0} for i in range(1, 31)]
+        ip_rows=[
+            {"app_id": 7, "ip": f"203.0.113.{i}", "total": 10, "blocked": 0}
+            for i in range(1, 31)
+        ]
     )
     cache = _FakeCache(set_ip_fails=True)
 

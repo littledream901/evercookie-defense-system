@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import pytest
 from fangyu_shared.schemas.event import DECISION_EVENT_SCHEMA_VERSION
 from src.application.transformers.event_transformer import EventTransformer, _to_count_map
 from src.domain.event.stream_message import StreamMessage
@@ -160,18 +161,96 @@ def test_ingress_defaults_to_sdk():
 
 def test_ingress_explicit_value():
     transformer = EventTransformer()
-    result = transformer.transform([_msg(_base_payload(ingress="api"))])
-    assert result.rows[0]["ingress"] == "api"
+    result = transformer.transform([_msg(_base_payload(ingress="adapter"))])
+    assert result.rows[0]["ingress"] == "adapter"
 
 
-def test_ingress_snake_case_alias():
+def test_ingress_unknown_value_coerced():
+    """白名单外的 ingress 降级为 unknown，避免污染 LowCardinality 字典。"""
     transformer = EventTransformer()
-    payload = _base_payload()
-    payload.pop("occurredAt", None)
-    payload["ingress"] = "edge"
-    payload["occurredAt"] = "2026-07-31T10:00:00Z"
-    result = transformer.transform([_msg(payload)])
-    assert result.rows[0]["ingress"] == "edge"
+    result = transformer.transform([_msg(_base_payload(ingress="edge"))])
+    assert result.rows[0]["ingress"] == "unknown"
+    # 整条事件仍然入库，不因单个枚举列脏值丢弃
+    assert result.invalid == []
+
+
+# ---------- 枚举列白名单 ----------
+
+def test_enum_columns_accept_canonical_values():
+    transformer = EventTransformer()
+    result = transformer.transform([
+        _msg(_base_payload(
+            verdict="hostile",
+            mechanism="challenge",
+            targetKind="url_pool",
+            decidedBy="clock_ban",
+            ingress="adapter",
+        ))
+    ])
+    row = result.rows[0]
+    assert row["verdict"] == "hostile"
+    assert row["mechanism"] == "challenge"
+    assert row["target_kind"] == "url_pool"
+    assert row["decided_by"] == "clock_ban"
+    assert row["ingress"] == "adapter"
+
+
+@pytest.mark.parametrize(
+    ("field", "column"),
+    [
+        ("verdict", "verdict"),
+        ("mechanism", "mechanism"),
+        ("targetKind", "target_kind"),
+        ("decidedBy", "decided_by"),
+    ],
+)
+def test_enum_columns_reject_dirty_values(field, column):
+    """脏枚举值降级为 unknown，但事件本身保留（与 _to_score_map 一致的取舍）。"""
+    transformer = EventTransformer()
+    result = transformer.transform([_msg(_base_payload(**{field: "'; DROP TABLE --"}))])
+    assert result.invalid == []
+    assert result.rows[0][column] == "unknown"
+    # 其余字段不受影响
+    assert result.rows[0]["event_id"] == "evt-1"
+
+
+def test_enum_defaults_are_whitelisted():
+    """默认值本身必须在白名单内，否则默认路径就会全量写 unknown。"""
+    transformer = EventTransformer()
+    row = transformer.transform([_msg(_base_payload())]).rows[0]
+    assert row["verdict"] == "trusted"
+    assert row["mechanism"] == "pass"
+    assert row["target_kind"] == "origin"
+    assert row["decided_by"] == "system_default"
+    assert row["ingress"] == "sdk"
+
+
+# ---------- 自由文本列长度上限 ----------
+
+def test_long_free_form_columns_truncated_not_rejected():
+    transformer = EventTransformer()
+    result = transformer.transform([
+        _msg(_base_payload(
+            userAgent="U" * 5000,
+            path="/" + "p" * 5000,
+            referer="http://e.com/" + "r" * 5000,
+            targetUrl="http://t.com/" + "t" * 5000,
+        ))
+    ])
+    # 截断而非丢弃：事件仍然入库
+    assert result.invalid == []
+    row = result.rows[0]
+    assert len(row["user_agent"]) == 512
+    assert len(row["path"]) == 2048
+    assert len(row["referer"]) == 2048
+    assert len(row["target_url"]) == 2048
+
+
+def test_normal_length_strings_untouched():
+    transformer = EventTransformer()
+    row = transformer.transform([_msg(_base_payload(userAgent="Mozilla/5.0"))]).rows[0]
+    assert row["user_agent"] == "Mozilla/5.0"
+    assert row["path"] == "/api"
 
 
 def test_fingerprint_is_derived_false_by_default():

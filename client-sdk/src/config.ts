@@ -23,6 +23,14 @@ export interface SdkConfig {
   appSecret: string;
   /** 应用 ID，必填。 */
   appId: number;
+  /**
+   * Hybrid 双层接入的第一层会话令牌。
+   *
+   * 由服务端适配器完成第一层判定后注入页面。SDK 随 `context.extra.serverToken`
+   * 上报，网关的 HYBRID_LOOKUP 阶段凭此取出第一层结论。令牌一次性消费。
+   * 纯 SDK 接入（无适配器）留空即可。
+   */
+  serverToken: string;
   /** SDK 版本，随 init/heartbeat 上报。 */
   sdkVersion: string;
   /** Evercookie 写入重试次数。 */
@@ -55,6 +63,7 @@ export const defaultConfig: SdkConfig = {
   apiKey: '',
   appSecret: '',
   appId: 0,
+  serverToken: '',
   sdkVersion: '2.0.0',
   retryCount: 3,
   retryDelay: 300,

@@ -70,6 +70,13 @@ export function fetchPublishRule(ruleId: number, data?: { change_summary?: strin
   })
 }
 
+/** 置为灰度影子（下发到 gateway 求值，但不参与真实处置） */
+export function fetchShadowRule(ruleId: number) {
+  return request.post<Api.Fangyu.Rule>({
+    url: `/api/v2/sites/0/rules/${ruleId}/shadow`
+  })
+}
+
 /** 停用规则 */
 export function fetchDisableRule(ruleId: number) {
   return request.post<Api.Fangyu.Rule>({

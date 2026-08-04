@@ -42,6 +42,9 @@ _SUBPATH_ACTION_HINTS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"/logout$"), AuditAction.LOGOUT.value),
     (re.compile(r"/rotate.*key$", re.IGNORECASE), AuditAction.ROTATE.value),
     (re.compile(r"/publish$"), AuditAction.PUBLISH.value),
+    # 置灰度影子与发布同属「下发到数据面」，归到 publish 而不是让它落到
+    # 默认的 create——POST 一条已存在的规则被记成「创建」会让审计流水失真。
+    (re.compile(r"/shadow$"), AuditAction.PUBLISH.value),
     (re.compile(r"/disable$"), AuditAction.DISABLE.value),
 )
 

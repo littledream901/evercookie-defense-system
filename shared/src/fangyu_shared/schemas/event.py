@@ -19,7 +19,28 @@ from fangyu_shared.schemas.disposition import Mechanism, TargetKind, Verdict
 
 # 事件字段协议版本。字段变更时递增（新增可选字段属兼容变更，删除/改类型属破坏变更）。
 # v3: 新增 ingress / fingerprint_is_derived / clock_* / behavior_event_count
-DECISION_EVENT_SCHEMA_VERSION = 3
+# v4: 新增 condition_traces（规则条件命中明细，供 worker 写 decision_traces 冷表）
+DECISION_EVENT_SCHEMA_VERSION = 4
+
+
+class ConditionTraceEvent(BaseSchema):
+    """规则条件命中明细。
+
+    体量大、查询频率低（只在排障时按 request_id 点查），因此独立成表并
+    单独设置更短 TTL，不塞进决策主表。
+
+    ``request_id`` / ``app_id`` / ``occurred_at`` 不在这里带：它们对同一次请求
+    的所有明细都相同，随每条重复上报是纯冗余。worker 写库时从所属
+    ``DecisionEvent`` 补齐这三列，见 ``TraceTransformer``。
+    """
+
+    rule_id: int | None = Field(default=None, alias="ruleId")
+    rule_name: str = Field(default="", alias="ruleName", max_length=128)
+    field_path: str = Field(default="", alias="field", max_length=64)
+    op: str = Field(default="", max_length=24)
+    expected: str = Field(default="", max_length=512)
+    actual: str = Field(default="", max_length=512)
+    matched: bool = False
 
 
 class DecisionEvent(BaseSchema):
@@ -94,6 +115,17 @@ class DecisionEvent(BaseSchema):
     shadow_rule_ids: list[int] = Field(default_factory=list, alias="shadowRuleIds")
     shadow_verdicts: list[str] = Field(default_factory=list, alias="shadowVerdicts")
 
+    # ── 规则条件命中明细（采样） ──
+    condition_traces: list[ConditionTraceEvent] = Field(
+        default_factory=list, alias="conditionTraces", max_length=200
+    )
+    """规则条件逐条求值明细，由 worker 写入 ``decision_traces`` 冷表。
+
+    只在采样命中时非空（非 trusted 全量 + trusted 抽样），因此绝大多数事件
+    这个字段是空列表，不额外占 Stream 带宽。上限 200 与 gateway 侧的收集上限
+    一致，防止规则配错时单条事件体积失控。
+    """
+
     # ── Clock：频控计数与封禁 ──
     clock_counts: dict[str, int] = Field(default_factory=dict, alias="clockCounts")
     """各维度各窗口计数，键形如 ``ip_burst``/``fp_short``。
@@ -117,25 +149,6 @@ class DecisionEvent(BaseSchema):
     )
     event_version: int = Field(default=0, alias="eventVersion", ge=0)
     extra: dict[str, Any] = Field(default_factory=dict)
-
-
-class ConditionTraceEvent(BaseSchema):
-    """规则条件命中明细。
-
-    体量大、查询频率低（只在排障时按 request_id 点查），因此独立成表并
-    单独设置更短 TTL，不塞进决策主表。
-    """
-
-    request_id: str = Field(..., alias="requestId", max_length=64)
-    app_id: int = Field(..., alias="appId", gt=0)
-    rule_id: int | None = Field(default=None, alias="ruleId")
-    rule_name: str = Field(default="", alias="ruleName", max_length=128)
-    field_path: str = Field(default="", alias="field", max_length=64)
-    op: str = Field(default="", max_length=24)
-    expected: str = Field(default="", max_length=512)
-    actual: str = Field(default="", max_length=512)
-    matched: bool = False
-    occurred_at: datetime = Field(default_factory=datetime.utcnow, alias="occurredAt")
 
 
 class EventBatch(BaseSchema):

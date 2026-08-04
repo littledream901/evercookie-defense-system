@@ -12,6 +12,7 @@ from fangyu_shared.tracing import setup_tracing
 
 from src.application.consumers.decision_consumer import DecisionConsumer
 from src.application.transformers.event_transformer import EventTransformer
+from src.application.transformers.trace_transformer import TraceTransformer
 from src.application.writers.event_writer import EventWriter
 from src.application.writers.reputation_writer import ReputationWriter, ReputationWriterConfig
 from src.config import WorkerSettings, get_settings
@@ -67,6 +68,11 @@ async def _bootstrap(settings: WorkerSettings) -> DecisionConsumer:
     redis = RedisManager.get_client()
     clickhouse = ClickHouseManager.get_client()
 
+    dead_letter = DeadLetterHandler(
+        redis,
+        stream_name=settings.dead_letter_stream,
+        maxlen=settings.dead_letter_maxlen,
+    )
     stream_consumer = StreamConsumer(
         redis,
         StreamConsumerConfig(
@@ -76,7 +82,9 @@ async def _bootstrap(settings: WorkerSettings) -> DecisionConsumer:
             batch_size=settings.stream_batch_size,
             block_ms=settings.stream_block_ms,
             claim_min_idle_ms=settings.stream_claim_min_idle_ms,
+            max_delivery_count=settings.max_delivery_count,
         ),
+        dead_letter=dead_letter,
     )
     batch_writer = BatchWriter(
         clickhouse,
@@ -85,15 +93,24 @@ async def _bootstrap(settings: WorkerSettings) -> DecisionConsumer:
         initial_backoff=settings.initial_backoff_seconds,
         max_backoff=settings.max_backoff_seconds,
     )
-    dead_letter = DeadLetterHandler(
-        redis,
-        stream_name=settings.dead_letter_stream,
-        maxlen=settings.dead_letter_maxlen,
+    # 明细走独立的 BatchWriter：目标表不同，且它的失败不能影响主表的 ACK 判定。
+    trace_batch_writer = (
+        BatchWriter(
+            clickhouse,
+            table=settings.trace_target_table,
+            max_retries=settings.max_retries,
+            initial_backoff=settings.initial_backoff_seconds,
+            max_backoff=settings.max_backoff_seconds,
+        )
+        if settings.trace_enabled
+        else None
     )
     writer = EventWriter(
         transformer=EventTransformer(),
         batch_writer=batch_writer,
         dead_letter=dead_letter,
+        trace_transformer=TraceTransformer() if settings.trace_enabled else None,
+        trace_batch_writer=trace_batch_writer,
     )
     return DecisionConsumer(stream_consumer=stream_consumer, event_writer=writer)
 

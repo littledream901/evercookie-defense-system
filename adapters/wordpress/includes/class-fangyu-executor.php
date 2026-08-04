@@ -114,18 +114,23 @@ class Fangyu_Executor {
 	private static function sdk_injection_html( Fangyu_Decision_Result $result ) {
 		$gateway_url   = Fangyu_Config::gateway_url();
 		$site_id       = Fangyu_Config::site_id();
+		$app_id        = Fangyu_Config::app_id();  // SDK 要求正整数，与 site_id 是两回事
 		$server_token  = $result->server_token;    // null → standalone 模式
 		$server_verdict = $result->verdict;
 		$blocked_url   = '/blocked';
 		$challenge_url = '/challenge';
 
+		// 键名必须与 client-sdk 的 SdkConfig 对齐：apiBase / apiKey / appId。
+		// 旧的 gatewayUrl / siteId 在 SDK 中不存在，validateConfig() 会直接抛错，
+		// 导致第二层（浏览器指纹 + 决策）完全无法启动。
 		$ctx = wp_json_encode(
 			array_filter(
 				array(
-					'siteId'        => $site_id,
-					'gatewayUrl'    => $gateway_url,
+					'apiBase'       => $gateway_url,
+					'apiKey'        => $site_id,
+					'appId'         => $app_id,
 					'serverVerdict' => $server_verdict,
-					'serverToken'   => $server_token,   // null 时 json_encode 输出 null，JS 侧判断
+					'serverToken'   => $server_token,   // null 时被 array_filter 剔除，JS 侧兜底
 					'blockedUrl'    => $blocked_url,
 					'challengeUrl'  => $challenge_url,
 				),
@@ -152,32 +157,36 @@ class Fangyu_Executor {
   document.addEventListener('DOMContentLoaded', function () {
     if (typeof SdSdk === 'undefined') return;
     var ctx = window.__fy_server_ctx || {};
-    if (!ctx.gatewayUrl || !ctx.siteId) return;
+    if (!ctx.apiBase || !ctx.apiKey || !ctx.appId) return;
     // hybrid 模式：服务端已判 hostile 时 JS 兜底
     if (ctx.serverToken && ctx.serverVerdict === 'hostile') {
       sessionStorage.setItem('_fy_v', JSON.stringify({ v: 'hostile', exp: Date.now() + 300000 }));
       location.replace(ctx.blockedUrl || '/blocked'); return;
     }
+    // protect() 返回 Promise<{decision, applied}>。SDK 无 onDecision 配置项，
+    // 处置回调必须从返回的 Promise 取，否则永远不会被调用。
     SdSdk.protect({
-      gatewayUrl:      ctx.gatewayUrl,
-      siteId:          ctx.siteId,
-      serverToken:     ctx.serverToken || undefined,  // hybrid / standalone 自动切换
+      apiBase:         ctx.apiBase,
+      apiKey:          ctx.apiKey,
+      appId:           ctx.appId,
+      serverToken:     ctx.serverToken || '',   // hybrid / standalone 自动切换
       autoApply:       false,
-      collectBehavior: true,
-      onDecision: function (d) {
-        sessionStorage.setItem('_fy_v', JSON.stringify({
-          v: d.verdict, exp: Date.now() + (d.ttlSeconds || 300) * 1000
-        }));
-        if (d.mechanism === 'redirect') {
-          location.replace(d.target && d.target.url ? d.target.url : ctx.blockedUrl);
-        } else if (d.mechanism === 'challenge') {
-          location.replace(ctx.challengeUrl + '?next=' + encodeURIComponent(location.href));
-        } else if (d.mechanism === 'deny') {
-          document.documentElement.innerHTML =
-            '<body style="font:sans-serif;text-align:center;padding:80px"><h1>403</h1></body>';
-        }
+      collectBehavior: true
+    }).then(function (outcome) {
+      var d = outcome && outcome.decision;
+      if (!d) return;
+      sessionStorage.setItem('_fy_v', JSON.stringify({
+        v: d.verdict, exp: Date.now() + (d.ttlSeconds || 300) * 1000
+      }));
+      if (d.mechanism === 'redirect') {
+        location.replace(d.targetUrl || ctx.blockedUrl);
+      } else if (d.mechanism === 'challenge') {
+        location.replace(ctx.challengeUrl + '?next=' + encodeURIComponent(location.href));
+      } else if (d.mechanism === 'deny') {
+        document.documentElement.innerHTML =
+          '<body style="font:sans-serif;text-align:center;padding:80px"><h1>403</h1></body>';
       }
-    });
+    }).catch(function () { /* SDK 异常不影响页面 */ });
   });
 }());
 </script>
@@ -320,11 +329,13 @@ HTML;
 	 * @return string
 	 */
 	private static function ctx_and_sdk_tag( Fangyu_Decision_Result $result ) {
+		// 键名与 sdk_injection_html() 保持一致，对齐 SdkConfig。
 		$ctx = wp_json_encode(
 			array_filter(
 				array(
-					'siteId'        => Fangyu_Config::site_id(),
-					'gatewayUrl'    => Fangyu_Config::gateway_url(),
+					'apiBase'       => Fangyu_Config::gateway_url(),
+					'apiKey'        => Fangyu_Config::site_id(),
+					'appId'         => Fangyu_Config::app_id(),
 					'serverVerdict' => $result->verdict,
 					'serverToken'   => $result->server_token,
 					'blockedUrl'    => '/blocked',

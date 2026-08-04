@@ -116,10 +116,49 @@ async def test_sync_bind_with_ttl():
     redis = _FakeRedis()
     sync = AppKeyRedisSync(redis, ttl_seconds=90)
     await sync.bind("k", 7, "mysec")
-    _op, (key, value, ex) = redis.calls[-1]
-    assert key == "fangyu:app_keys:k"
+    # bind 会写两个 key（正向映射 + 反向 secret 索引），这里只断言正向那条，
+    # 不能用 calls[-1]——那是反向索引的写入。
+    forward = [c for c in redis.calls if c[0] == "set" and c[1][0] == "fangyu:app_keys:k"]
+    assert len(forward) == 1
+    _op, (key, value, ex) = forward[0]
     assert _parse(value)["app_id"] == 7
     assert ex == 90
+
+
+@pytest.mark.asyncio
+async def test_sync_bind_writes_secret_reverse_index():
+    """反向索引供 challenge token 按 app_id 取 secret，缺了挑战链路会静默失效。"""
+    redis = _FakeRedis()
+    sync = AppKeyRedisSync(redis)
+    await sync.bind("k", 7, "mysec")
+    assert redis.store["fangyu:app_secrets:7"] == "mysec"
+
+
+@pytest.mark.asyncio
+async def test_sync_bind_without_secret_skips_reverse_index():
+    redis = _FakeRedis()
+    sync = AppKeyRedisSync(redis)
+    await sync.bind("k", 7)
+    assert "fangyu:app_secrets:7" not in redis.store
+
+
+@pytest.mark.asyncio
+async def test_sync_unbind_without_app_id_keeps_secret_index():
+    """轮换 API Key 时 secret 未变，不能顺手清掉反向索引。"""
+    redis = _FakeRedis()
+    sync = AppKeyRedisSync(redis)
+    await sync.bind("k", 7, "mysec")
+    await sync.unbind("k")
+    assert redis.store["fangyu:app_secrets:7"] == "mysec"
+
+
+@pytest.mark.asyncio
+async def test_sync_unbind_with_app_id_clears_secret_index():
+    redis = _FakeRedis()
+    sync = AppKeyRedisSync(redis)
+    await sync.bind("k", 7, "mysec")
+    await sync.unbind("k", 7)
+    assert redis.store == {}
 
 
 @pytest.mark.asyncio

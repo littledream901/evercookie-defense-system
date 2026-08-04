@@ -61,6 +61,17 @@ class WorkerSettings(BaseSettings):
     batch_flush_interval_seconds: float = 5.0
     batch_target_table: str = "fangyu.decision_events"
 
+    # 规则条件命中明细（冷表，TTL 7 天）
+    trace_enabled: bool = True
+    """是否把事件里的 conditionTraces 写入 decision_traces。
+
+    关闭后该表不再有新数据，后台「条件命中明细」排障视图会一直为空。
+    采样在 gateway 侧完成（GATEWAY_DECISION_TRACE_SAMPLE_RATE），这里只控制
+    落库开关——worker 不做二次采样，否则两处采样率相乘，实际留存率会低到
+    难以预期。
+    """
+    trace_target_table: str = "fangyu.decision_traces"
+
     # Retry / DLQ
     max_retries: int = 3
     initial_backoff_seconds: float = 0.5

@@ -108,9 +108,11 @@ async def sync_reputation(
     _: int = Depends(require_permission("threat_intel.write")),
 ) -> SuccessResponse[dict[str, Any]]:
     """从 ClickHouse mv_ip_reputation_daily / mv_fingerprint_reputation_daily 读取聚合，
-    计算声誉分并写回 Redis ProfileCache。
+    计算声誉分并写回 Redis ProfileCache，同时把高风险 IP 沉淀进情报库。
 
-    worker 每小时执行一次相同逻辑；此端点供管理员随时手动触发。
+    周期执行归 worker（数据面常驻进程），admin 不再注册同名定时任务；此端点
+    供管理员随时手动强制同步一次，逻辑与 worker 共用
+    :mod:`fangyu_shared.reputation`。
     """
     result = await svc.sync()
     return SuccessResponse(data=result.to_dict())

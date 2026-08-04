@@ -47,6 +47,7 @@ from src.infrastructure.repositories.rbac_repository import RbacRepository
 from src.infrastructure.repositories.rule_repository import RuleAdminRepository
 from src.infrastructure.repositories.scoring_repository import ScoringRepository
 from src.infrastructure.repositories.user_repository import UserRepository
+from src.infrastructure.reputation_intel_feedback import ReputationIntelFeedback
 from src.infrastructure.scoring_sync import ScoringSync
 from src.infrastructure.whitelist_sync import WhitelistSync
 
@@ -274,10 +275,14 @@ async def get_current_permissions(
 def get_reputation_sync_service(
     clickhouse: ClickHouseClient = Depends(get_clickhouse),
     redis: Redis = Depends(get_redis),
+    intel_service: IntelService = Depends(get_intel_service),
 ) -> ReputationSyncService:
     return ReputationSyncService(
         clickhouse=clickhouse,
         profile_cache=SharedProfileCache(redis, ttl=86_400),
+        # 手动触发时顺带把高风险 IP 沉淀进情报库；worker 侧没有 DB 依赖，
+        # 这一步只能在 admin 完成。
+        intel_feedback=ReputationIntelFeedback(intel_service),
     )
 
 

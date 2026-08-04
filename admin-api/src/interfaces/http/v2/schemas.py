@@ -225,6 +225,56 @@ class AppUpdateRequest(BaseSchema):
     remark: str | None = None
 
 
+# ---------- 接入诊断 ----------
+class IngressStatSchema(BaseSchema):
+    """单一接入来源（sdk / adapter）的实测指标。"""
+
+    ingress: str
+    total: int = 0
+    derived_count: int = 0
+    """指纹由网关按 IP+UA 派生的请求数；SDK 侧出现即说明埋码未真正采集到指纹。"""
+    behavior_count: int = 0
+    restore_count: int = 0
+    unknown_verdict_count: int = 0
+    hostile_count: int = 0
+    suspicious_count: int = 0
+    clean_count: int = 0
+    clock_banned_count: int = 0
+    unique_fingerprints: int = 0
+    unique_ips: int = 0
+    avg_cost_ms: float = 0.0
+    first_seen_at: datetime | None = None
+    last_seen_at: datetime | None = None
+
+
+class IntegrationFindingSchema(BaseSchema):
+    """一条可执行的诊断结论。"""
+
+    level: Literal["ok", "warning", "error"]
+    code: str
+    title: str
+    detail: str
+    suggestion: str
+
+
+class IntegrationDiagnosticsSchema(BaseSchema):
+    """站点接入诊断结果：配置侧声明 vs 遥测侧实测。"""
+
+    site_id: int
+    site_name: str
+    domain: str
+    is_active: bool
+    configured_access_mode: str
+    configured_sdk_version: str | None = None
+    gateway_url: str | None = None
+    window_hours: int
+    total_requests: int = 0
+    last_seen_at: datetime | None = None
+    status: Literal["ok", "warning", "error", "no_data"]
+    ingress_stats: list[IngressStatSchema] = Field(default_factory=list)
+    findings: list[IntegrationFindingSchema] = Field(default_factory=list)
+
+
 # ---------- Rule ----------
 class RuleListRequest(PageRequest):
     keyword: str | None = None
@@ -289,11 +339,39 @@ class AnalyticsBaseRequest(BaseSchema):
 
 class TimelineRequest(AnalyticsBaseRequest):
     granularity: Literal["minute", "hour", "day"] = "hour"
+    dimension: Literal["disposition", "is_bot", "crawler_category", "crawler_vendor"] = (
+        "disposition"
+    )
+    """分组维度。默认 disposition 保持旧行为；爬虫三维度用于爬虫流量趋势图。"""
 
 
 class TopEntityRequest(AnalyticsBaseRequest):
-    dimension: Literal["ip", "device", "country", "decided_by", "mechanism", "verdict"] = "ip"
+    dimension: Literal[
+        "ip",
+        "device",
+        "country",
+        "decided_by",
+        "mechanism",
+        "verdict",
+        "is_bot",
+        "crawler_category",
+        "crawler_vendor",
+    ] = "ip"
     limit: int = Field(default=20, ge=1, le=100)
+
+
+class RuleHitRateRequest(BaseSchema):
+    """规则命中率请求。
+
+    不继承 ``AnalyticsBaseRequest``：命中率读日聚合 MV，用不上它的 ``filters``
+    （MV 里只有 log_date/app_id/rule_id 三个维度），带上一个静默失效的字段
+    比没有更糟。
+    """
+
+    site_id: int | None = None
+    start: datetime
+    end: datetime
+    limit: int = Field(default=50, ge=1, le=200)
 
 
 # ---------- Clock 频控 ----------

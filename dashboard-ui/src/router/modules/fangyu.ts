@@ -148,6 +148,19 @@ export const scoringRoutes: AppRouteRecord = {
   }
 }
 
+/** SDK 接入诊断 */
+export const sdkDiagnosticsRoutes: AppRouteRecord = {
+  name: 'FangyuSdkDiagnostics',
+  path: '/defense/sdk-diagnostics',
+  component: '/fangyu/sdk-diagnostics',
+  meta: {
+    title: 'SDK 接入诊断',
+    icon: 'ri:stethoscope-line',
+    permission: 'app.read',
+    keepAlive: true
+  }
+}
+
 /** 访问日志 */
 export const accessLogsRoutes: AppRouteRecord = {
   name: 'FangyuAccessLogs',

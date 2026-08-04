@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fangyu_shared.logging import get_logger
+from fangyu_shared.schemas.decision import IngressKind
+from fangyu_shared.schemas.disposition import Mechanism, TargetKind, Verdict
 from fangyu_shared.schemas.event import DECISION_EVENT_SCHEMA_VERSION
 
 from src.domain.event.stream_message import StreamMessage
@@ -27,6 +29,43 @@ from src.domain.event.stream_message import StreamMessage
 _logger = get_logger("worker.event_transformer")
 
 _DEFAULT_IP_TYPE = "ipv4"
+
+# 脏值哨兵。不用空串是为了让「上游发了没见过的值」和「上游没发」在看板上可区分。
+_UNKNOWN = "unknown"
+
+# LowCardinality 列白名单。任意字符串直写会污染字典，且所有按这些列
+# GROUP BY 的物化视图都会长出无意义的分组，事后无法从数据里剔除。
+_VERDICT_VALUES = frozenset(v.value for v in Verdict)
+_MECHANISM_VALUES = frozenset(m.value for m in Mechanism)
+_TARGET_KIND_VALUES = frozenset(t.value for t in TargetKind)
+_INGRESS_VALUES = frozenset(i.value for i in IngressKind)
+
+# decided_by 的事实来源是 gateway 的 src.domain.decision.disposition.DecidedBy，
+# 它属于 gateway 服务内部模块、worker 无法 import，因此在此镜像一份。
+# 改动 gateway 侧枚举时必须同步这里，否则新来源会被记成 unknown。
+_DECIDED_BY_VALUES = frozenset(
+    {
+        "whitelist",
+        "challenge_pass",
+        "clock_ban",
+        "clock_rate_limit",
+        "hybrid_layer",
+        "decision_rule",
+        "group_no_match",
+        "threat_intel",
+        "security",
+        "scoring",
+        "app_default",
+        "system_default",
+    }
+)
+
+# 自由文本列长度上限。截断而非拒绝：这些字段只用于排障与展示，
+# 不参与判定，为超长 UA 丢掉整条事件会连带丢失它的裁决与评分。
+_MAX_USER_AGENT = 512
+_MAX_PATH = 2048
+_MAX_REFERER = 2048
+_MAX_TARGET_URL = 2048
 
 
 @dataclass(slots=True)
@@ -89,18 +128,34 @@ class EventTransformer:
             "device_id": str(raw.get("deviceId") or raw.get("device_id") or ""),
             "ip": str(raw.get("ip") or ""),
             "ip_type": str(raw.get("ipType") or raw.get("ip_type") or _DEFAULT_IP_TYPE),
-            "user_agent": str(raw.get("userAgent") or raw.get("user_agent") or ""),
-            "path": str(raw.get("path") or "/"),
-            "referer": str(raw.get("referer") or ""),
+            "user_agent": str(raw.get("userAgent") or raw.get("user_agent") or "")[
+                :_MAX_USER_AGENT
+            ],
+            "path": str(raw.get("path") or "/")[:_MAX_PATH],
+            "referer": str(raw.get("referer") or "")[:_MAX_REFERER],
             "method": str(raw.get("method") or "GET"),
             # 处置三层
-            "verdict": str(raw.get("verdict") or "trusted"),
-            "mechanism": str(raw.get("mechanism") or "pass"),
-            "target_kind": str(raw.get("targetKind") or raw.get("target_kind") or "origin"),
-            "target_url": str(raw.get("targetUrl") or raw.get("target_url") or ""),
+            "verdict": _enum_or_unknown(
+                raw.get("verdict") or "trusted", _VERDICT_VALUES, column="verdict"
+            ),
+            "mechanism": _enum_or_unknown(
+                raw.get("mechanism") or "pass", _MECHANISM_VALUES, column="mechanism"
+            ),
+            "target_kind": _enum_or_unknown(
+                raw.get("targetKind") or raw.get("target_kind") or "origin",
+                _TARGET_KIND_VALUES,
+                column="target_kind",
+            ),
+            "target_url": str(raw.get("targetUrl") or raw.get("target_url") or "")[
+                :_MAX_TARGET_URL
+            ],
             "http_status": _to_int(raw.get("httpStatus") or raw.get("http_status")) or 200,
             # 处置溯源
-            "decided_by": str(raw.get("decidedBy") or raw.get("decided_by") or "system_default"),
+            "decided_by": _enum_or_unknown(
+                raw.get("decidedBy") or raw.get("decided_by") or "system_default",
+                _DECIDED_BY_VALUES,
+                column="decided_by",
+            ),
             "decided_stage": str(raw.get("decidedStage") or raw.get("decided_stage") or "default"),
             "decided_rule_id": _to_int(raw.get("decidedRuleId") or raw.get("decided_rule_id")),
             # 评分
@@ -135,7 +190,9 @@ class EventTransformer:
             "shadow_rule_ids": [int(x) for x in shadow_ids_raw if str(x).isdigit()],
             "shadow_verdicts": [str(x) for x in shadow_verdicts_raw],
             # 接入来源
-            "ingress": str(raw.get("ingress") or "sdk"),
+            "ingress": _enum_or_unknown(
+                raw.get("ingress") or "sdk", _INGRESS_VALUES, column="ingress"
+            ),
             "fingerprint_is_derived": (
                 1
                 if _to_bool(
@@ -184,6 +241,21 @@ def _to_bool(value: Any) -> bool:
     if value is None or value == "":
         return False
     return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
+def _enum_or_unknown(value: Any, allowed: frozenset[str], *, column: str) -> str:
+    """枚举列取值校验：不在白名单内则降级为哨兵值。
+
+    与 :func:`_to_score_map` 保持同一取舍——脏的那一个字段降级，整条事件仍然入库。
+    枚举列多是次要维度（如 decided_by），为它丢掉整条事件会连带丢失
+    event_id / score / 裁决这些无可替代的信息，代价远大于一个维度失真。
+    降级同时打 warning，脏值本身记在日志里供上游排查。
+    """
+    text = str(value)
+    if text in allowed:
+        return text
+    _logger.warning("event_enum_value_rejected", column=column, value=text[:64])
+    return _UNKNOWN
 
 
 def _to_score_map(value: Any) -> dict[str, float]:

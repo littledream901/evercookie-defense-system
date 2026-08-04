@@ -11,6 +11,7 @@ from .audit_logs import router as audit_logs_router
 from .auth import router as auth_router
 from .bans import router as bans_router
 from .clock import router as clock_router, global_router as clock_global_router
+from .diagnostics import router as diagnostics_router
 from .health import router as health_router
 from .page_resource_templates import router as page_resource_templates_router
 from .page_resources import router as page_resources_router, global_router as page_resources_global_router
@@ -31,6 +32,9 @@ v2_router.include_router(users_router)
 v2_router.include_router(roles_router)
 v2_router.include_router(permissions_router)
 v2_router.include_router(apps_router)
+# 与 apps_router 同前缀 /sites，但路径带静态后缀 integration-diagnostics，
+# 不会与 /sites/{site_id} 冲突
+v2_router.include_router(diagnostics_router)
 v2_router.include_router(rules_router)
 v2_router.include_router(rules_global_router)
 v2_router.include_router(rule_templates_router)

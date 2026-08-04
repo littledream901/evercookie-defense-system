@@ -8,11 +8,11 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fangyu_shared.reputation import calc_score as _calc_score
 from fangyu_shared.schemas.profile import DeviceProfile, IpProfile
 from src.application.writers.reputation_writer import (
     ReputationWriter,
     ReputationWriterConfig,
-    _calc_score,
 )
 
 # ---------------------------------------------------------------------------
@@ -22,13 +22,13 @@ from src.application.writers.reputation_writer import (
 class TestCalcScore:
     """Contrat de score.
 
-    Le même tableau de valeurs est répliqué dans
-    ``tests/admin/test_reputation_sync_service.py``. Les deux implémentations
-    (tâche périodique worker / déclenchement manuel admin) doivent produire
-    des scores identiques : sinon une synchronisation manuelle réécrit les
-    scores de la boucle périodique avec d'autres valeurs, sans erreur visible
-    d'aucun côté. Un import croisé est impossible (admin-api et worker
-    partagent le package racine ``src``), d'où la duplication volontaire.
+    La formule vit désormais dans ``fangyu_shared.reputation`` : les deux
+    appelants (tâche périodique worker / déclenchement manuel admin) en
+    partagent une seule implémentation, au lieu d'en dupliquer chacun une
+    copie. Le même tableau de valeurs reste répliqué dans
+    ``tests/admin/test_reputation_sync_service.py`` : si un jour quelqu'un
+    recopie la formule dans l'un des deux services, l'un de ces fichiers
+    échouera en premier.
     """
 
     def test_all_blocked_gives_zero(self):
@@ -81,13 +81,16 @@ def _make_writer(ip_rows=None, device_rows=None):
 @pytest.mark.asyncio
 async def test_ip_reputation_written_on_hit():
     writer, cache = _make_writer(
-        ip_rows=[{"ip": "1.2.3.4", "total": 10, "blocked": 2}],
+        ip_rows=[{"app_id": 7, "ip": "1.2.3.4", "total": 10, "blocked": 2}],
     )
     result = await writer.run_once()
     assert result.ips_written == 1
     assert result.errors == []
     cache.set_ip.assert_awaited_once()
-    written: IpProfile = cache.set_ip.call_args[0][0]
+    # set_ip(app_id, profile) — la clé de cache est scopée par locataire.
+    app_id, written = cache.set_ip.call_args[0]
+    assert app_id == 7
+    assert isinstance(written, IpProfile)
     assert written.ip == "1.2.3.4"
     assert written.reputation_score == 80.0  # 100 - 20%
     assert written.reputation_samples == 10
@@ -104,10 +107,31 @@ async def test_device_reputation_written_on_hit():
     written: DeviceProfile = cache.set_device.call_args[0][1]
     assert written.fingerprint == "fp_abc"
     assert written.reputation_score == 100.0
+    assert written.blocked_requests == 0
     # last_seen_at doit être renseigné : les scorers basés sur l'âge du device
     # l'utilisent comme référence. L'équivalent admin
     # (ReputationSyncService) fait de même — les deux ne doivent pas diverger.
     assert written.last_seen_at is not None
+
+
+@pytest.mark.asyncio
+async def test_device_blocked_requests_persisted():
+    """``blocked_requests`` doit être écrit, sinon la branche
+    ``high_block_rate`` de ``DeviceScorer`` est du code mort.
+
+    Le champ existe depuis toujours sur ``DeviceProfile`` mais aucun écrivain
+    ne l'alimentait : il restait à 0, donc ``blocked_requests > 0`` était
+    toujours faux et cette branche ne se déclenchait jamais.
+    """
+    writer, cache = _make_writer(
+        device_rows=[{"app_id": 3, "fingerprint": "fp_bad", "total": 40, "blocked": 30}],
+    )
+    await writer.run_once()
+    written: DeviceProfile = cache.set_device.call_args[0][1]
+    assert written.blocked_requests == 30
+    assert written.total_requests == 40
+    # Le taux calculé par DeviceScorer doit dépasser son seuil de 0.5.
+    assert written.blocked_requests / written.total_requests > 0.5
 
 
 @pytest.mark.asyncio
@@ -120,13 +144,13 @@ async def test_merges_existing_ip_profile():
         total_requests=5,
     )
     writer, cache = _make_writer(
-        ip_rows=[{"ip": "5.6.7.8", "total": 15, "blocked": 15}],
+        ip_rows=[{"app_id": 7, "ip": "5.6.7.8", "total": 15, "blocked": 15}],
     )
     cache.get_ip = AsyncMock(return_value=existing)
 
     result = await writer.run_once()
     assert result.ips_written == 1
-    written: IpProfile = cache.set_ip.call_args[0][0]
+    written: IpProfile = cache.set_ip.call_args[0][1]
     assert written.country == "US"          # geo data preserved
     assert written.reputation_score == 0.0  # fully blocked
     assert written.reputation_samples == 15

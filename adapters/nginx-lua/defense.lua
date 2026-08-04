@@ -71,6 +71,9 @@ end
 
 local GATEWAY_URL  = cfg("gateway_url", "")
 local SITE_ID      = cfg("site_id", "")
+-- 浏览器 SDK 需要数值型 appId（SdkConfig.appId 校验 `Number.isInteger && > 0`）。
+-- SITE_ID 是字符串键，只能作 X-App-Key，不能充当 appId。
+local APP_ID       = tonumber(cfg("app_id", "0")) or 0
 local APP_SECRET   = cfg("app_secret", "")
 local FAIL_MODE    = cfg("fail_mode", "open")
 local SDK_INJECT   = cfg("sdk_inject", "on")
@@ -311,9 +314,12 @@ local function build_sdk_snippet(server_verdict, server_token)
   local sdk_src = SDK_URL ~= "" and SDK_URL
     or (GATEWAY_URL .. "/sdk/fangyu-sdk.min.js")
 
+  -- 键名必须与 SdkConfig 对齐：apiBase / apiKey / appId。
+  -- 旧的 gatewayUrl / siteId 在 SDK 里不存在，validateConfig() 会直接抛错。
   local ctx_json = cjson.encode({
-    siteId        = SITE_ID,
-    gatewayUrl    = GATEWAY_URL,
+    apiBase       = GATEWAY_URL,
+    apiKey        = SITE_ID,
+    appId         = APP_ID,
     serverVerdict = server_verdict or "unknown",
     serverToken   = server_token,
     blockedUrl    = BLOCKED_URL,
@@ -336,23 +342,27 @@ document.addEventListener('DOMContentLoaded', function () {
     location.replace(ctx.blockedUrl || '/blocked'); return;
   }
   if (typeof SdSdk === 'undefined') return;
+  if (!ctx.apiBase || !ctx.apiKey || !ctx.appId) return;
+  // protect() 返回 Promise<{decision, applied}>；SDK 没有 onDecision 配置项，
+  // 处置回调只能从这里取。autoApply:false 时由下面的分支自行执行。
   SdSdk.protect({
-    gatewayUrl: ctx.gatewayUrl, siteId: ctx.siteId,
-    serverToken: ctx.serverToken, autoApply: false, collectBehavior: true,
-    onDecision: function (d) {
-      sessionStorage.setItem('_fy_v', JSON.stringify({
-        v: d.verdict, exp: Date.now() + (d.ttlSeconds || 300) * 1000
-      }));
-      if (d.mechanism === 'redirect') {
-        location.replace(d.target && d.target.url ? d.target.url : ctx.blockedUrl);
-      } else if (d.mechanism === 'challenge') {
-        location.replace(ctx.challengeUrl + '?next=' + encodeURIComponent(location.href));
-      } else if (d.mechanism === 'deny') {
-        document.documentElement.innerHTML =
-          '<body style="font:sans-serif;text-align:center;padding:80px"><h1>403</h1></body>';
-      }
+    apiBase: ctx.apiBase, apiKey: ctx.apiKey, appId: ctx.appId,
+    serverToken: ctx.serverToken || '', autoApply: false, collectBehavior: true
+  }).then(function (outcome) {
+    var d = outcome && outcome.decision;
+    if (!d) return;
+    sessionStorage.setItem('_fy_v', JSON.stringify({
+      v: d.verdict, exp: Date.now() + (d.ttlSeconds || 300) * 1000
+    }));
+    if (d.mechanism === 'redirect') {
+      location.replace(d.targetUrl || ctx.blockedUrl);
+    } else if (d.mechanism === 'challenge') {
+      location.replace(ctx.challengeUrl + '?next=' + encodeURIComponent(location.href));
+    } else if (d.mechanism === 'deny') {
+      document.documentElement.innerHTML =
+        '<body style="font:sans-serif;text-align:center;padding:80px"><h1>403</h1></body>';
     }
-  });
+  }).catch(function () { /* SDK 异常不影响页面 */ });
 });
 </script>
 ]], ctx_json, sdk_src)
@@ -377,6 +387,12 @@ local context = {
   ingress   = "adapter",
   ip        = real_ip,
   visitUrl  = ngx.var.scheme .. "://" .. ngx.var.host .. ngx.var.request_uri,
+  -- path / method 必须显式上报：规则引擎的 request.path 直接取该字段，不从
+  -- visitUrl 派生。漏报会让「敏感路径阻断」这类规则永不命中，而否定条件
+  -- （路径不在白名单则拦截）反而会因取值恒为 "/" 而误拦全站。
+  -- uri 不含 query string，正是规则需要的路径部分。
+  path      = ngx.var.uri or "/",
+  method    = ngx.var.request_method or "GET",
   userAgent = ngx.var.http_user_agent or "",
   -- serverToken 通过 extra 字段传递，匹配 gateway DecisionContext.extra
   extra     = { serverToken = server_token },

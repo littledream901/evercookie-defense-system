@@ -15,6 +15,7 @@ from src.domain.risk.scorers import (
     BehaviorScorer,
     DeviceScorer,
     IntelScorer,
+    InteractionScorer,
     IpReputationScorer,
     ProxyScorer,
     UserAgentScorer,
@@ -80,6 +81,7 @@ def build_decision_service() -> DecisionService:
         UserAgentScorer(),
         DeviceScorer(),
         BehaviorScorer(),
+        InteractionScorer(),
         IntelScorer(),
     ]
 
@@ -122,6 +124,8 @@ def build_decision_service() -> DecisionService:
         pool_health_store=PoolHealthStore(redis),
         pool_quota_store=PoolQuotaStore(redis),
         health_prober=get_health_prober(),
+        trace_enabled=settings.decision_trace_enabled,
+        trace_sample_rate=settings.decision_trace_sample_rate,
     )
     _decision_service = DecisionService(deps)
     return _decision_service
@@ -143,6 +147,7 @@ def build_app_key_resolver() -> AppKeyResolver:
     _app_key_resolver = AppKeyResolver(
         get_redis(),
         key_prefix=settings.app_key_redis_prefix,
+        secret_prefix=settings.app_secret_redis_prefix,
         cache_ttl=settings.app_key_cache_ttl,
         max_cache_size=settings.app_key_cache_max_size,
     )

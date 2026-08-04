@@ -99,7 +99,7 @@ class _StubProfileCache:
     async def get_device(self, app_id, fingerprint):
         return None
 
-    async def get_ip(self, ip):
+    async def get_ip(self, app_id, ip):
         return None
 
     async def set_device(self, *a, **kw) -> None:
@@ -321,6 +321,8 @@ async def test_clock_counts_published_in_event() -> None:
     service, _, publisher = _build_service(repo)
 
     await service.decide(_request())
+    # 事件发布已挪出决策关键路径，响应返回时任务可能还没跑。
+    await service.drain_events()
 
     assert len(publisher.events) == 1
     event = publisher.events[0]
@@ -336,7 +338,34 @@ async def test_ingress_recorded_in_event() -> None:
     await service.decide(
         _request(ingress=IngressKind.ADAPTER.value, fingerprint="")
     )
+    await service.drain_events()
 
     event = publisher.events[0]
     assert event.ingress == "adapter"
     assert event.fingerprint_is_derived is True
+
+
+# ---------- 缓存命中也要落库 ----------
+@pytest.mark.asyncio
+async def test_cache_hit_publishes_event() -> None:
+    """缓存命中不发事件会让 ClickHouse 少掉稳态下的大部分流量。
+
+    直接后果是所有以「总请求数」为分母的下游被系统性拉偏——离线 IP/设备信誉
+    按「拦截数 / 总数」算，分母缺失会把信誉分算高。
+    """
+    repo = _StubClockRepo()
+    cache = _StubDecisionCache(
+        hit=CachedDecision(disposition=allow(), score=12.0, decidedBy="decision_rule")
+    )
+    service, _, publisher = _build_service(repo, cache=cache)
+
+    await service.decide(_request())
+    await service.drain_events()
+
+    assert len(publisher.events) == 1
+    event = publisher.events[0]
+    # decided_stage 标成 cache 让下游能识别缓存服务的事件；decided_by 保留
+    # 原始判定来源，否则排障时看不出当初为什么是这个处置。
+    assert event.decided_stage == "cache"
+    assert event.decided_by == "decision_rule"
+    assert event.score == 12.0
