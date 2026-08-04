@@ -326,44 +326,64 @@ local function build_sdk_snippet(server_verdict, server_token)
     challengeUrl  = CHALLENGE_URL,
   })
 
+  -- SDK 刻意保持 defer + DOMContentLoaded，**不要**改成同步阻塞。
+  --
+  -- 本段只在服务端判 pass 时才注入（见文件末尾主流程：mechanism ~= "pass" 时
+  -- 直接 execute 并 return，不注入）。能看到这段脚本的访客都已通过第一层，
+  -- 客户端层的跳转命中率按设计就低；且 HTML 此刻已完整下发给浏览器，
+  -- 同步阻塞连「防正文泄露」都做不到。为少数残余命中让所有已放行的真人
+  -- 多等一次阻塞解析，不划算。
+  --
+  -- 需要「HTML 都不下发」的拦截强度，靠的是第一层的边缘判定，不是这里。
+  --
+  -- 例外：不带服务端层的纯 SDK 接入（后台生成的接入片段）应当用同步 +
+  -- SdSdk.guard()，因为那里 SDK 是唯一防线，跳转命中率也高得多。
   return string.format([[
 <script>
 window.__fy_server_ctx = %s;
 </script>
 <script src="%s" defer></script>
 <script>
-document.addEventListener('DOMContentLoaded', function () {
+(function () {
   var ctx = window.__fy_server_ctx || {};
-  // 缓存读取：过期即视为未命中，让 SDK 重新走一次决策。
+  // 这一段同步执行（不依赖 SDK）：缓存命中已知 hostile 时立刻跳，0ms 无网络。
   // 存 {v, exp} 而非裸 verdict 是为了让后台配的 ttlSeconds 在边缘侧真正生效。
+  // 下面用 autoApply:false，SDK 自身的决策缓存不会自动生效，这一层必须保留。
   var _c = null;
   try { _c = JSON.parse(sessionStorage.getItem('_fy_v') || 'null'); } catch (e) {}
   if (_c && _c.exp > Date.now() && _c.v === 'hostile') {
+    if (window.stop) { try { window.stop(); } catch (e) {} }
     location.replace(ctx.blockedUrl || '/blocked'); return;
   }
-  if (typeof SdSdk === 'undefined') return;
-  if (!ctx.apiBase || !ctx.apiKey || !ctx.appId) return;
-  // protect() 返回 Promise<{decision, applied}>；SDK 没有 onDecision 配置项，
-  // 处置回调只能从这里取。autoApply:false 时由下面的分支自行执行。
-  SdSdk.protect({
-    apiBase: ctx.apiBase, apiKey: ctx.apiKey, appId: ctx.appId,
-    serverToken: ctx.serverToken || '', autoApply: false, collectBehavior: true
-  }).then(function (outcome) {
-    var d = outcome && outcome.decision;
-    if (!d) return;
-    sessionStorage.setItem('_fy_v', JSON.stringify({
-      v: d.verdict, exp: Date.now() + (d.ttlSeconds || 300) * 1000
-    }));
-    if (d.mechanism === 'redirect') {
-      location.replace(d.targetUrl || ctx.blockedUrl);
-    } else if (d.mechanism === 'challenge') {
-      location.replace(ctx.challengeUrl + '?next=' + encodeURIComponent(location.href));
-    } else if (d.mechanism === 'deny') {
-      document.documentElement.innerHTML =
-        '<body style="font:sans-serif;text-align:center;padding:80px"><h1>403</h1></body>';
-    }
-  }).catch(function () { /* SDK 异常不影响页面 */ });
-});
+  document.addEventListener('DOMContentLoaded', function () {
+    if (typeof SdSdk === 'undefined') return;
+    if (!ctx.apiBase || !ctx.apiKey || !ctx.appId) return;
+    // protect() 返回 Promise<{decision, applied}>；SDK 没有 onDecision 配置项，
+    // 处置回调只能从这里取。autoApply:false 时由下面的分支自行执行。
+    SdSdk.protect({
+      apiBase: ctx.apiBase, apiKey: ctx.apiKey, appId: ctx.appId,
+      serverToken: ctx.serverToken || '', autoApply: false, collectBehavior: true
+    }).then(function (outcome) {
+      var d = outcome && outcome.decision;
+      if (!d) return;
+      try {
+        sessionStorage.setItem('_fy_v', JSON.stringify({
+          v: d.verdict, exp: Date.now() + (d.ttlSeconds || 300) * 1000
+        }));
+      } catch (e) {}
+      if (d.mechanism === 'redirect') {
+        // 跳转前掐掉在途请求，省下已放行页面的剩余子资源流量
+        if (window.stop) { try { window.stop(); } catch (e) {} }
+        location.replace(d.targetUrl || ctx.blockedUrl);
+      } else if (d.mechanism === 'challenge') {
+        location.replace(ctx.challengeUrl + '?next=' + encodeURIComponent(location.href));
+      } else if (d.mechanism === 'deny') {
+        document.documentElement.innerHTML =
+          '<body style="font:sans-serif;text-align:center;padding:80px"><h1>403</h1></body>';
+      }
+    }).catch(function () { /* SDK 异常不影响页面 */ });
+  });
+}());
 </script>
 ]], ctx_json, sdk_src)
 end

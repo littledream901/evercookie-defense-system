@@ -141,28 +141,51 @@ class Fangyu_Executor {
 
 		$sdk_src = esc_url( plugins_url( 'assets/sd-sdk.min.js', FANGYU_DEFENSE_FILE ) );
 
+		// SDK 刻意保持 defer + DOMContentLoaded，**不要**改成同步阻塞。
+		//
+		// 两个原因：
+		// 1. 本段由 schedule_sdk_injection() 挂在 wp_footer（优先级 99）输出，
+		//    此时整个 body 已解析完毕。在这个位置改同步，时序上换不到任何东西，
+		//    只会白白阻塞剩余解析。
+		// 2. 更根本的是，本段只在**服务端已判 pass** 时才会被注入
+		//    （见 fangyu-defense.php：execute() 返回 true 时直接 return，不注入）。
+		//    能看到这段脚本的访客都已通过第一层，客户端层的跳转命中率按设计就低；
+		//    且 HTML 此刻已完整下发，同步阻塞连「防正文泄露」都做不到。
+		//    为少数残余命中让所有已放行的真人多等一次阻塞，不划算。
+		//
+		// 需要「HTML 都不下发」的拦截强度，靠的是第一层的服务端判定，不是这里。
 		return <<<HTML
 <script>window.__fy_server_ctx = {$ctx};</script>
 <script src="{$sdk_src}" defer></script>
 <script>
 (function () {
-  // 缓存命中：已知 hostile 直接跳（0ms，无网络）。
+  var ctx = window.__fy_server_ctx || {};
+
+  // 这一段同步执行（不依赖 SDK）：缓存命中已知 hostile 时立刻跳，0ms 无网络。
   // 存 {v, exp} 而非裸 verdict，过期即视为未命中，使 ttlSeconds 真正生效。
+  // 下面用 autoApply:false，SDK 自身的决策缓存不会自动生效，这一层必须保留。
   var _c = null;
   try { _c = JSON.parse(sessionStorage.getItem('_fy_v') || 'null'); } catch (e) {}
   if (_c && _c.exp > Date.now() && _c.v === 'hostile') {
-    var c0 = window.__fy_server_ctx || {};
-    location.replace(c0.blockedUrl || '/blocked'); return;
+    if (window.stop) { try { window.stop(); } catch (e) {} }
+    location.replace(ctx.blockedUrl || '/blocked');
+    return;
   }
+
   document.addEventListener('DOMContentLoaded', function () {
-    if (typeof SdSdk === 'undefined') return;
-    var ctx = window.__fy_server_ctx || {};
-    if (!ctx.apiBase || !ctx.apiKey || !ctx.appId) return;
     // hybrid 模式：服务端已判 hostile 时 JS 兜底
     if (ctx.serverToken && ctx.serverVerdict === 'hostile') {
-      sessionStorage.setItem('_fy_v', JSON.stringify({ v: 'hostile', exp: Date.now() + 300000 }));
-      location.replace(ctx.blockedUrl || '/blocked'); return;
+      try {
+        sessionStorage.setItem('_fy_v', JSON.stringify({ v: 'hostile', exp: Date.now() + 300000 }));
+      } catch (e) {}
+      if (window.stop) { try { window.stop(); } catch (e) {} }
+      location.replace(ctx.blockedUrl || '/blocked');
+      return;
     }
+
+    if (typeof SdSdk === 'undefined') return;
+    if (!ctx.apiBase || !ctx.apiKey || !ctx.appId) return;
+
     // protect() 返回 Promise<{decision, applied}>。SDK 无 onDecision 配置项，
     // 处置回调必须从返回的 Promise 取，否则永远不会被调用。
     SdSdk.protect({
@@ -175,10 +198,14 @@ class Fangyu_Executor {
     }).then(function (outcome) {
       var d = outcome && outcome.decision;
       if (!d) return;
-      sessionStorage.setItem('_fy_v', JSON.stringify({
-        v: d.verdict, exp: Date.now() + (d.ttlSeconds || 300) * 1000
-      }));
+      try {
+        sessionStorage.setItem('_fy_v', JSON.stringify({
+          v: d.verdict, exp: Date.now() + (d.ttlSeconds || 300) * 1000
+        }));
+      } catch (e) {}
       if (d.mechanism === 'redirect') {
+        // 跳转前掐掉在途请求，省下已放行页面的剩余子资源流量
+        if (window.stop) { try { window.stop(); } catch (e) {} }
         location.replace(d.targetUrl || ctx.blockedUrl);
       } else if (d.mechanism === 'challenge') {
         location.replace(ctx.challengeUrl + '?next=' + encodeURIComponent(location.href));
@@ -186,6 +213,7 @@ class Fangyu_Executor {
         document.documentElement.innerHTML =
           '<body style="font:sans-serif;text-align:center;padding:80px"><h1>403</h1></body>';
       }
+      // mechanism === 'pass' → 不做任何干预，页面正常渲染
     }).catch(function () { /* SDK 异常不影响页面 */ });
   });
 }());

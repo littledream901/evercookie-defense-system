@@ -153,7 +153,7 @@
         <!-- 适用场景 -->
         <div class="section-block">
           <div class="section-title">适用场景</div>
-          <p class="section-desc">纯静态页面或无法修改服务端的内容型站点。SDK 在访客浏览器中采集指纹并上报，由网关完成异步风险判断。</p>
+          <p class="section-desc">纯静态页面或无法修改服务端的内容型站点。SDK 在访客浏览器中采集指纹并上报，由网关完成风险判断。此处适合 standalone 场景；如果站点已经接了 Nginx-Lua、CF Worker 或 WordPress 服务端层，请使用对应适配器标签页。</p>
           <div class="tag-row">
             <ElTag size="small">客户端模式</ElTag>
             <ElTag type="warning" size="small">Secret 不可用</ElTag>
@@ -170,7 +170,7 @@
         </div>
         <!-- 代码 -->
         <div class="code-section">
-          <div class="code-header">HTML 嵌入（在 &lt;head&gt; 或 &lt;body&gt; 底部添加）</div>
+          <div class="code-header">HTML 嵌入（放在 &lt;head&gt; 内尽量靠前，不要加 defer / async）</div>
           <pre class="code-block">{{ sdkCode }}</pre>
           <ElButton size="small" class="copy-btn" @click="copy(sdkCode)">复制</ElButton>
         </div>
@@ -178,9 +178,12 @@
         <div class="section-block">
           <div class="section-title">注意事项</div>
           <ul class="note-list">
-            <li>SDK 为<strong>异步非阻塞</strong>模式，不会延迟页面渲染，但风险决策结果稍有延迟（通常 &lt;200ms）。</li>
-            <li>广告落地页、电商推荐等需要实时拦截的场景，请改用 <strong>Nginx-Lua 或 CF Worker</strong> 的服务端模式。</li>
-            <li>若需监听 SDK 上报结果，可通过 <code>window.addEventListener('fangyu:result', handler)</code> 获取实时决策。</li>
+            <li><strong>必须放在 <code>&lt;head&gt;</code> 内尽量靠前的位置，且不要加 <code>defer</code> / <code>async</code></strong>。放到 <code>&lt;body&gt;</code> 底部或加 defer 会让判定推迟到页面资源加载完之后，表现为「先加载完整站再跳转」。</li>
+            <li>同会话内的重复访问命中本地决策缓存，跳转为<strong>纯同步、零网络</strong>，在 body 解析前即完成；首次访问仍需要一次网关 RTT，是否能压进 100ms 取决于网关和访客的网络距离。</li>
+            <li>命中跳转条件时会调用 <code>window.stop()</code> 中止剩余资源加载；<strong>放行的访客不受任何干预</strong>，渲染流程与未接入时一致。</li>
+            <li>需要「判定完成前不暴露正文」的高价值页面，加 <code>hideUntilDecided: true</code>；配套的 <code>hideTimeout</code>（默认 300ms）会兜底强制显示，避免网络异常时白屏。</li>
+            <li>需要在跳转前完成服务端拦截（连 HTML 都不下发）的场景，仍应使用 <strong>Nginx-Lua 或 CF Worker</strong> 的服务端模式；这类场景不要用本页的同步 SDK 片段。</li>
+            <li>需要保留浏览器侧行为采集、但不想在首屏阻塞时，可改用 <code>protect()</code> + <code>defer</code> 的异步接入方式。</li>
           </ul>
         </div>
       </ElTabPane>
@@ -330,18 +333,29 @@ define('FANGYU_GATEWAY_URL', '${gw.value}');
 define('FANGYU_SITE_ID',     '${siteId.value}');  // 同时用作 X-App-Key
 define('FANGYU_APP_SECRET',  '${appSecret.value}');`)
 
-  // SDK 不读任何全局配置变量，必须显式调用 SdSdk.protect()。
+  // SDK 不读任何全局配置变量，必须显式调用 SdSdk.guard()。
   // 字段名以 client-sdk/src/config.ts 的 SdkConfig 为准：
   // apiBase / apiKey / appId 三者是 validateConfig() 强制校验的必填项。
-  // 不能给 script 加 defer：defer 会推迟到 DOMContentLoaded 前才执行，
-  // 而下面内联的 protect() 是同步的，会先跑并报 SdSdk is not defined。
+  //
+  // 本片段是 standalone 接入（无服务端层，SDK 是唯一防线），因此用同步 +
+  // guard()。带 CF Worker / nginx-lua / WordPress 服务端层的站点不用这个片段，
+  // 那三个适配器只在服务端判 pass 时才注入，且应保持 defer + protect()。
+  //
+  // 两处刻意的写法，都关乎跳转能否抢在页面渲染之前：
+  // 1. 必须放在 <head> 内、且尽量靠前——此时 body 还没解析，站点资源尚未开始
+  //    下载。放到 body 底部等于先把整站加载完才判定。
+  // 2. script 标签不能加 defer/async：defer 会推迟到 DOMContentLoaded 之前才
+  //    执行，async 时序不确定；两者都会让内联的 guard() 报 SdSdk is not defined。
   const sdkCode = computed(() => `<!-- 客户端 SDK 模式：仅 siteId 可公开，App Secret 绝对不可出现在前端 -->
+<!-- 放在 <head> 内尽量靠前的位置，且不要加 defer / async -->
 <script src="${gw.value}/sdk/sd-sdk.min.js"><\/script>
 <script>
-  SdSdk.protect({
+  SdSdk.guard({
     apiBase: '${gw.value}',
     apiKey:  '${siteId.value}',
     appId:   ${numericAppId.value}
+    // 高价值页面可加：hideUntilDecided: true —— 判定完成前隐藏内容，
+    // 防止 Bot 在跳转生效前抓到正文（默认关闭，不影响正常访客渲染）
   });
 <\/script>`)
 

@@ -172,9 +172,17 @@ function serverSessionToken() {
  * 使用 HTMLRewriter 流式处理，不缓冲完整响应体。
  *
  * 注入内容：
- *   window.__fy_server_ctx = { siteId, serverVerdict, serverToken, gatewayUrl }
+ *   window.__fy_server_ctx = { apiBase, apiKey, appId, serverVerdict, serverToken }
  *   <script src="...sdk.min.js" defer></script>
- *   <script>/* SDK onDecision handler *\/</script>
+ *   <script>/* 缓存兜底（同步）+ DOMContentLoaded 内的 protect() *\/</script>
+ *
+ * SDK 刻意保持 defer，**不要**改成同步阻塞：本函数只在第一层判 pass 时才被调用
+ * （见 fetch()：blocked 为真时直接 return，不注入）。能看到这段脚本的访客都已
+ * 通过边缘判定，客户端层的跳转命中率按设计就低；且 HTML 此刻已在下发途中，
+ * 同步阻塞连「防正文泄露」都做不到。为少数残余命中让所有已放行的真人多等一次
+ * 阻塞解析，不划算。
+ *
+ * 需要「HTML 都不下发」的拦截强度，靠的是本文件第一层的 executeDecision()。
  *
  * @param {Response} originResponse   来自源站的原始响应。
  * @param {object}   env              Worker env bindings.
@@ -207,43 +215,51 @@ window.__fy_server_ctx = ${JSON.stringify({
 </script>
 <script src="${sdkSrc}" defer></script>
 <script>
-document.addEventListener('DOMContentLoaded', function () {
+(function () {
   var ctx = window.__fy_server_ctx || {};
-  // 缓存命中：已知 hostile 直接跳（同一 session 内二次导航）。
+  // 这一段同步执行（不依赖 SDK）：缓存命中已知 hostile 时立刻跳，0ms 无网络。
   // 存 {v, exp} 而非裸 verdict，过期即视为未命中，使 ttlSeconds 真正生效。
+  // 下面用 autoApply:false，SDK 自身的决策缓存不会自动生效，这一层必须保留。
   var _c = null;
   try { _c = JSON.parse(sessionStorage.getItem('_fy_v') || 'null'); } catch (e) {}
   if (_c && _c.exp > Date.now() && _c.v === 'hostile') {
+    if (window.stop) { try { window.stop(); } catch (e) {} }
     location.replace(ctx.blockedUrl || '/blocked');
     return;
   }
-  if (typeof SdSdk === 'undefined') return;  // SDK 加载失败时静默放行
-  if (!ctx.apiBase || !ctx.apiKey || !ctx.appId) return;
-  // protect() 返回 Promise<{decision, applied}>。SDK 无 onDecision 配置项，
-  // 处置回调必须从返回的 Promise 取，否则永远不会被调用。
-  SdSdk.protect({
-    apiBase:         ctx.apiBase,
-    apiKey:          ctx.apiKey,
-    appId:           ctx.appId,
-    serverToken:     ctx.serverToken || '',   // 网关用此字段关联服务端预判
-    autoApply:       false,
-    collectBehavior: true
-  }).then(function (outcome) {
-    var d = outcome && outcome.decision;
-    if (!d) return;
-    sessionStorage.setItem('_fy_v', JSON.stringify({
-      v: d.verdict, exp: Date.now() + (d.ttlSeconds || 300) * 1000
-    }));
-    if (d.mechanism === 'redirect') {
-      location.replace(d.targetUrl || ctx.blockedUrl);
-    } else if (d.mechanism === 'challenge') {
-      location.replace(ctx.challengeUrl + '?next=' + encodeURIComponent(location.href));
-    } else if (d.mechanism === 'deny') {
-      document.documentElement.innerHTML =
-        '<body style="font:sans-serif;text-align:center;padding:80px"><h1>403</h1></body>';
-    }
-  }).catch(function () { /* SDK 异常不影响页面 */ });
-});
+  document.addEventListener('DOMContentLoaded', function () {
+    if (typeof SdSdk === 'undefined') return;  // SDK 加载失败时静默放行
+    if (!ctx.apiBase || !ctx.apiKey || !ctx.appId) return;
+    // protect() 返回 Promise<{decision, applied}>。SDK 无 onDecision 配置项，
+    // 处置回调必须从返回的 Promise 取，否则永远不会被调用。
+    SdSdk.protect({
+      apiBase:         ctx.apiBase,
+      apiKey:          ctx.apiKey,
+      appId:           ctx.appId,
+      serverToken:     ctx.serverToken || '',   // 网关用此字段关联服务端预判
+      autoApply:       false,
+      collectBehavior: true
+    }).then(function (outcome) {
+      var d = outcome && outcome.decision;
+      if (!d) return;
+      try {
+        sessionStorage.setItem('_fy_v', JSON.stringify({
+          v: d.verdict, exp: Date.now() + (d.ttlSeconds || 300) * 1000
+        }));
+      } catch (e) {}
+      if (d.mechanism === 'redirect') {
+        // 跳转前掐掉在途请求，省下已放行页面的剩余子资源流量
+        if (window.stop) { try { window.stop(); } catch (e) {} }
+        location.replace(d.targetUrl || ctx.blockedUrl);
+      } else if (d.mechanism === 'challenge') {
+        location.replace(ctx.challengeUrl + '?next=' + encodeURIComponent(location.href));
+      } else if (d.mechanism === 'deny') {
+        document.documentElement.innerHTML =
+          '<body style="font:sans-serif;text-align:center;padding:80px"><h1>403</h1></body>';
+      }
+    }).catch(function () { /* SDK 异常不影响页面 */ });
+  });
+}());
 </script>`.trim();
 
   return new HTMLRewriter()

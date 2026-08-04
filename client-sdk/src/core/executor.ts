@@ -42,6 +42,28 @@ export interface ApplyOutcome {
 /** 只允许跳到这些协议，挡掉 javascript: / data: 伪协议。 */
 const SAFE_PROTOCOLS = new Set(['http:', 'https:']);
 
+/**
+ * 中止当前文档剩余资源的加载。
+ *
+ * 只在**确定要干预**的分支调用（redirect / block），`pass` 分支绝不调用——
+ * 否则会打断正常访客的页面加载。
+ *
+ * `location.replace` 本身会终止导航，但在它生效前，已发起的图片/脚本/XHR
+ * 仍在占用连接。先 `stop()` 能让跳转不必与这些请求争抢带宽，这正是「先把
+ * 整站加载完才跳转」体感的一部分。
+ *
+ * IE / 老版 Edge 没有 `window.stop`，因此做存在性判断而非直接调用。
+ */
+function stopLoading(): void {
+  try {
+    if (typeof window !== 'undefined' && typeof window.stop === 'function') {
+      window.stop();
+    }
+  } catch {
+    // 某些环境（跨域 iframe）会抛，忽略即可——stop 只是优化，不是正确性依赖
+  }
+}
+
 function isSafeUrl(raw: string): boolean {
   try {
     // 相对路径由 base 补全后必然是 http(s)，因此同样安全
@@ -75,21 +97,29 @@ export function applyDecision(
           { requestId: decision.requestId, targetUrl: decision.targetUrl }
         );
         if (decision.targetUrl && isSafeUrl(decision.targetUrl)) {
+          stopLoading();
           location.replace(decision.targetUrl);
           return { applied: true, action: 'redirect' };
         }
+        stopLoading();
         renderBlockScreen(decision);
         return { applied: true, action: 'block' };
       }
+      // serve_alt 不调 stopLoading：document.open() 自身即会终止当前文档解析，
+      // 提前 stop() 反而可能打断 write 的执行。
       replaceDocument(decision.pageContent);
       return { applied: true, action: 'serve_alt' };
     }
 
     case 'redirect': {
       if (!decision.targetUrl || !isSafeUrl(decision.targetUrl)) {
+        // 目标非法退化为阻断：仍是干预分支，同样要掐掉在途请求
+        stopLoading();
         renderBlockScreen(decision);
         return { applied: true, action: 'block' };
       }
+      // 先掐掉在途请求，再跳——避免跳转与站点资源争抢连接
+      stopLoading();
       // replace 而不是 assign：不给返回键留回到被拦页面的机会
       location.replace(decision.targetUrl);
       return { applied: true, action: 'redirect' };
@@ -103,6 +133,8 @@ export function applyDecision(
 
     case 'deny':
     case 'not_found': {
+      // 阻断同样要掐掉在途请求：否则遮罩已盖上，站点资源仍在后台继续下载
+      stopLoading();
       renderBlockScreen(decision);
       return { applied: true, action: 'block' };
     }
@@ -169,7 +201,13 @@ function renderBlockScreen(decision: DecisionResponse): void {
   `);
 }
 
-/** 渲染全屏遮罩。内容由本模块内联构造，不含外部输入。 */
+/** 渲染全屏遮罩。内容由本模块内联构造，不含外部输入。
+ *
+ * 兼容 head 同步阶段：此时 `document.body` 还不存在，`appendChild` 会抛
+ * `TypeError`，遮罩静默丢失、访客看到完整站点内容——正是要避免的结果。
+ * 因此 body 缺席时挂到 `documentElement` 上，待 body 出现后再迁移过去
+ * （遮罩留在 html 下会被后续解析出的 body 背景盖住）。
+ */
 function renderOverlay(inner: string): void {
   try {
     const overlay = document.createElement('div');
@@ -187,7 +225,28 @@ function renderOverlay(inner: string): void {
       'padding:24px',
     ].join(';');
     overlay.innerHTML = `<div style="max-width:420px">${inner}</div>`;
-    document.body.appendChild(overlay);
+
+    if (document.body) {
+      document.body.appendChild(overlay);
+      return;
+    }
+
+    document.documentElement.appendChild(overlay);
+    // body 解析出来后迁移过去。用 DOMContentLoaded 而非 MutationObserver：
+    // 只需要一次性搬迁，不需要持续监听。
+    document.addEventListener(
+      'DOMContentLoaded',
+      () => {
+        try {
+          if (document.body && overlay.parentNode !== document.body) {
+            document.body.appendChild(overlay);
+          }
+        } catch {
+          // 迁移失败则留在 documentElement 下，仍可见
+        }
+      },
+      { once: true },
+    );
   } catch {
     // 静默失败
   }

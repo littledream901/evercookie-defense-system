@@ -80,15 +80,33 @@ export interface ResolveOutcome {
   confidence: number;
 }
 
+export interface ResolveOptions {
+  /**
+   * 读取阶段的软上限（毫秒）。0 / 省略表示不限时（原行为）。
+   *
+   * 存在原因：`indexedDB` 与 `cacheStorage` 是异步通道，正常 1~10ms，但在隐私
+   * 模式、磁盘繁忙或 Safari 的存储分区下可能显著变慢。决策链路上跳转判断要压进
+   * 100ms，不能被单个慢通道拖住。
+   *
+   * 超时**不是放弃**：已读到的通道先投票产出结果，未完成的通道继续在后台跑完
+   * 并参与自愈。因此 Evercookie 的「清掉部分通道仍能恢复身份」语义不受损——
+   * 只是这一次的恢复可能落在下一次请求生效。
+   */
+  deadlineMs?: number;
+  /** 后台补齐完成后的回调，携带补齐后的胜出值。 */
+  onSettled?: (outcome: ResolveOutcome) => void;
+}
+
 /** 解析主值：全通道读取 → 投票 → 自愈 → 返回胜出值。 */
 export async function resolveWinner(
   key: string,
   drivers: StorageDriver[],
+  options: ResolveOptions = {},
 ): Promise<ResolveOutcome> {
   const values: Record<string, string | null> = {};
   const storageMap: Record<string, StorageDriver> = {};
 
-  await Promise.all(
+  const readAll = Promise.all(
     drivers.map(async (driver) => {
       let available: boolean;
       try {
@@ -111,15 +129,45 @@ export async function resolveWinner(
     }),
   );
 
-  const result = vote(values);
+  /** 对当前已读到的 values 投票并自愈。 */
+  const settle = (): ResolveOutcome => {
+    const result = vote(values);
+    if (result.winner !== null) {
+      selfHeal(key, result.winner, storageMap, values);
+    }
+    return {
+      value: result.winner,
+      restored: result.winner !== null && result.healed,
+      confidence: result.confidence,
+    };
+  };
 
-  if (result.winner !== null) {
-    selfHeal(key, result.winner, storageMap, values);
+  const deadline = options.deadlineMs ?? 0;
+  if (deadline <= 0) {
+    await readAll;
+    return settle();
   }
 
-  return {
-    value: result.winner,
-    restored: result.winner !== null && result.healed,
-    confidence: result.confidence,
-  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = await Promise.race([
+    readAll.then(() => false),
+    new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(true), deadline);
+    }),
+  ]);
+  if (timer) clearTimeout(timer);
+
+  if (!timedOut) return settle();
+
+  // 慢通道还在跑：先用已读到的通道给出结果，不阻塞调用方。
+  const partial = settle();
+  // 后台跑完后再投一次票并自愈，把慢通道的值补进来。
+  void readAll.then(() => {
+    try {
+      options.onSettled?.(settle());
+    } catch {
+      // 回调异常不能影响存储层
+    }
+  });
+  return partial;
 }

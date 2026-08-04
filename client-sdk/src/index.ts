@@ -41,6 +41,60 @@ const REPEAT_KEY_META = '_sd_repeat_key';
 const REPEAT_VALUE_META = '_sd_repeat_value';
 const INIT_CONFIG_META = '_sd_init_config';
 const DEFAULT_REPEAT_KEY = '_sd_0000';
+/** 指纹 id 缓存键。回访命中后关键路径上不再跑任何探针。 */
+const FINGERPRINT_META = '_sd_fp';
+/**
+ * 决策缓存键。刻意存在 sessionStorage 而非六通道：
+ * head 同步阶段必须**同步**读到，异步通道（indexedDB/cacheStorage）在那个
+ * 时点还来不及返回。
+ */
+const DECISION_CACHE_KEY = '_sd_decision';
+
+/** 可缓存的机制。见 `cacheDecision` 注释说明为何排除 challenge / serve_alt。 */
+const CACHEABLE_MECHANISMS = new Set<string>(['pass', 'redirect', 'deny', 'not_found']);
+
+/** 缓存的决策快照。字段名压到单字符：sessionStorage 配额有限。 */
+interface CachedDecision {
+  /** mechanism */
+  m: string;
+  /** targetUrl */
+  u: string | null;
+  /** httpStatus */
+  s: number;
+  /** 绝对过期时间（毫秒） */
+  exp: number;
+}
+
+function writeSessionCache(key: string, payload: CachedDecision): void {
+  try {
+    sessionStorage.setItem(key, JSON.stringify(payload));
+  } catch {
+    // 隐私模式 / 配额满：缓存只是加速手段，写不进去不影响正确性
+  }
+}
+
+/** 同步读决策缓存。过期或损坏均返回 null。 */
+function readSessionCache(key: string): CachedDecision | null {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const payload = JSON.parse(raw) as Partial<CachedDecision>;
+    if (typeof payload.m !== 'string' || typeof payload.exp !== 'number') return null;
+    if (payload.exp <= Date.now()) {
+      // 过期即清理，避免陈旧项长期占用配额
+      sessionStorage.removeItem(key);
+      return null;
+    }
+    return {
+      m: payload.m,
+      u: typeof payload.u === 'string' ? payload.u : null,
+      s: typeof payload.s === 'number' ? payload.s : 200,
+      exp: payload.exp,
+    };
+  } catch {
+    return null;
+  }
+}
 
 const DRIVER_REGISTRY: Record<string, StorageDriver> = {
   cookie: cookieDriver,
@@ -82,9 +136,23 @@ export interface DecideOutcome {
   applied: ApplyOutcome | null;
 }
 
+/** `SdSdk.guard()` 的返回值。 */
+export interface GuardOutcome {
+  /** 是否命中同会话决策缓存（命中即同步完成，未发起任何请求）。 */
+  cached: boolean;
+  /** 命中缓存时的处置结果；未命中为 null。 */
+  applied: ApplyOutcome | null;
+  /** 未命中缓存时的在途决策 Promise；命中为 null。 */
+  pending: Promise<DecideOutcome> | null;
+  /** SDK 实例，便于调用方后续操作（如 destroy）。 */
+  sdk: SdSdk;
+}
+
 export class SdSdk {
   private config: SdkConfig;
   private initialized = false;
+  /** 在途的 init Promise。用于并发去重与 `initDeadline` 竞速。 */
+  private initTask: Promise<void> | null = null;
   private fingerprintCache: FingerprintData | null = null;
   private fingerprintId = '';
   private behavior: BehaviorCollector | null = null;
@@ -110,6 +178,46 @@ export class SdSdk {
   ): Promise<DecideOutcome> {
     const sdk = new SdSdk(userConfig);
     return sdk.decide(options);
+  }
+
+  /**
+   * head 内同步接入：跳转判断优先于页面渲染。
+   *
+   * 与 `protect()` 的区别只在**时机**，规则与处置完全一致。
+   *
+   * 放在 `<head>` 里同步调用（脚本标签**不要**加 defer/async），此时 body 尚未
+   * 解析，站点资源也还没开始下载：
+   *
+   * 1. 同会话已有缓存决策 → **同步**执行处置并返回，零网络、零等待。
+   *    这是「立即终止后续资源加载」真正生效的路径：`window.stop()` 在解析器
+   *    走到 body 之前就已调用。
+   * 2. 无缓存 → 发起决策请求；`hideUntilDecided` 为 true 时先隐藏内容，
+   *    判定完成或 `hideTimeout` 到点后恢复。
+   *
+   * 返回值：命中缓存时 `applied` 已填充且 `cached` 为 true；否则返回在途
+   * Promise，调用方可自行 await（通常不需要）。
+   */
+  static guard(userConfig: Partial<SdkConfig> = {}, options: DecideOptions = {}): GuardOutcome {
+    const sdk = new SdSdk(userConfig);
+    const cached = sdk.applyCachedDecision(options);
+    if (cached) {
+      return { cached: true, applied: cached, pending: null, sdk };
+    }
+
+    const release = sdk.hideContent();
+    const pending = sdk
+      .decide(options)
+      .then((outcome) => {
+        release();
+        return outcome;
+      })
+      .catch((err: unknown) => {
+        // 判定失败绝不能让页面停在隐藏态
+        release();
+        throw err;
+      });
+
+    return { cached: false, applied: null, pending, sdk };
   }
 
   /** 初始化：拉取站点配置，启动行为采集与后台轮询。 */
@@ -145,11 +253,31 @@ export class SdSdk {
     this.initialized = true;
   }
 
-  /** 风险决策：采集 → 签名 → POST /v2/decide → 按需执行处置。 */
+  /** 风险决策：采集 → 签名 → POST /v2/decide → 按需执行处置。
+   *
+   * 时序
+   * ----
+   * `init()` **不再串行阻塞**本方法。它只提供 clockSkew 与行为采集策略，两者
+   * 都不是决策的必要输入；串行等待等于在跳转前白加一个完整 RTT。改为与指纹
+   * 采集并发，并受 `initDeadline` 约束——超时则转入后台，决策照常发出。
+   *
+   * 注意 `signBody` 会用到 clockSkew。init 未回来时 skew 为 0，即按本地时钟
+   * 签名；网关允许 ±5 分钟偏差，与「init 失败走本地缓存」的既有降级同口径。
+   */
   async decide(options: DecideOptions = {}): Promise<DecideOutcome> {
-    await this.ensureInit();
+    // 配置校验必须留在此处同步抛出。init() 内部也校验，但 beginInit() 会吞掉
+    // 它的异常（init 失败要 fail-open），配置写错就会变成静默不生效。
+    this.validateConfig();
+
+    // 先起 init（不 await），让它与指纹采集、存储读取并发
+    const initTask = this.beginInit();
 
     const context = await this.buildContext();
+
+    // 指纹采集通常比 init 的 RTT 快，此处给 init 一个收尾窗口：拿到 clockSkew
+    // 能让签名与行为时间更准，但绝不为它多等。
+    await this.awaitInit(initTask);
+
     const body = await this.signBody({
       context,
       requireDetails: options.requireDetails === true,
@@ -167,9 +295,15 @@ export class SdSdk {
       return { decision: FAIL_OPEN, applied: null };
     }
 
-    // 持久化身份：网关认下的 repeat 值写回全部通道
+    // 写决策缓存要在执行处置**之前**：redirect 分支会立刻 location.replace，
+    // 之后的语句未必还有机会执行。
+    this.cacheDecision(decision);
+
+    // 持久化身份：网关认下的 repeat 值写回全部通道。
+    // 不 await——写回是六通道的幂等操作，与本次处置无因果关系，await 它等于把
+    // 存储写入的耗时加在跳转前面。
     if (context.repeatKey && context.repeatValue) {
-      await this.persistIdentity(context.repeatKey, context.repeatValue);
+      void this.persistIdentity(context.repeatKey, context.repeatValue);
     }
 
     const autoApply = options.autoApply ?? this.config.autoApply;
@@ -212,9 +346,13 @@ export class SdSdk {
   /** 采集指纹（带缓存）。 */
   async collectFingerprint(): Promise<FingerprintData> {
     if (this.fingerprintCache) return this.fingerprintCache;
-    const data = await collectAll({ thirdPartyProbe: this.config.thirdPartyProbe });
+    const data = await collectAll({
+      thirdPartyProbe: this.config.thirdPartyProbe,
+      audioTimeout: this.config.audioTimeout,
+    });
     this.fingerprintCache = data;
     this.fingerprintId = deriveFingerprintId(data);
+    void this.cacheFingerprintId(this.fingerprintId);
     return data;
   }
 
@@ -257,6 +395,7 @@ export class SdSdk {
     this.behavior?.destroy();
     this.behavior = null;
     this.initialized = false;
+    this.initTask = null;
   }
 
   // ── 内部 ──
@@ -281,15 +420,59 @@ export class SdSdk {
     if (!this.initialized) await this.init();
   }
 
-  /** 组装决策上下文。 */
-  private async buildContext(): Promise<DecisionContext> {
-    if (this.config.collectFingerprint && !this.fingerprintId) {
-      await this.collectFingerprint();
+  /** 启动 init（幂等，不等待）。返回同一个在途 Promise，避免并发重复请求。 */
+  private beginInit(): Promise<void> {
+    if (this.initialized) return Promise.resolve();
+    if (!this.initTask) {
+      // catch 挂在此处：init 失败不能变成未处理的 rejection，也不该冒泡到
+      // decide()——init 不可用时决策仍应照常发出（既有 fail-open 语义）。
+      this.initTask = this.init().catch((err) => {
+        this.log('init 失败', err);
+      });
     }
+    return this.initTask;
+  }
 
-    const repeatKey = (await this.get(REPEAT_KEY_META)) || DEFAULT_REPEAT_KEY;
-    const stored = await resolveWinner(repeatKey, this.drivers);
-    const repeatValue = stored.value ?? (await this.get(REPEAT_VALUE_META));
+  /** 在 `initDeadline` 内等 init 收尾；超时则让它转入后台。 */
+  private async awaitInit(task: Promise<void>): Promise<void> {
+    const deadline = this.config.initDeadline;
+    if (deadline <= 0) return;
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      task,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, deadline);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+  }
+
+  /** 组装决策上下文。
+   *
+   * 关键路径优化
+   * ------------
+   * 三处原本都是串行阻塞，合计能吃掉几百毫秒：
+   * 1. 指纹采集 → 回访直接读缓存（`resolveFingerprintId`）；
+   * 2. `repeatKey` 与主值读取 → 由串行两次 `resolveWinner` 改为并发，
+   *    并施加 `storageDeadline`；
+   * 3. 慢通道超时后转后台自愈，不阻塞本次决策。
+   */
+  private async buildContext(): Promise<DecisionContext> {
+    const deadlineMs = this.config.storageDeadline;
+
+    // 指纹与存储读取并发：两者互不依赖
+    const [, repeatKeyRaw] = await Promise.all([
+      this.config.collectFingerprint && !this.fingerprintId
+        ? this.resolveFingerprintId()
+        : Promise.resolve(),
+      resolveWinner(REPEAT_KEY_META, this.drivers, { deadlineMs }),
+    ]);
+
+    const repeatKey = repeatKeyRaw.value || DEFAULT_REPEAT_KEY;
+    const stored = await resolveWinner(repeatKey, this.drivers, { deadlineMs });
+    const repeatValue =
+      stored.value ?? (await resolveWinner(REPEAT_VALUE_META, this.drivers, { deadlineMs })).value;
 
     const events = this.behavior?.drain() ?? [];
 
@@ -314,6 +497,159 @@ export class SdSdk {
       // 不带时网关的 HYBRID_LOOKUP 直接返回 None，两层退化为互不相干的独立判定。
       ...(this.config.serverToken ? { extra: { serverToken: this.config.serverToken } } : {}),
     };
+  }
+
+  /**
+   * 取指纹 id：优先读本地缓存，未命中才跑完整探针。
+   *
+   * 网关对 `ingress=sdk` 强制要求非空指纹（见 `decision.py` 的
+   * `_resolve_fingerprint`），因此这一步无法跳过，只能避免重复付出代价。
+   * 首访必须跑一次探针；回访读缓存，关键路径上的 canvas / webgl / audio
+   * 开销全部归零。
+   *
+   * 缓存只存**派生后的 id**，不存原始指纹分量：id 是 `deriveFingerprintId`
+   * 的输出，与实时采集结果逐字节一致，不会让上报值失真。
+   */
+  private async resolveFingerprintId(): Promise<void> {
+    if (this.config.fingerprintCacheTtl > 0) {
+      const cached = await this.readFingerprintCache();
+      if (cached) {
+        this.fingerprintId = cached;
+        // 后台补齐完整指纹数据：心跳与后续请求需要，但不占用本次关键路径。
+        void this.collectFingerprint();
+        return;
+      }
+    }
+    await this.collectFingerprint();
+  }
+
+  /** 读指纹缓存。TTL 过期或格式损坏均视为未命中。 */
+  private async readFingerprintCache(): Promise<string | null> {
+    const raw = await resolveWinner(FINGERPRINT_META, this.drivers, {
+      deadlineMs: this.config.storageDeadline,
+    });
+    if (!raw.value) return null;
+    try {
+      const payload = JSON.parse(raw.value) as { id?: unknown; at?: unknown };
+      const id = typeof payload.id === 'string' ? payload.id : '';
+      const at = Number(payload.at ?? 0);
+      if (!id || !at) return null;
+      // 时钟回拨（at 在未来）同样视为失效，避免缓存永不过期
+      const age = Date.now() - at;
+      if (age < 0 || age > this.config.fingerprintCacheTtl) return null;
+      return id;
+    } catch {
+      return null;
+    }
+  }
+
+  private async cacheFingerprintId(id: string): Promise<void> {
+    if (this.config.fingerprintCacheTtl <= 0 || !id) return;
+    await this.set(FINGERPRINT_META, JSON.stringify({ id, at: Date.now() }));
+  }
+
+  /**
+   * 缓存本次决策，供同会话后续页面在 head 同步阶段零网络复用。
+   *
+   * 只缓存**确定性处置**（redirect / deny / not_found / pass）：
+   * - `challenge` 不缓存：挑战 token 一次性消费，复用必然失败；
+   * - `serve_alt` 不缓存：`pageContent` 可能很大，且随页面而异。
+   *
+   * TTL 取 `min(服务端 ttlSeconds, decisionCacheTtl)`，服务端说了算，本地只
+   * 设上限——避免服务端给出超长 TTL 时规则更新迟迟不生效。
+   */
+  private cacheDecision(decision: DecisionResponse): void {
+    if (this.config.decisionCacheTtl <= 0) return;
+    if (!CACHEABLE_MECHANISMS.has(decision.mechanism)) return;
+
+    const serverTtl = (decision.ttlSeconds ?? 0) * 1000;
+    // 服务端 ttlSeconds 为 0 表示「不要缓存」，直接跳过
+    if (serverTtl <= 0) return;
+
+    writeSessionCache(DECISION_CACHE_KEY, {
+      m: decision.mechanism,
+      u: decision.targetUrl ?? null,
+      s: decision.httpStatus,
+      exp: Date.now() + Math.min(serverTtl, this.config.decisionCacheTtl),
+    });
+  }
+
+  /**
+   * 同步读缓存并执行处置。命中返回处置结果，未命中返回 null。
+   *
+   * 全程同步，可在 head 阶段调用。`pass` 命中时不做任何干预，直接返回
+   * `action:'none'`，让页面正常渲染——这保证了正常访客不会被这条路径影响。
+   */
+  private applyCachedDecision(options: DecideOptions = {}): ApplyOutcome | null {
+    if (this.config.decisionCacheTtl <= 0) return null;
+
+    const cached = readSessionCache(DECISION_CACHE_KEY);
+    if (!cached) return null;
+
+    const decision: DecisionResponse = {
+      ...FAIL_OPEN,
+      verdict: cached.m === 'pass' ? 'trusted' : 'hostile',
+      mechanism: cached.m as DecisionResponse['mechanism'],
+      targetKind: cached.u ? 'url' : 'origin',
+      targetUrl: cached.u,
+      httpStatus: cached.s,
+      reason: 'sdk_decision_cache',
+      decidedBy: 'sdk_cache',
+      decidedStage: 'sdk_cache',
+    };
+
+    const autoApply = options.autoApply ?? this.config.autoApply;
+    if (!autoApply) return null;
+
+    return applyDecision(decision, options.hooks ?? {}, {
+      apiBase: this.config.apiBase,
+      apiKey: this.config.apiKey,
+      appId: this.config.appId,
+      fingerprint: this.fingerprintId,
+      debug: this.config.debug,
+    });
+  }
+
+  /**
+   * 判定完成前隐藏内容，返回恢复函数。
+   *
+   * `hideUntilDecided` 默认关闭——这条路径会短暂影响正常访客的渲染，只有明确
+   * 需要「Bot 不得在判定前看到内容」的页面才该开启。
+   *
+   * 用注入 `<style>` 而非改 `body.style`：head 阶段 body 还不存在。
+   * `hideTimeout` 兜底强制显示，避免网络异常时白屏。
+   */
+  private hideContent(): () => void {
+    if (!this.config.hideUntilDecided || typeof document === 'undefined') {
+      return () => {};
+    }
+
+    let style: HTMLStyleElement | null = null;
+    try {
+      style = document.createElement('style');
+      style.setAttribute('data-sd-hide', '1');
+      // 用 visibility 而非 display：不触发重排，恢复后无布局跳动
+      style.textContent = 'body{visibility:hidden!important}';
+      document.head?.appendChild(style);
+    } catch {
+      return () => {};
+    }
+
+    let done = false;
+    // timer 先声明后赋值：release 可能在 setTimeout 返回前被调用
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const release = () => {
+      if (done) return;
+      done = true;
+      if (timer !== undefined) clearTimeout(timer);
+      try {
+        style?.remove();
+      } catch {
+        // ignore
+      }
+    };
+    timer = setTimeout(release, this.config.hideTimeout);
+    return release;
   }
 
   /**
@@ -426,6 +762,9 @@ export class SdSdk {
     if (payload.configVersion && payload.configVersion !== this.configVersion) {
       this.configVersion = payload.configVersion;
       this.initialized = false;
+      // 同时清掉在途任务句柄，否则 beginInit() 会复用已完成的旧 Promise，
+      // 重新初始化永远不会真正发生。
+      this.initTask = null;
       this.log('检测到配置更新，下次决策前将重新初始化');
     }
   }
@@ -498,6 +837,7 @@ export { collectAll, deriveFingerprintId } from './core/collector';
 export { resolveWinner, selfHeal, vote } from './core/engine';
 export { ENDPOINTS, defaultConfig } from './config';
 export type { SdkConfig } from './config';
+export type { ResolveOptions } from './core/engine';
 export type { FingerprintData, FingerprintItem } from './core/collector';
 export type { ResolveOutcome, VoteResult } from './core/engine';
 export type { ApplyOutcome, ExecutorHooks } from './core/executor';

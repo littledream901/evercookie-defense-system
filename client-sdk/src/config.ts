@@ -55,6 +55,47 @@ export interface SdkConfig {
   syncInterval: number;
   /** init 配置本地缓存有效期（毫秒）。 */
   initCacheTtl: number;
+  /** Audio 指纹探针超时（毫秒）。见 `collectAll` 注释。 */
+  audioTimeout: number;
+  /**
+   * 决策前读取存储通道的软上限（毫秒）。见 `ResolveOptions.deadlineMs`。
+   *
+   * 超时只影响**本次**取值，慢通道仍会在后台跑完并自愈，不损失 Evercookie
+   * 的恢复能力。
+   */
+  storageDeadline: number;
+  /**
+   * `decide()` 等待 `init()` 的上限（毫秒）。
+   *
+   * 超过则**不再等**，init 转入后台继续跑。init 只提供 clockSkew 与行为策略，
+   * 都不是决策的必要输入——串行等它等于把一整个 RTT 加在跳转前面。
+   * 置 0 表示完全不等。
+   */
+  initDeadline: number;
+  /**
+   * 指纹 id 本地缓存有效期（毫秒）。0 表示禁用。
+   *
+   * 首访必须跑完整探针（canvas/webgl/audio 等）才能拿到指纹，这是 SDK 路径的
+   * 硬性要求（网关对 `ingress=sdk` 强制校验非空指纹）。回访直接读缓存，
+   * 关键路径上的探针开销归零。
+   */
+  fingerprintCacheTtl: number;
+  /**
+   * 决策结果的会话级缓存有效期上限（毫秒）。
+   *
+   * 实际 TTL 取 `min(服务端 ttlSeconds, 此值)`。命中缓存时可在 head 同步阶段
+   * 直接执行处置，**零网络**。0 表示禁用缓存。
+   */
+  decisionCacheTtl: number;
+  /**
+   * 判定完成前是否隐藏页面内容。
+   *
+   * 默认 **false**：保证不影响正常访客的渲染流程。高价值页面（落地页、
+   * 商品详情）可开启，配合 `hideTimeout` 兜底，避免 Bot 在判定完成前抓到内容。
+   */
+  hideUntilDecided: boolean;
+  /** `hideUntilDecided` 的强制显示兜底时限（毫秒），防止网络差时白屏。 */
+  hideTimeout: number;
 }
 
 export const defaultConfig: SdkConfig = {
@@ -83,6 +124,13 @@ export const defaultConfig: SdkConfig = {
   heartbeatInterval: 60000,
   syncInterval: 120000,
   initCacheTtl: 86400000,
+  audioTimeout: 800,
+  storageDeadline: 30,
+  initDeadline: 0,
+  fingerprintCacheTtl: 86400000,
+  decisionCacheTtl: 300000,
+  hideUntilDecided: false,
+  hideTimeout: 300,
 };
 
 /** V2 端点路径。集中在此，避免散落拼接出 `/v2/v2/*`。 */

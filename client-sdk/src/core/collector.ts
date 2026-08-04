@@ -93,8 +93,28 @@ function getWebGLFingerprint(): FingerprintItem {
   }
 }
 
-/** Audio 指纹：静音跑一段振荡器，取频域数据。 */
-async function getAudioFingerprint(): Promise<FingerprintItem> {
+/** suspended 与超时共用的载荷。
+ *
+ * 必须与原超时载荷逐字节一致：suspended 情形原本就是走满超时窗口后产出
+ * 这个值，提前退出只改变**耗时**、不改变**结果**。载荷一旦变化，
+ * `deriveFingerprintId` 的输出就变了，等于给存量访客换了个身份，
+ * Clock 的频控与信誉聚合会整体断档。
+ */
+const AUDIO_UNAVAILABLE = { error: 'audio timeout' };
+
+/** Audio 指纹：静音跑一段振荡器，取频域数据。
+ *
+ * 关键时序约束
+ * ------------
+ * `onaudioprocess` 仅在 AudioContext 处于 `running` 时触发。Chrome 的 autoplay
+ * 策略让**没有用户手势的页面**（广告落地页的常态）拿到的 context 恒为
+ * `suspended`，回调永不触发，必然走满超时。原实现超时 3000ms，仅这一项就足以
+ * 把整条决策链路推到「页面全部加载完才跳转」。
+ *
+ * 因此 suspended 时立即退出，不调 `resume()`——它同样需要用户手势，
+ * await 只会把延迟加回来。
+ */
+async function getAudioFingerprint(timeoutMs: number): Promise<FingerprintItem> {
   try {
     const Ctor =
       (globalThis as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext })
@@ -103,6 +123,17 @@ async function getAudioFingerprint(): Promise<FingerprintItem> {
     if (!Ctor) return hashData({ error: 'no AudioContext' });
 
     const ctx = new Ctor();
+
+    // suspended：回调不会触发，等下去只是白等一整个超时窗口。
+    if (ctx.state === 'suspended') {
+      try {
+        void ctx.close();
+      } catch {
+        // ignore
+      }
+      return hashData(AUDIO_UNAVAILABLE);
+    }
+
     const oscillator = ctx.createOscillator();
     const analyser = ctx.createAnalyser();
     const gain = ctx.createGain();
@@ -132,8 +163,8 @@ async function getAudioFingerprint(): Promise<FingerprintItem> {
 
       const timeout = setTimeout(() => {
         teardown();
-        resolve(hashData({ error: 'audio timeout' }));
-      }, 3000);
+        resolve(hashData(AUDIO_UNAVAILABLE));
+      }, timeoutMs);
 
       processor.onaudioprocess = () => {
         analyser.getByteFrequencyData(frequencyData);
@@ -266,12 +297,17 @@ async function getAdBlockDetection(enabled: boolean): Promise<FingerprintItem> {
   return hashData(indicators);
 }
 
-/** 采集完整指纹。 */
+/** 采集完整指纹。
+ *
+ * `audioTimeout` 默认 800ms：`running` 的 context 首个 `onaudioprocess` 在
+ * 4096 帧缓冲 / 44.1kHz 下约 93ms 触发，800ms 已是充裕上限。原值 3000ms 是
+ * 纯粹的空等余量，直接压在决策链路的关键路径上。
+ */
 export async function collectAll(
-  options: { thirdPartyProbe?: boolean } = {},
+  options: { thirdPartyProbe?: boolean; audioTimeout?: number } = {},
 ): Promise<FingerprintData> {
   const [audio, webrtc, adBlock] = await Promise.all([
-    getAudioFingerprint(),
+    getAudioFingerprint(options.audioTimeout ?? 800),
     getWebRTCInfo(),
     getAdBlockDetection(options.thirdPartyProbe === true),
   ]);
