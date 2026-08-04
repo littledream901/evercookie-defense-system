@@ -131,6 +131,9 @@ function fangyu_defense_check() {
 		? sanitize_text_field( wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) )
 		: '';
 	$referer     = Fangyu_Visitor::get_referer();
+	$client_lang = isset( $_SERVER['HTTP_ACCEPT_LANGUAGE'] )
+		? sanitize_text_field( wp_unslash( $_SERVER['HTTP_ACCEPT_LANGUAGE'] ) )
+		: '';
 
 	// path / method 必须显式上报：规则引擎的 request.path 直接取该字段，不从
 	// visitUrl 派生。漏报会让「敏感路径阻断」这类规则永不命中，而否定条件
@@ -155,6 +158,7 @@ function fangyu_defense_check() {
 		'repeatKey'    => Fangyu_Visitor::DEFAULT_REPEAT_KEY,
 		'repeatValue'  => $fingerprint ?: null,
 		'referer'      => $referer ?: null,
+		'clientLanguage' => $client_lang ?: null,
 	);
 
 	// 移除 null 值（与 build_sign_payload 的 null 剔除规则一致）。

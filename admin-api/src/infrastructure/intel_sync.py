@@ -26,17 +26,15 @@ _FIELD_KEY: dict[str, str] = {
     "fingerprint": "finger_id",
     "geo_ip": "cidr",
     "ip_profile": "cidr",
-    "asn_profile": "asn",
 }
 
 # 同步到 Redis 的值字段（剔除 id / 时间戳 / note，减小体积）
 _VALUE_FIELDS: dict[str, tuple[str, ...]] = {
-    "asn": ("network_type", "risk_score", "operator"),
+    "asn": ("network_type", "country", "risk_score", "operator"),
     "crawler": ("crawler_category", "crawler_name", "is_legitimate", "risk_score"),
     "fingerprint": ("finger_type", "risk_score"),
     "geo_ip": ("country", "region", "city"),
     "ip_profile": ("network_type", "is_vpn", "is_proxy", "is_tor", "risk_score"),
-    "asn_profile": ("operator", "network_type", "country", "risk_score"),
 }
 
 

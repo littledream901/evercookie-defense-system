@@ -222,23 +222,28 @@ class ThreatIntelModel(Base, TimestampMixin):
 
 
 class AsnIntelModel(Base, TimestampMixin):
-    """ASN 情报：按自治域号标注运营商类型与风险。
+    """ASN 情报：按自治域号标注运营商类型、国别与风险。
 
     与 GeoLite2-ASN.mmdb 的关系是「覆盖」而非「替代」：MMDB 提供 asn 与
-    asn_org 的事实解析，本表提供人工维护的 network_type / risk_score，
+    asn_org 的事实解析，本表提供人工维护的 network_type / country / risk_score，
     决策时以本表为准。
+
+    合并了原 ``AsnProfileIntelModel``：两者字段高度重叠，画像表只多一个 country，
+    其余行为与情报表完全一致。现在统一由此表承载。
     """
 
     __tablename__ = "biz_intel_asn"
     __table_args__ = (
         UniqueConstraint("asn", name="uk_intel_asn"),
         Index("ix_intel_asn_active", "is_active"),
+        Index("ix_intel_asn_country", "country"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     asn: Mapped[int] = mapped_column(Integer, nullable=False)
     operator: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     network_type: Mapped[str] = mapped_column(String(32), default="DATACENTER", nullable=False)
+    country: Mapped[str] = mapped_column(String(8), default="", nullable=False)
     risk_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     note: Mapped[str] = mapped_column(String(512), default="")
@@ -271,7 +276,8 @@ class CrawlerIntelModel(Base, TimestampMixin):
 class FingerprintIntelModel(Base, TimestampMixin):
     """设备指纹情报：已知的自动化工具 / 农场设备指纹。
 
-    ``hit_count`` 由决策链路命中时累加，用于识别高频复用指纹。
+    ``hit_count`` 预留用于统计命中次数，当前版本暂未实现自动累加，
+    可用于手工标注高频指纹。
     """
 
     __tablename__ = "biz_intel_fingerprint"
@@ -343,29 +349,6 @@ class IpProfileIntelModel(Base, TimestampMixin):
     is_vpn: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_proxy: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_tor: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    risk_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    note: Mapped[str] = mapped_column(String(512), default="")
-
-
-class AsnProfileIntelModel(Base, TimestampMixin):
-    """ASN 画像：按自治域维护国别与网络类型。
-
-    与 :class:`AsnIntelModel` 的分工——前者面向「这个 ASN 有多可疑」，
-    本表面向「这个 ASN 是什么」，供画像补全使用。
-    """
-
-    __tablename__ = "biz_intel_asn_profile"
-    __table_args__ = (
-        UniqueConstraint("asn", name="uk_intel_asn_profile_asn"),
-        Index("ix_intel_asn_profile_country", "country"),
-    )
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    asn: Mapped[int] = mapped_column(Integer, nullable=False)
-    operator: Mapped[str] = mapped_column(String(128), default="", nullable=False)
-    network_type: Mapped[str] = mapped_column(String(32), default="DATACENTER", nullable=False)
-    country: Mapped[str] = mapped_column(String(8), default="")
     risk_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     note: Mapped[str] = mapped_column(String(512), default="")

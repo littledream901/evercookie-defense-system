@@ -64,18 +64,27 @@
         <template #request_id="{ row }">
           <div class="cell-stack">
             <span class="cell-line cell-domain">
-              {{ extractDomain(row.path) || extractDomain(row.referer) || '-' }}
+              {{ row.host || extractDomain(row.referer) || '-' }}
             </span>
             <span class="cell-line text-code">{{ row.request_id || '-' }}</span>
             <span class="cell-line cell-time">{{ fmtTime(row.occurred_at) }}</span>
           </div>
         </template>
 
-        <!-- 2. 访客访问网址 -->
+        <!-- 2. 访客访问网址：host + path 拼出可点击的完整地址 -->
         <template #path="{ row }">
-          <a v-if="row.path" :href="row.path.startsWith('http') ? row.path : `https://${row.path}`" target="_blank" class="cell-link" :title="row.path">
-            {{ row.path }}
+          <a
+            v-if="row.host"
+            :href="`https://${row.host}${row.path || '/'}`"
+            target="_blank"
+            class="cell-link"
+            :title="`https://${row.host}${row.path || '/'}`"
+          >
+            {{ row.path || '/' }}
           </a>
+          <span v-else-if="row.path" class="cell-line text-secondary" :title="row.path">
+            {{ row.path }}
+          </span>
           <span v-else class="text-placeholder">-</span>
         </template>
 
@@ -154,8 +163,17 @@
         <template #device_type="{ row }">
           <div class="cell-stack">
             <span class="cell-line">类型: {{ DEVICE_TYPE_LABELS[row.device_type] || row.device_type || '-' }}</span>
-            <span class="cell-line">设备: {{ row.device_id || '-' }}</span>
             <span class="cell-line">系统: {{ row.os || '-' }}</span>
+            <span class="cell-line">
+              设备:
+              <ElTooltip v-if="row.device_id" placement="top" :show-after="300">
+                <template #content>
+                  <div style="word-break: break-all">{{ row.device_id }}</div>
+                </template>
+                <span class="text-code">{{ row.device_id.slice(0, 8) }}</span>
+              </ElTooltip>
+              <span v-else class="text-placeholder">-</span>
+            </span>
           </div>
         </template>
 

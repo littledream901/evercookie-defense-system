@@ -560,13 +560,14 @@ declare namespace Api {
       evercookie_restore: boolean
       shadow_rule_ids: number[] | null
       decision_cost_ms: number | null
+      host: string | null
       path: string | null
       referer: string | null
       repeat_key: string | null
       repeat_value: string | null
       accept_language: string | null
       occurred_at: string | null
-      mouse_events: Array<{ type: string; x: number | null; y: number | null; ts: number | null }> | null
+
     }
 
     /** 访问日志查询参数 */

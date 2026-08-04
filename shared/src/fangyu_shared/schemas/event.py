@@ -66,6 +66,8 @@ class DecisionEvent(BaseSchema):
     ip: str = Field(..., max_length=64)
     ip_type: str = Field(default="ipv4", alias="ipType")
     user_agent: str = Field(default="", alias="userAgent", max_length=1024)
+    host: str = Field(default="", max_length=256)
+    """访问的站点域名（从 visit_url 或 HTTP Host 头提取）。"""
     path: str = Field(default="/", max_length=1024)
     referer: str | None = Field(default=None, max_length=2048)
     method: str = Field(default="GET", max_length=16)
@@ -93,6 +95,8 @@ class DecisionEvent(BaseSchema):
     country: str | None = Field(default=None, max_length=8)
     asn: int | None = Field(default=None, ge=0)
     connection_type: str | None = Field(default=None, alias="connectionType", max_length=32)
+    is_vpn: bool = Field(default=False, alias="isVpn")
+    is_proxy: bool = Field(default=False, alias="isProxy")
 
     # ── 设备解析结果（UA parser 产物） ──
     device_type: str | None = Field(default=None, alias="deviceType", max_length=32)

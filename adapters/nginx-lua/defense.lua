@@ -414,6 +414,8 @@ local context = {
   path      = ngx.var.uri or "/",
   method    = ngx.var.request_method or "GET",
   userAgent = ngx.var.http_user_agent or "",
+  referer   = ngx.var.http_referer or "",
+  clientLanguage = ngx.var.http_accept_language or "",
   -- serverToken 通过 extra 字段传递，匹配 gateway DecisionContext.extra
   extra     = { serverToken = server_token },
 }

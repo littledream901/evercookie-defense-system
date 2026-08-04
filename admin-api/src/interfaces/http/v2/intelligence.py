@@ -1,6 +1,6 @@
 """威胁情报管理端路由。
 
-六种情报类型（asn / crawler / fingerprint / geo_ip / ip_profile / asn_profile）
+五种情报类型（asn / crawler / fingerprint / geo_ip / ip_profile）
 共用一套 CRUD，类型以路径段传入，与前端 ``INTEL_BASE = '/api/v2/intelligence'``
 的契约对齐。
 """
@@ -28,12 +28,13 @@ _FILTERABLE: dict[IntelType, set[str]] = {
     IntelType.fingerprint: {"finger_type", "source"},
     IntelType.geo_ip: {"country"},
     IntelType.ip_profile: {"network_type", "is_vpn", "is_proxy", "is_tor"},
-    IntelType.asn_profile: {"network_type", "country"},
 }
 
 # 写入时允许的字段白名单（排除 id / 时间戳等由服务端维护的列）
 _WRITABLE: dict[IntelType, set[str]] = {
-    IntelType.asn: {"asn", "operator", "network_type", "risk_score", "is_active", "note"},
+    IntelType.asn: {
+        "asn", "operator", "network_type", "country", "risk_score", "is_active", "note",
+    },
     IntelType.crawler: {
         "feature_type", "pattern", "crawler_category", "crawler_name",
         "is_legitimate", "risk_score", "is_active", "note",
@@ -46,9 +47,6 @@ _WRITABLE: dict[IntelType, set[str]] = {
     IntelType.ip_profile: {
         "cidr", "network_type", "is_vpn", "is_proxy", "is_tor",
         "risk_score", "is_active", "note",
-    },
-    IntelType.asn_profile: {
-        "asn", "operator", "network_type", "country", "risk_score", "is_active", "note",
     },
 }
 

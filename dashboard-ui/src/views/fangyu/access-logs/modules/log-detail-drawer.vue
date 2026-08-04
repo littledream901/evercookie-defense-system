@@ -243,63 +243,7 @@
             </ElDescriptions>
           </ElTabPane>
 
-          <!-- ── Tab 5: 鼠标时序分析 ── -->
-          <ElTabPane label="鼠标时序" name="mouse">
-            <div class="mouse-tab">
-              <ElAlert type="info" :closable="false" class="mb-3" style="font-size:12px">
-                鼠标时序数据由浏览器 SDK 在访问期间采集并随请求上报，用于辅助识别自动化工具与真实用户。
-              </ElAlert>
-
-              <template v-if="detail?.mouse_events?.length">
-                <!-- 轨迹概览指标 -->
-                <div class="mouse-metrics">
-                  <div class="mouse-metric-card">
-                    <div class="metric-label">事件总数</div>
-                    <div class="metric-value">{{ detail?.mouse_events?.length ?? 0 }}</div>
-                  </div>
-                  <div class="mouse-metric-card">
-                    <div class="metric-label">移动事件</div>
-                    <div class="metric-value">{{ (detail?.mouse_events?.filter(e => e.type === 'move') ?? []).length }}</div>
-                  </div>
-                  <div class="mouse-metric-card">
-                    <div class="metric-label">点击事件</div>
-                    <div class="metric-value">{{ detail!.mouse_events!.filter(e => e.type === 'click').length }}</div>
-                  </div>
-                  <div class="mouse-metric-card">
-                    <div class="metric-label">持续时长</div>
-                    <div class="metric-value">{{ mouseDuration(detail!.mouse_events!) }}ms</div>
-                  </div>
-                  <div class="mouse-metric-card" :class="mouseIsSuspect(detail!.mouse_events!) ? 'card-warn' : 'card-normal'">
-                    <div class="metric-label">轨迹评估</div>
-                    <div class="metric-value">{{ mouseIsSuspect(detail!.mouse_events!) ? '可疑' : '正常' }}</div>
-                  </div>
-                </div>
-
-                <!-- 时序列表 -->
-                <div class="section-title mt-4">事件时序</div>
-                <div class="mouse-timeline">
-                  <div
-                    v-for="(ev, idx) in detail!.mouse_events!.slice(0, 50)"
-                    :key="idx"
-                    class="mouse-event"
-                    :class="`ev-${ev.type}`"
-                  >
-                    <span class="ev-idx">{{ idx + 1 }}</span>
-                    <ElTag :type="(mouseEventTagType(ev.type) as any)" size="small" class="ev-type-tag">{{ ev.type }}</ElTag>
-                    <span class="ev-coord">x={{ ev.x ?? '-' }}, y={{ ev.y ?? '-' }}</span>
-                    <span class="ev-ts">+{{ ev.ts ?? '-' }}ms</span>
-                  </div>
-                  <div v-if="detail!.mouse_events!.length > 50" class="mouse-more">
-                    仅展示前 50 条，共 {{ detail!.mouse_events!.length }} 条
-                  </div>
-                </div>
-              </template>
-
-              <ElEmpty v-else description="该请求暂无鼠标时序数据（SDK 未上报或版本不支持）" />
-            </div>
-          </ElTabPane>
-
-          <!-- ── Tab 6: 快速操作 ── -->
+          <!-- ── Tab 5: 快速操作 ── -->
           <ElTabPane label="快速操作" name="actions">
             <div class="action-section">
               <ElAlert type="info" :closable="false" class="mb-4">
@@ -378,39 +322,6 @@
     if (score >= 70) return 'card-danger'
     if (score >= 30) return 'card-warn'
     return 'card-normal'
-  }
-
-  // ── 鼠标时序辅助函数 ──
-  interface MouseEvent { type: string; x?: number | null; y?: number | null; ts?: number | null }
-
-  /** 首末事件时间差 */
-  function mouseDuration(events: MouseEvent[]): number {
-    if (!events?.length) return 0
-    const ts = events.map((e) => e.ts ?? 0).filter((t) => t > 0)
-    if (!ts.length) return 0
-    return Math.max(...ts) - Math.min(...ts)
-  }
-
-  /** 简单可疑判断：事件间隔过于均匀（可能是自动化） */
-  function mouseIsSuspect(events: MouseEvent[]): boolean {
-    if (!events?.length || events.length < 5) return false
-    const moves = events.filter((e) => e.type === 'move' && e.ts != null)
-    if (moves.length < 4) return false
-    const gaps: number[] = []
-    for (let i = 1; i < moves.length; i++) {
-      gaps.push((moves[i].ts ?? 0) - (moves[i - 1].ts ?? 0))
-    }
-    const avg = gaps.reduce((a, b) => a + b, 0) / gaps.length
-    const variance = gaps.reduce((acc, g) => acc + Math.pow(g - avg, 2), 0) / gaps.length
-    // 方差极小 (<5) 说明间隔均匀，疑似自动化
-    return variance < 5
-  }
-
-  function mouseEventTagType(type: string): string {
-    const map: Record<string, string> = {
-      move: 'info', click: 'danger', scroll: 'warning', keydown: 'success'
-    }
-    return map[type] || 'info'
   }
 
   interface Props {

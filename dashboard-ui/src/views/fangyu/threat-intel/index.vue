@@ -2,7 +2,10 @@
   <div class="art-full-height">
     <div class="mb-3">
       <h2 class="text-lg font-medium text-g-900">威胁情报</h2>
-      <p class="mt-1 text-sm text-g-600">多类型情报库管理，支持手工录入、CSV 导入、Redis 同步</p>
+      <p class="mt-1 text-sm text-g-600">
+        分两类：<b>黑名单</b>（IP 威胁 / ASN 情报 / 指纹情报 / 爬虫特征）直接携带风险分参与判定；
+        <b>画像</b>（IP 画像 / GeoIP 录入）只标注网络属性，供规则条件引用。
+      </p>
     </div>
 
     <ElCard class="art-table-card threat-intel-card">
@@ -50,7 +53,11 @@
         </ElTabPane>
 
         <!-- ── IP 威胁情报 ── -->
-        <ElTabPane label="IP 威胁" name="ip_threat">
+        <ElTabPane name="ip_threat">
+          <template #label>
+            <span>IP 威胁</span>
+            <span class="text-xs text-g-400 ml-1.5">恶意 IP 黑名单</span>
+          </template>
           <ElCard class="mb-3" size="small">
             <div class="flex flex-wrap items-center gap-2">
               <ElSelect
@@ -94,7 +101,11 @@
         </ElTabPane>
 
         <!-- ── ASN 情报 ── -->
-        <ElTabPane label="ASN 情报" name="asn">
+        <ElTabPane name="asn">
+          <template #label>
+            <span>ASN 情报</span>
+            <span class="text-xs text-g-400 ml-1.5">高风险 ASN 黑名单</span>
+          </template>
           <IntelTabBase
             ref="asnTabRef"
             intel-type="asn"
@@ -114,7 +125,11 @@
         </ElTabPane>
 
         <!-- ── 爬虫特征 ── -->
-        <ElTabPane label="爬虫特征" name="crawler">
+        <ElTabPane name="crawler">
+          <template #label>
+            <span>爬虫特征</span>
+            <span class="text-xs text-g-400 ml-1.5">UA / IP 匹配规则</span>
+          </template>
           <IntelTabBase
             ref="crawlerTabRef"
             intel-type="crawler"
@@ -135,7 +150,11 @@
         </ElTabPane>
 
         <!-- ── 指纹情报 ── -->
-        <ElTabPane label="指纹情报" name="fingerprint">
+        <ElTabPane name="fingerprint">
+          <template #label>
+            <span>指纹情报</span>
+            <span class="text-xs text-g-400 ml-1.5">设备指纹黑名单</span>
+          </template>
           <IntelTabBase
             ref="fingerprintTabRef"
             intel-type="fingerprint"
@@ -148,7 +167,11 @@
         </ElTabPane>
 
         <!-- ── GeoIP 手工录入 ── -->
-        <ElTabPane label="GeoIP 录入" name="geo_ip">
+        <ElTabPane name="geo_ip">
+          <template #label>
+            <span>GeoIP 录入</span>
+            <span class="text-xs text-g-400 ml-1.5">IP 归属地修正</span>
+          </template>
           <IntelTabBase
             ref="geoIpTabRef"
             intel-type="geo_ip"
@@ -159,7 +182,11 @@
         </ElTabPane>
 
         <!-- ── IP 画像 ── -->
-        <ElTabPane label="IP 画像" name="ip_profile">
+        <ElTabPane name="ip_profile">
+          <template #label>
+            <span>IP 画像</span>
+            <span class="text-xs text-g-400 ml-1.5">IP 网络属性标注</span>
+          </template>
           <IntelTabBase
             ref="ipProfileTabRef"
             intel-type="ip_profile"
@@ -167,18 +194,6 @@
             search-placeholder="搜索 IP/CIDR"
             :filter-fields="profileFilters"
             @add="openAddDialog('ip_profile')"
-          />
-        </ElTabPane>
-
-        <!-- ── ASN 画像 ── -->
-        <ElTabPane label="ASN 画像" name="asn_profile">
-          <IntelTabBase
-            ref="asnProfileTabRef"
-            intel-type="asn_profile"
-            :columns="asnProfileColumns"
-            search-placeholder="ASN号/运营商"
-            :filter-fields="profileFilters"
-            @add="openAddDialog('asn_profile')"
           />
         </ElTabPane>
 
@@ -380,21 +395,6 @@
         <ElFormItem label="备注"><ElInput v-model="addFormData.note" type="textarea" :rows="2" /></ElFormItem>
       </ElForm>
 
-      <!-- ASN 画像 -->
-      <ElForm v-else-if="activeDialogType === 'asn_profile'" :model="addFormData" label-width="90px">
-        <ElFormItem label="ASN" required><ElInputNumber v-model="addFormData.asn" :min="1" style="width:100%" /></ElFormItem>
-        <ElFormItem label="运营商" required><ElInput v-model="addFormData.operator" /></ElFormItem>
-        <ElFormItem label="网络类型">
-          <ElSelect v-model="addFormData.network_type" style="width:100%">
-            <ElOption v-for="o in NETWORK_TYPE_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
-          </ElSelect>
-        </ElFormItem>
-        <ElFormItem label="国家代码"><ElInput v-model="addFormData.country" maxlength="2" /></ElFormItem>
-        <ElFormItem label="风险评分"><ElInputNumber v-model="addFormData.risk_score" :min="0" :max="100" style="width:100%" /></ElFormItem>
-        <ElFormItem label="启用"><ElSwitch v-model="addFormData.is_active" /></ElFormItem>
-        <ElFormItem label="备注"><ElInput v-model="addFormData.note" type="textarea" :rows="2" /></ElFormItem>
-      </ElForm>
-
       <template #footer>
         <ElButton @click="addDialogVisible = false">取消</ElButton>
         <ElButton type="primary" :loading="addSaving" @click="submitAdd">确认</ElButton>
@@ -523,9 +523,9 @@ const overviewCards = computed(() => [
     desc: '覆盖所有类型'
   },
   {
-    label: '画像字段数',
+    label: '画像条目数',
     value: overview.value?.profile_field_count ?? '-',
-    desc: 'IP + ASN 画像'
+    desc: 'IP 画像 + GeoIP 录入'
   },
   {
     label: '缺失画像',
@@ -742,7 +742,6 @@ const mkDeleteBtn = (type: string, idGetter: (row: any) => number | string) =>
           case 'fingerprint': fingerprintTabRef.value?.fetchData(); break
           case 'geo_ip':      geoIpTabRef.value?.fetchData(); break
           case 'ip_profile':  ipProfileTabRef.value?.fetchData(); break
-          case 'asn_profile': asnProfileTabRef.value?.fetchData(); break
         }
       }
     }, () => '删除')
@@ -751,6 +750,7 @@ const asnColumns = [
   { prop: 'asn',          label: 'ASN',    width: 100 },
   { prop: 'operator',     label: '运营商',  minWidth: 160 },
   { prop: 'network_type', label: '网络类型',width: 120 },
+  { prop: 'country',      label: '国家',    width: 80 },
   { prop: 'risk_score',   label: '风险分',  width: 80 },
   { prop: 'note',         label: '备注',    minWidth: 120, showOverflowTooltip: true },
   { label: '操作', width: 80, fixed: 'right' as const, formatter: mkDeleteBtn('asn', r => r.id) }
@@ -806,15 +806,6 @@ const ipProfileColumns = [
   { label: '操作', width: 80, fixed: 'right' as const, formatter: mkDeleteBtn('ip_profile', r => r.id) }
 ]
 
-const asnProfileColumns = [
-  { prop: 'asn',          label: 'ASN',    width: 100 },
-  { prop: 'operator',     label: '运营商',  minWidth: 160 },
-  { prop: 'network_type', label: '网络类型',width: 120 },
-  { prop: 'country',      label: '国家',    width: 80 },
-  { prop: 'risk_score',   label: '风险分',  width: 80 },
-  { label: '操作', width: 80, fixed: 'right' as const, formatter: mkDeleteBtn('asn_profile', r => r.id) }
-]
-
 // ── 筛选配置 ──────────────────────────────────────────────────────────────────
 
 const asnFilters: FilterField[] = [
@@ -863,19 +854,18 @@ const addDialogTitle = computed(() => {
   const map: Record<string, string> = {
     ip_threat: '新增 IP 威胁情报', asn: '新增 ASN 情报',
     crawler: '新增爬虫特征', fingerprint: '新增指纹情报',
-    geo_ip: '新增 GeoIP 条目', ip_profile: '新增 IP 画像', asn_profile: '新增 ASN 画像'
+    geo_ip: '新增 GeoIP 条目', ip_profile: '新增 IP 画像'
   }
   return map[activeDialogType.value] ?? '新增情报'
 })
 
 const defaultForms: Record<string, Record<string, any>> = {
   ip_threat:   { ip: '', category: '', severity: 'high', confidence: 80, description: '', expires_at: null },
-  asn:         { asn: undefined, operator: '', network_type: 'DATACENTER', risk_score: 50, note: '' },
+  asn:         { asn: undefined, operator: '', network_type: 'DATACENTER', country: '', risk_score: 50, note: '' },
   crawler:     { feature_type: 'user_agent', pattern: '', crawler_category: 'malicious', crawler_name: '', is_legitimate: false, risk_score: 60, note: '' },
   fingerprint: { finger_id: '', finger_type: 'device', risk_score: 60, source: '', note: '' },
   geo_ip:      { cidr: '', country: '', region: '', city: '', is_active: true, note: '' },
   ip_profile:  { cidr: '', network_type: 'DATACENTER', is_vpn: false, is_proxy: false, is_tor: false, risk_score: 0, is_active: true, note: '' },
-  asn_profile: { asn: undefined, operator: '', network_type: 'DATACENTER', country: '', risk_score: 0, is_active: true, note: '' },
 }
 
 function openAddDialog(type: string) {
@@ -898,7 +888,6 @@ async function submitAdd() {
         case 'fingerprint': fingerprintTabRef.value?.fetchData(); break
         case 'geo_ip':      geoIpTabRef.value?.fetchData(); break
         case 'ip_profile':  ipProfileTabRef.value?.fetchData(); break
-        case 'asn_profile': asnProfileTabRef.value?.fetchData(); break
       }
     }
     ElMessage.success('添加成功')

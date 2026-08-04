@@ -33,12 +33,10 @@ def _transform_row(row: dict) -> dict:
     for ch_name, api_name in _FIELD_MAP.items():
         if ch_name in row and ch_name != api_name:
             row[api_name] = row.pop(ch_name)
-    # is_bot: UInt8(0/1) → bool
-    if "is_bot" in row and not isinstance(row["is_bot"], bool):
-        row["is_bot"] = bool(row["is_bot"])
-    # evercookie_restore: UInt8 → bool
-    if "evercookie_restore" in row and not isinstance(row["evercookie_restore"], bool):
-        row["evercookie_restore"] = bool(row["evercookie_restore"])
+    # UInt8(0/1) → bool
+    for col in ("is_bot", "evercookie_restore", "is_vpn", "is_proxy"):
+        if col in row and not isinstance(row[col], bool):
+            row[col] = bool(row[col])
     return row
 
 

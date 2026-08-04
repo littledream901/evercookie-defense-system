@@ -1,12 +1,11 @@
-"""从 Redis 读取后台维护的六类维度情报。
+"""从 Redis 读取后台维护的五类维度情报。
 
 数据由 admin-api 的 ``IntelSync`` 全量写入，结构为 Hash（field = 主键）：
-  fangyu:intel:asn           asn        → {network_type, risk_score, operator}
+  fangyu:intel:asn           asn        → {network_type, country, risk_score, operator}
   fangyu:intel:crawler       pattern    → {crawler_category, crawler_name, ...}
   fangyu:intel:fingerprint   finger_id  → {finger_type, risk_score}
   fangyu:intel:geo_ip        cidr       → {country, region, city}
   fangyu:intel:ip_profile    cidr       → {network_type, is_vpn, is_proxy, ...}
-  fangyu:intel:asn_profile   asn        → {operator, network_type, country, ...}
 
 asn / fingerprint 类可直接 HGET；CIDR 类必须 HGETALL 后在内存做网段匹配，故带
 进程内缓存（TTL 30s），避免每请求全量拉取，且编译成按前缀长度分层的哈希索引
@@ -28,7 +27,6 @@ from typing import Any
 import orjson
 from fangyu_shared.intel.keys import (
     ASN_KEY,
-    ASN_PROFILE_KEY,
     CRAWLER_KEY,
     FINGERPRINT_KEY,
     GEO_IP_KEY,
@@ -251,22 +249,15 @@ class IntelReader:
                     scores.append(score)
                 reasons.append(f"intel:ip_profile:{profile_hit.network}")
 
-        # asn_profile：补全运营商 / 国别；asn：风险标注
+        # asn：补全运营商 / 国别 + 风险标注
         if asn is not None:
-            profile = await self._hget(ASN_PROFILE_KEY, str(asn))
-            if profile:
-                if profile.get("operator"):
-                    overrides["asn_org"] = profile["operator"]
-                if profile.get("country") and "country" not in overrides:
-                    overrides["country"] = profile["country"]
-                overrides.update(_network_flags(profile))
-                score = _as_int(profile.get("risk_score"))
-                if score:
-                    scores.append(score)
-                reasons.append(f"intel:asn_profile:{asn}")
-
             asn_intel = await self._hget(ASN_KEY, str(asn))
             if asn_intel:
+                if asn_intel.get("operator"):
+                    overrides["asn_org"] = asn_intel["operator"]
+                # geo_ip 的国别优先级更高，已写入则不覆盖
+                if asn_intel.get("country") and "country" not in overrides:
+                    overrides["country"] = asn_intel["country"]
                 overrides.update(_network_flags(asn_intel))
                 score = _as_int(asn_intel.get("risk_score"))
                 if score:

@@ -14,7 +14,6 @@ from sqlalchemy.orm import DeclarativeBase
 
 from .models import (
     AsnIntelModel,
-    AsnProfileIntelModel,
     CrawlerIntelModel,
     FingerprintIntelModel,
     GeoIpIntelModel,
@@ -28,7 +27,6 @@ class IntelType(str, Enum):
     fingerprint = "fingerprint"
     geo_ip = "geo_ip"
     ip_profile = "ip_profile"
-    asn_profile = "asn_profile"
 
 
 # 类型 → ORM 模型 映射
@@ -38,7 +36,6 @@ _MODEL_MAP: dict[IntelType, type[DeclarativeBase]] = {
     IntelType.fingerprint: FingerprintIntelModel,
     IntelType.geo_ip: GeoIpIntelModel,
     IntelType.ip_profile: IpProfileIntelModel,
-    IntelType.asn_profile: AsnProfileIntelModel,
 }
 
 # 每种类型的唯一键字段名（用于 upsert / 查重）
@@ -48,7 +45,6 @@ _UNIQUE_KEY: dict[IntelType, str] = {
     IntelType.fingerprint: "finger_id",
     IntelType.geo_ip: "cidr",
     IntelType.ip_profile: "cidr",
-    IntelType.asn_profile: "asn",
 }
 
 # 批量插入每批行数，避免单条 SQL 过长撞 MySQL max_allowed_packet

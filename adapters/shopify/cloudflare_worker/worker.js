@@ -368,6 +368,8 @@ function buildContext(request, env) {
     path: url.pathname,
     method: request.method,
     userAgent: request.headers.get('User-Agent') || '',
+    referer: request.headers.get('Referer') || null,
+    clientLanguage: request.headers.get('Accept-Language') || null,
   };
 
   // Read evercookie repeat value from cookie (key _sd_0000).

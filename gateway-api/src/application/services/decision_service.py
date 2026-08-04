@@ -52,6 +52,7 @@ import time
 import uuid
 from dataclasses import dataclass, replace
 from typing import Any
+from urllib.parse import urlparse
 
 from fangyu_shared.clock.windows import ClockDimension
 from fangyu_shared.challenge_token import issue_challenge_token, DEFAULT_TTL as DEFAULT_CHALLENGE_TTL
@@ -115,6 +116,23 @@ from src.infrastructure.threat_intel.reader import ThreatIntelReader
 from src.infrastructure.whitelist.reader import WhitelistReader
 
 _logger = get_logger("gateway.decision_service")
+
+
+def _extract_host(visit_url: str | None) -> str:
+    """从 visit_url 提取域名。
+
+    访问日志需要按域名区分流量——同一 API Key 可能被多个站点复用，
+    app_id 关联不出具体域名。visit_url 是唯一携带该信息的字段。
+
+    解析失败或字段缺失时返回空串，不抛异常：事件发布不能因为一个
+    展示字段拖垮决策链路。
+    """
+    if not visit_url:
+        return ""
+    try:
+        return (urlparse(visit_url).hostname or "")[:256]
+    except ValueError:
+        return ""
 
 
 @dataclass
@@ -1389,6 +1407,7 @@ class DecisionService:
                 ip=str(ctx.ip),
                 ipType="ipv6" if ":" in str(ctx.ip) else "ipv4",
                 userAgent=ctx.user_agent,
+                host=_extract_host(ctx.visit_url),
                 path=ctx.path,
                 referer=ctx.referer,
                 method=ctx.method,
@@ -1410,6 +1429,8 @@ class DecisionService:
                 country=ip.country if ip else None,
                 asn=ip.asn if ip else None,
                 connectionType=ip.connection_type if ip else None,
+                isVpn=ip.is_vpn if ip else False,
+                isProxy=ip.is_proxy if ip else False,
                 # 设备解析结果（UA parser 产物）
                 deviceType=ua.device_type if ua else None,
                 osName=ua.os if ua else None,

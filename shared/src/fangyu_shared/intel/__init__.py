@@ -3,7 +3,6 @@
 from .asn_presets import DATACENTER_ASNS, MOBILE_ASNS
 from .keys import (
     ASN_KEY,
-    ASN_PROFILE_KEY,
     CRAWLER_KEY,
     FINGERPRINT_KEY,
     GEO_IP_KEY,
@@ -15,7 +14,6 @@ __all__ = [
     "DATACENTER_ASNS",
     "MOBILE_ASNS",
     "ASN_KEY",
-    "ASN_PROFILE_KEY",
     "CRAWLER_KEY",
     "FINGERPRINT_KEY",
     "GEO_IP_KEY",

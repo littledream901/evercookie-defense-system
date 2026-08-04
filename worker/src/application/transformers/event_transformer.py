@@ -63,6 +63,7 @@ _DECIDED_BY_VALUES = frozenset(
 # 自由文本列长度上限。截断而非拒绝：这些字段只用于排障与展示，
 # 不参与判定，为超长 UA 丢掉整条事件会连带丢失它的裁决与评分。
 _MAX_USER_AGENT = 512
+_MAX_HOST = 256
 _MAX_PATH = 2048
 _MAX_REFERER = 2048
 _MAX_TARGET_URL = 2048
@@ -131,6 +132,7 @@ class EventTransformer:
             "user_agent": str(raw.get("userAgent") or raw.get("user_agent") or "")[
                 :_MAX_USER_AGENT
             ],
+            "host": str(raw.get("host") or "")[:_MAX_HOST],
             "path": str(raw.get("path") or "/")[:_MAX_PATH],
             "referer": str(raw.get("referer") or "")[:_MAX_REFERER],
             "method": str(raw.get("method") or "GET"),
@@ -169,6 +171,8 @@ class EventTransformer:
             "connection_type": str(
                 raw.get("connectionType") or raw.get("connection_type") or "unknown"
             ),
+            "is_vpn": 1 if _to_bool(raw.get("isVpn") or raw.get("is_vpn")) else 0,
+            "is_proxy": 1 if _to_bool(raw.get("isProxy") or raw.get("is_proxy")) else 0,
             # 设备解析结果
             "device_type": str(raw.get("deviceType") or raw.get("device_type") or ""),
             "os_name": str(raw.get("osName") or raw.get("os_name") or ""),

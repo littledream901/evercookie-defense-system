@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS fangyu.decision_events
     ip              String,
     ip_type         LowCardinality(String) DEFAULT 'ipv4',
     user_agent      String DEFAULT '',
+    host            String DEFAULT '',
     path            String DEFAULT '/',
     referer         String DEFAULT '',
     method          LowCardinality(String) DEFAULT 'GET',
@@ -53,6 +54,8 @@ CREATE TABLE IF NOT EXISTS fangyu.decision_events
     country         LowCardinality(String) DEFAULT '',
     asn             UInt32 DEFAULT 0,
     connection_type LowCardinality(String) DEFAULT 'unknown',
+    is_vpn          UInt8 DEFAULT 0,
+    is_proxy        UInt8 DEFAULT 0,
 
     -- 设备解析结果（UA parser 产物）
     device_type      LowCardinality(String) DEFAULT '',

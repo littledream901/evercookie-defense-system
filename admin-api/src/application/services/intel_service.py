@@ -98,7 +98,7 @@ class IntelService:
             total += c
         return {
             "total_entries": total,
-            "profile_field_count": counts.get("ip_profile", 0) + counts.get("asn_profile", 0),
+            "profile_field_count": counts.get("ip_profile", 0) + counts.get("geo_ip", 0),
             "last_sync_time": await IntelSync.last_sync_time(),
             "counts": counts,
         }
