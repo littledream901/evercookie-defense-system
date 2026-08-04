@@ -11,10 +11,13 @@ IP 的来源
 传什么都不作数。浏览器本来就不知道自己的出口 IP，若采信客户端上报，任何持有
 API Key 的人都能把自己的 IP 报成干净地址绕过信誉与频控。
 
-刻意**不读** ``X-Forwarded-For``：该头可由客户端任意伪造。若 gateway 部署在
-反向代理之后，应由代理层负责重写 socket peer（例如 nginx 的
-``proxy_protocol``），而不是在应用层解析可伪造的头。这与
-``decision_rate_limit.py`` 的取 IP 口径一致。
+读 ``X-Real-IP`` 而非 ``X-Forwarded-For``：前者由反向代理用 ``$remote_addr``
+单值覆写，客户端伪造的同名头会被直接替换；后者是追加语义
+（``$proxy_add_x_forwarded_for``），客户端可在链首注入任意地址。
+
+前提：gateway 只能通过受信反向代理暴露，不得直接对公网监听。否则攻击者可
+自带 ``X-Real-IP`` 伪造来源。容器部署下 socket peer 恒为网桥 IP
+（如 ``172.28.0.1``），无法用作访客标识，故必须依赖代理头。
 """
 
 from __future__ import annotations
@@ -35,7 +38,8 @@ router = APIRouter(tags=["decide"])
 def _resolve_context_ip(payload: DecisionRequest, request: Request) -> DecisionRequest:
     """填充 / 覆写 ``context.ip``。
 
-    - ``ingress=sdk``：无条件用 socket peer 覆写客户端上报值。
+    - ``ingress=sdk``：优先读 ``X-Real-IP`` 头（反向代理已设为真实客户端地址），
+      回退 socket peer。直接用 socket peer 在容器网络环境中会拿到网桥 IP。
     - ``ingress=adapter``：保留站点服务端上报的访客 IP（schema 已强制必填）；
       此时 socket peer 是站点服务器，不是访客。
     """
@@ -43,6 +47,12 @@ def _resolve_context_ip(payload: DecisionRequest, request: Request) -> DecisionR
     if ctx.ingress == IngressKind.ADAPTER:
         return payload
 
+    # 优先从 X-Real-IP 头读取（nginx 已设为 $remote_addr）
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return payload.model_copy(update={"context": ctx.model_copy(update={"ip": real_ip.strip()})})
+
+    # 回退 socket peer
     client = request.client
     peer = client.host if client and client.host else None
     if not peer:
