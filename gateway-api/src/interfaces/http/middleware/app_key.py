@@ -82,11 +82,13 @@ class AppKeyResolver:
         redis: Redis,
         *,
         key_prefix: str = "fangyu:app_keys:",
+        secret_prefix: str = "fangyu:app_secrets:",
         cache_ttl: int = 60,
         max_cache_size: int = 4096,
     ) -> None:
         self._redis = redis
         self._prefix = key_prefix
+        self._secret_prefix = secret_prefix
         self._cache_ttl = max(cache_ttl, 0)
         self._max_cache_size = max_cache_size
         self._cache: dict[str, tuple[AppCredential, float]] = {}
@@ -117,20 +119,36 @@ class AppKeyResolver:
         return credential.app_id if credential else None
 
     async def get_secret_by_app_id(self, app_id: int) -> str | None:
-        """反向查询：从 app_id 拿 app_secret，用于 challenge token 签发。
+        """反向查询：从 app_id 拿 app_secret，用于 challenge token 签发与校验。
 
-        由于 Redis 键位是 fangyu:app_keys:{api_key}，无法直接按 app_id 查。
-        这里用扫描缓存 + 兜底返回 None 的策略：
-        - 缓存命中：直接返回（热数据场景，challenge 触发前通常刚完成过 decide 鉴权）
-        - 缓存未命中：返回 None，外层 fail-open（challenge token 签发失败不应阻断决策）
+        两级查找：
+        1. 本地凭据缓存（热路径，decide 刚鉴权过时命中）
+        2. Redis 反向索引 ``fangyu:app_secrets:{app_id}``，由 admin 侧 bind 时写入
 
-        生产环境可优化为在 Redis 增加反向索引 fangyu:app_secrets:{app_id} → secret。
+        必须有第 2 级：正向键以 api_key 作后缀无法按 app_id 检索，只扫本地缓存时
+        多 worker 部署下处理 /challenge/verify 的进程往往不是处理 /decide 的那个，
+        缓存必然未命中，挑战校验会静默失败。
+
+        fail-open：Redis 异常返回 None，由外层降级（签发失败不阻断决策）。
         """
         now = time.monotonic()
         for credential, expire_at in self._cache.values():
             if expire_at > now and credential.app_id == app_id and credential.app_secret:
                 return credential.app_secret
-        return None
+
+        if app_id <= 0:
+            return None
+        try:
+            raw: Any = await self._redis.get(f"{self._secret_prefix}{app_id}")
+        except Exception as exc:  # noqa: BLE001 - Redis 抖动不应让挑战链路抛错
+            _logger.warning("app_secret_index_lookup_failed", app_id=app_id, error=str(exc))
+            return None
+        if raw is None:
+            return None
+        if isinstance(raw, (bytes, bytearray)):
+            raw = raw.decode("utf-8", errors="replace")
+        secret = str(raw).strip()
+        return secret or None
 
     def _parse(self, api_key: str, raw: Any) -> AppCredential | None:
         """解析 Redis 值，兼容 JSON 与旧的纯数字格式。"""
@@ -381,6 +399,7 @@ async def require_app_key(request: Request) -> ResolvedAppKey:
     from src.interfaces.http.dependencies import (
         get_app_key_resolver,
         get_gateway_settings,
+        get_nonce_store,
     )
 
     settings = get_gateway_settings()
@@ -398,10 +417,13 @@ async def require_app_key(request: Request) -> ResolvedAppKey:
         raise AuthenticationException("API Key 无效或已失效")
 
     if getattr(settings, "signature_required", False):
+        # 必须传 nonce_store：漏传会让 verify_request_signature 跳过整段重放校验，
+        # 只剩 HMAC + 时间戳——攻击者可在时间窗内无限重放同一个合法签名请求。
         check = await verify_request_signature(
             request,
             credential,
             window=getattr(settings, "signature_window", DEFAULT_TIMESTAMP_WINDOW),
+            nonce_store=get_nonce_store(),
         )
         if not check.ok:
             _logger.warning(

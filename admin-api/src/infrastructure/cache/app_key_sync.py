@@ -7,7 +7,10 @@ admin 侧在下列操作时同步：
 - 轮换 API Key：先 ``unbind(旧 key)`` 再 ``bind(新 key)``
 - 删除应用：``unbind(api_key)``
 
-Redis 键位：``fangyu:app_keys:{api_key}`` → ``{"app_id": 1, "app_secret": "..."}``
+Redis 键位：
+- 正向 ``fangyu:app_keys:{api_key}`` → ``{"app_id": 1, "app_secret": "..."}``
+- 反向 ``fangyu:app_secrets:{app_id}`` → ``app_secret``（供 challenge token 签发按
+  app_id 反查，正向键无法按 app_id 检索）
 
 为什么写 JSON 而不是裸 app_id
 -----------------------------
@@ -35,14 +38,19 @@ class AppKeyRedisSync:
         redis: Any,
         *,
         key_prefix: str = "fangyu:app_keys:",
+        secret_prefix: str = "fangyu:app_secrets:",
         ttl_seconds: int | None = None,
     ) -> None:
         self._redis = redis
         self._prefix = key_prefix
+        self._secret_prefix = secret_prefix
         self._ttl = ttl_seconds if ttl_seconds and ttl_seconds > 0 else None
 
     def _redis_key(self, api_key: str) -> str:
         return f"{self._prefix}{api_key}"
+
+    def _secret_key(self, app_id: int) -> str:
+        return f"{self._secret_prefix}{app_id}"
 
     async def bind(self, api_key: str, app_id: int, app_secret: str | None = None) -> None:
         if not api_key or app_id <= 0:
@@ -59,13 +67,35 @@ class AppKeyRedisSync:
         except Exception as exc:  # pragma: no cover - Redis 异常不阻断业务
             _logger.error("app_key_bind_failed", app_id=app_id, error=str(exc))
 
-    async def unbind(self, api_key: str) -> None:
+        # 反向索引：challenge token 签发需按 app_id 取 secret，而正向键以 api_key
+        # 作后缀无法反查。缺这条索引时 gateway 只能扫本地缓存，多 worker 部署下
+        # 处理 verify 的进程往往不是处理 decide 的那个，挑战会静默失败。
+        if not app_secret:
+            return
+        try:
+            if self._ttl:
+                await self._redis.set(self._secret_key(app_id), app_secret, ex=self._ttl)
+            else:
+                await self._redis.set(self._secret_key(app_id), app_secret)
+        except Exception as exc:  # pragma: no cover
+            _logger.error("app_secret_index_failed", app_id=app_id, error=str(exc))
+
+    async def unbind(self, api_key: str, app_id: int | None = None) -> None:
         if not api_key:
             return
         try:
             await self._redis.delete(self._redis_key(api_key))
         except Exception as exc:  # pragma: no cover
             _logger.error("app_key_unbind_failed", key_prefix=api_key[:6], error=str(exc))
+
+        # 轮换 API Key 时不能删反向索引：secret 未变，且 rebind 紧接着会重写。
+        # 只有删除应用（显式传 app_id）才清理。
+        if app_id is None or app_id <= 0:
+            return
+        try:
+            await self._redis.delete(self._secret_key(app_id))
+        except Exception as exc:  # pragma: no cover
+            _logger.error("app_secret_index_unbind_failed", app_id=app_id, error=str(exc))
 
     async def rebind(
         self,
