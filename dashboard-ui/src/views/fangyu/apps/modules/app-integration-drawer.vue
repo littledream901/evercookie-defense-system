@@ -428,7 +428,7 @@ define('FANGYU_APP_SECRET',  '${appSecret.value}');`)
   {%- comment -%}Fangyu 防护{%- endcomment -%}
   <style id="_fh">html{visibility:hidden!important;opacity:0!important}</style>
   <script>
-!function(){function e(){var e=document.getElementById("_fh");e&&e.remove(),document.documentElement.style.cssText="visibility:visible;opacity:1"}var t=document.cookie.match(/_sd_0000=([^;]+)/);if(!t)return void e();var n="_fr",o=sessionStorage.getItem(n);if(o===location.href)return sessionStorage.removeItem(n),void e();var r=null;try{r=JSON.parse(sessionStorage.getItem("_fc")||"null")}catch(e){}if(r&&r.e>Date.now()){if("redirect"===r.m&&r.u)return sessionStorage.setItem(n,location.href),void location.replace(r.u);if("pass"===r.m)return void e()}var a=new XMLHttpRequest;a.open("POST","${gw.value}/v2/decide",!1),a.setRequestHeader("Content-Type","application/json"),a.setRequestHeader("X-App-Key","${siteId.value}");var i=decodeURIComponent(t[1]);try{if(a.send(JSON.stringify({context:{appId:${numericAppId.value},ingress:"sdk",fingerprint:i,userAgent:navigator.userAgent,visitUrl:location.href,path:location.pathname,method:"GET",repeatKey:"_sd_0000",repeatValue:i}})),200===a.status){var c=JSON.parse(a.responseText),s=c.data||c;if(s.mechanism&&s.ttlSeconds>0&&sessionStorage.setItem("_fc",JSON.stringify({m:s.mechanism,u:s.targetUrl,e:Date.now()+Math.min(1e3*s.ttlSeconds,3e5)})),"redirect"===s.mechanism&&s.targetUrl)return sessionStorage.setItem(n,location.href),void location.replace(s.targetUrl);if("deny"===s.mechanism)return void(document.documentElement.innerHTML='<body style="text-align:center;padding:100px;font:sans-serif"><h1>403</h1></body>')}e()}catch(t){e()}}();
+!function(){function e(){var e=document.getElementById("_fh");e&&e.remove(),document.documentElement.style.cssText="visibility:visible;opacity:1"}var t=document.cookie.match(/_sd_0000=([^;]+)/);if(!t)return void e();var n="_fr",o=sessionStorage.getItem(n);if(o===location.href)return sessionStorage.removeItem(n),void e();var r=null;try{r=JSON.parse(sessionStorage.getItem("_fc")||"null")}catch(e){}if(r&&r.e>Date.now()){if("redirect"===r.m&&r.u)return sessionStorage.setItem(n,location.href),void location.replace(r.u);if("pass"===r.m)return void e()}var a=new XMLHttpRequest;a.open("POST","${gw.value}/v2/decide",!1),a.setRequestHeader("Content-Type","application/json"),a.setRequestHeader("X-App-Key","${siteId.value}");var i=decodeURIComponent(t[1]);try{if(a.send(JSON.stringify({context:{appId:${numericAppId.value},ingress:"sdk",fingerprint:i,userAgent:navigator.userAgent,visitUrl:location.href,path:location.pathname,method:"GET",clientLanguage:navigator.language||null,repeatKey:"_sd_0000",repeatValue:i}})),200===a.status){var c=JSON.parse(a.responseText),s=c.data||c;if(s.mechanism&&s.ttlSeconds>0&&sessionStorage.setItem("_fc",JSON.stringify({m:s.mechanism,u:s.targetUrl,e:Date.now()+Math.min(1e3*s.ttlSeconds,3e5)})),"redirect"===s.mechanism&&s.targetUrl)return sessionStorage.setItem(n,location.href),void location.replace(s.targetUrl);if("deny"===s.mechanism)return void(document.documentElement.innerHTML='<body style="text-align:center;padding:100px;font:sans-serif"><h1>403</h1></body>')}e()}catch(t){e()}}();
   <\/script>
   <script src="${gw.value}/sdk/sd-sdk.min.js" defer><\/script>
   <script>
@@ -497,23 +497,34 @@ document.addEventListener('DOMContentLoaded',function(){if(typeof SdSdk!=='undef
     font-size: 13px;
     color: var(--el-text-color-regular);
   }
+  /* 说明文字不能用 flex：strong / code 等内联元素会被拆成独立 flex 子项，
+     导致同一句话断成多块。改用相对定位 + 绝对定位圆点，保持正常内联流。 */
   .prereq-list li,
   .note-list li {
-    display: flex;
-    align-items: flex-start;
-    gap: 6px;
-    margin-bottom: 6px;
-    line-height: 1.5;
+    position: relative;
+    padding-left: 16px;
+    margin-bottom: 7px;
+    line-height: 1.7;
   }
   .prereq-list .check {
+    position: absolute;
+    left: 0;
+    top: 4px;
     color: var(--el-color-success);
-    margin-top: 2px;
-    flex-shrink: 0;
+    font-size: 13px;
   }
   .note-list li::before {
     content: '·';
+    position: absolute;
+    left: 5px;
+    top: 0;
     color: var(--el-text-color-placeholder);
-    flex-shrink: 0;
+    font-weight: 700;
+  }
+  .prereq-list li strong,
+  .note-list li strong {
+    color: var(--el-text-color-primary);
+    font-weight: 600;
   }
   .code-section {
     position: relative;
