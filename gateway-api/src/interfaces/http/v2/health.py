@@ -8,6 +8,7 @@ from fangyu_shared.clickhouse_manager import ClickHouseManager
 from fangyu_shared.metrics import metrics_endpoint
 from fangyu_shared.redis_manager import RedisManager
 from fangyu_shared.schemas.common import HealthCheckResponse
+from fangyu_shared.utils.time import utcnow
 
 from src.config import get_settings
 
@@ -29,6 +30,7 @@ async def readiness() -> HealthCheckResponse:
     return HealthCheckResponse(
         service=settings.service_name,
         version=settings.version,
+        checked_at=utcnow(),
         dependencies=deps,
     )
 
