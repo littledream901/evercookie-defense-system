@@ -304,11 +304,10 @@ prepare_env_file() {
     bash "$SCRIPTS_DIR/gen-secrets.sh" || err "生成凭据失败"
 }
 
-# 从 .env.production 的 GATEWAY_DOMAIN 同步到前端 .env.production
-# 两处配置分裂是"部署后 UI 显示 defense.example.com"的根因，这里统一处理
+# 从 .env.production 的 GATEWAY_DOMAIN 同步到 VITE_GATEWAY_URL
+# 确保前后端使用同一个网关地址
 sync_gateway_url_to_ui() {
     [ -f "$ENV_FILE" ] || return 0
-    [ -f "$UI_ENV_FILE" ] || return 0
 
     local gateway_url
     gateway_url="$(grep -oP '^GATEWAY_DOMAIN=\K.*' "$ENV_FILE" 2>/dev/null | tr -d '"' | sed 's|/$||')"
@@ -319,7 +318,13 @@ sync_gateway_url_to_ui() {
         return 0
     fi
 
-    sed -i "s|^VITE_GATEWAY_URL.*|VITE_GATEWAY_URL = ${gateway_url}|" "$UI_ENV_FILE"
+    # 直接在 .env.production 中更新 VITE_GATEWAY_URL
+    if grep -q '^VITE_GATEWAY_URL=' "$ENV_FILE"; then
+        sed -i "s|^VITE_GATEWAY_URL=.*|VITE_GATEWAY_URL=${gateway_url}|" "$ENV_FILE"
+    else
+        echo "VITE_GATEWAY_URL=${gateway_url}" >> "$ENV_FILE"
+    fi
+    
     log "VITE_GATEWAY_URL → ${gateway_url}"
 }
 

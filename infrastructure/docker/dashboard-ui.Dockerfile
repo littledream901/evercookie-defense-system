@@ -22,6 +22,9 @@ RUN if [ -f pnpm-lock.yaml ]; then \
       npm ci; \
     fi
 
+# 复制项目根目录的 .env.production（Vite 会从父目录读取）
+COPY .env.production* /
+
 COPY dashboard-ui .
 RUN if [ -f pnpm-lock.yaml ]; then pnpm build; else npm run build; fi
 

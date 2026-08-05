@@ -14,13 +14,16 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default ({ mode }: { mode: string }) => {
   const root = process.cwd()
-  const env = loadEnv(mode, root)
+  // 从项目根目录加载环境变量（dashboard-ui 的父目录）
+  const envDir = path.resolve(root, '..')
+  const env = loadEnv(mode, envDir)
   const { VITE_VERSION, VITE_PORT, VITE_BASE_URL, VITE_API_URL, VITE_API_PROXY_URL } = env
 
   console.log(`🚀 API_URL = ${VITE_API_URL}`)
   console.log(`🚀 VERSION = ${VITE_VERSION}`)
 
   return defineConfig({
+    envDir,  // 指定环境变量文件所在目录
     define: {
       __APP_VERSION__: JSON.stringify(VITE_VERSION)
     },

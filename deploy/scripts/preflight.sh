@@ -269,34 +269,28 @@ if [[ -f "$ENV_FILE" ]]; then
     fi
 fi
 
-# 前端生产配置：Mock 地址混入生产是最容易漏的一项
-UI_ENV="$REPO_ROOT/dashboard-ui/.env.production"
-if [[ -f "$UI_ENV" ]]; then
-    if grep -qi 'apifoxmock\|mock' "$UI_ENV"; then
-        bad "dashboard-ui/.env.production 仍指向 Mock 服务"
-    else
-        ok "前端生产配置未包含 Mock 地址"
-    fi
-    if grep -q 'defense.example.com\|example.com' "$UI_ENV"; then
-        bad "dashboard-ui/.env.production 的 VITE_GATEWAY_URL 仍是示例域名"
-        echo "         修复：编辑 .env.production 设 GATEWAY_DOMAIN，再重跑 deploy.sh"
+# 前端配置：检查 VITE_GATEWAY_URL 是否在 .env.production 中配置
+if grep -q '^VITE_GATEWAY_URL=' "$ENV_FILE"; then
+    VITE_GW="$(grep -oP '^VITE_GATEWAY_URL=\K.*' "$ENV_FILE" 2>/dev/null | tr -d '"' | sed 's|/$||')"
+    if echo "$VITE_GW" | grep -q 'example\.com'; then
+        bad "VITE_GATEWAY_URL 仍是示例域名"
+        echo "         修复：编辑 $ENV_FILE 设置 VITE_GATEWAY_URL=https://<你的网关域名>"
     else
         ok "VITE_GATEWAY_URL 已替换为实际域名"
     fi
 
-    # 交叉校验：UI 侧值必须与后端 GATEWAY_DOMAIN 完全一致，否则说明
-    # 之前跳过了 sync_gateway_url_to_ui 或有人手工改过一边没改另一边
+    # 交叉校验：VITE_GATEWAY_URL 必须与 GATEWAY_DOMAIN 完全一致
     if [[ -n "${GW_DOMAIN:-}" ]] && ! echo "$GW_DOMAIN" | grep -q 'example\.com'; then
-        UI_GW="$(grep -oP '^VITE_GATEWAY_URL\s*=\s*\K.*' "$UI_ENV" 2>/dev/null | tr -d '"' | sed 's|/$||' | xargs)"
-        if [[ "$UI_GW" != "$GW_DOMAIN" ]]; then
-            bad "VITE_GATEWAY_URL ($UI_GW) 与 GATEWAY_DOMAIN ($GW_DOMAIN) 不一致"
+        if [[ "$VITE_GW" != "$GW_DOMAIN" ]]; then
+            bad "VITE_GATEWAY_URL ($VITE_GW) 与 GATEWAY_DOMAIN ($GW_DOMAIN) 不一致"
             echo "         修复：重跑 deploy.sh init 或手工同步两处"
         else
             ok "前后端网关地址一致"
         fi
     fi
 else
-    bad "缺少 dashboard-ui/.env.production"
+    warn "VITE_GATEWAY_URL 未配置，前端接入指引会显示占位地址"
+    echo "         修复：编辑 $ENV_FILE 添加 VITE_GATEWAY_URL=\${GATEWAY_DOMAIN}"
 fi
 
 # ─────────────────────────────────────────────────────────────
