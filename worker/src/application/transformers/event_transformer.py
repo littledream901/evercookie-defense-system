@@ -168,6 +168,7 @@ class EventTransformer:
             # 网络解析结果
             "country": str(raw.get("country") or ""),
             "asn": _to_int(raw.get("asn")),
+            "asn_org": str(raw.get("asnOrg") or raw.get("asn_org") or "")[:256],
             "connection_type": str(
                 raw.get("connectionType") or raw.get("connection_type") or "unknown"
             ),

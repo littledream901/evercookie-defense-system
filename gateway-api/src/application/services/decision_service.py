@@ -1428,6 +1428,7 @@ class DecisionService:
                 # 网络解析结果（MMDB 产物）
                 country=ip.country if ip else None,
                 asn=ip.asn if ip else None,
+                asnOrg=ip.asn_org if ip else None,
                 connectionType=ip.connection_type if ip else None,
                 isVpn=ip.is_vpn if ip else False,
                 isProxy=ip.is_proxy if ip else False,

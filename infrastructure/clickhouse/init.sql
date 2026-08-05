@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS fangyu.decision_events
     -- 网络解析结果（MMDB 产物）
     country         LowCardinality(String) DEFAULT '',
     asn             UInt32 DEFAULT 0,
+    asn_org         String DEFAULT '',
     connection_type LowCardinality(String) DEFAULT 'unknown',
     is_vpn          UInt8 DEFAULT 0,
     is_proxy        UInt8 DEFAULT 0,

@@ -75,7 +75,9 @@ class DecisionContext(BaseSchema):
     path: str = Field(default="/", max_length=1024)
     method: str = Field(default="GET", max_length=16)
     session_id: str | None = Field(default=None, alias="sessionId", max_length=128)
-    client_language: str | None = Field(default=None, alias="clientLanguage", max_length=64)
+    client_language: str | None = Field(default=None, alias="clientLanguage", max_length=256)
+    """语言偏好。SDK 送 ``navigator.language`` 单值，网关缺省时回填整个
+    ``Accept-Language`` 头（``zh-CN,zh;q=0.9,en;q=0.8``），故长度按头部放宽。"""
     repeat_key: str | None = Field(default=None, alias="repeatKey", max_length=128)
     repeat_value: str | None = Field(default=None, alias="repeatValue", max_length=256)
     evercookie_restored: bool = Field(default=False, alias="evercookieRestored")

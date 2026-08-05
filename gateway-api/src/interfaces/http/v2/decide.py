@@ -79,12 +79,11 @@ def _resolve_client_language(payload: DecisionRequest, request: Request) -> Deci
     if not accept_lang:
         return payload
 
-    # Accept-Language: zh-CN,zh;q=0.9,en;q=0.8 → 取权重最高的第一段
-    primary = accept_lang.split(",")[0].strip().split(";")[0].strip()
-    if not primary:
-        return payload
-
-    return payload.model_copy(update={"context": ctx.model_copy(update={"client_language": primary})})
+    # 存完整头（zh-CN,zh;q=0.9,en;q=0.8），前端据此展示首选语言与全部偏好列表。
+    # 只留首段会丢掉访客的次选语言，那是识别地区伪装的有效信号。
+    return payload.model_copy(
+        update={"context": ctx.model_copy(update={"client_language": accept_lang.strip()[:256]})}
+    )
 
 
 def _guard_app_id(payload: DecisionRequest, resolved: ResolvedAppKey) -> DecisionRequest:

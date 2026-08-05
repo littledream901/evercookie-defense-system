@@ -13,7 +13,7 @@ _SELECT_COLUMNS = """
     verdict, mechanism, target_kind, target_url, http_status,
     decided_by, decided_stage, decided_rule_id,
     score, scorer_scores, rule_ids, reason,
-    country, asn, connection_type, is_vpn, is_proxy,
+    country, asn, asn_org, connection_type, is_vpn, is_proxy,
     device_type, os_name, browser_name, is_bot, crawler_category, crawler_vendor,
     accept_language,
     repeat_key, repeat_value, evercookie_restore,

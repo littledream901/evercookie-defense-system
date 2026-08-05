@@ -94,6 +94,8 @@ class DecisionEvent(BaseSchema):
     # ── 网络解析结果（MMDB 产物） ──
     country: str | None = Field(default=None, max_length=8)
     asn: int | None = Field(default=None, ge=0)
+    asn_org: str | None = Field(default=None, alias="asnOrg", max_length=256)
+    """ASN 组织名（如 "The Constant Company" / "China Telecom"），用于运营商/机房展示。"""
     connection_type: str | None = Field(default=None, alias="connectionType", max_length=32)
     is_vpn: bool = Field(default=False, alias="isVpn")
     is_proxy: bool = Field(default=False, alias="isProxy")

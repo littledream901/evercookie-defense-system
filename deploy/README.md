@@ -48,6 +48,9 @@ Evercookie Defense System V2 在 1Panel + OpenResty + Docker 环境下的部署�
 ## 命令总览
 
 ```bash
+
+cd /opt/fangyu-defense-system
+
 bash deploy/deploy.sh help          # 完整用法
 
 # 部署
