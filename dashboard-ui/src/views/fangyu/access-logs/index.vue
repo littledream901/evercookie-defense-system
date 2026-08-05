@@ -94,26 +94,13 @@
           <span v-else class="text-placeholder">-</span>
         </template>
 
-        <!-- 3. 访问状态（居中） -->
+        <!-- 3. 访问状态（两行，去掉第一行判定标签） -->
         <template #verdict="{ row }">
           <div class="cell-center">
-            <template v-if="row.verdict === 'hostile'">
-              <span class="verdict-block">拦截</span>
-              <div class="verdict-sub">
-                <span v-if="row.decided_by" class="verdict-source">{{ DECIDED_BY_LABELS[row.decided_by] || row.decided_by }}</span>
-                <span v-if="fmtReason(row.reason)" class="verdict-reason-text">{{ fmtReason(row.reason) }}</span>
-              </div>
-            </template>
-            <template v-else-if="row.verdict === 'suspect'">
-              <span class="verdict-warn">可疑</span>
-              <div class="verdict-sub">
-                <span v-if="row.decided_by" class="verdict-source">{{ DECIDED_BY_LABELS[row.decided_by] || row.decided_by }}</span>
-                <span v-if="fmtReason(row.reason)" class="verdict-reason-text">{{ fmtReason(row.reason) }}</span>
-              </div>
-            </template>
-            <template v-else>
-              <span class="verdict-pass">放行</span>
-            </template>
+            <div class="verdict-sub">
+              <span v-if="row.decided_by" class="verdict-source">{{ DECIDED_BY_LABELS[row.decided_by] || row.decided_by }}</span>
+              <span v-if="fmtReason(row.reason)" class="verdict-reason-text">{{ fmtReason(row.reason) }}</span>
+            </div>
           </div>
         </template>
 
@@ -140,30 +127,42 @@
           <span v-else class="text-placeholder">-</span>
         </template>
 
-        <!-- 6. IP 地址 -->
+        <!-- 6. IP 地址（三行堆叠：IP / 国家 / 时间） -->
         <template #ip="{ row }">
           <div class="cell-stack">
-            <span class="cell-line text-code">{{ row.ip || '-' }}</span>
+            <ElTooltip v-if="row.ip" placement="top" :content="row.ip" :show-after="300">
+              <span class="cell-line text-code">{{ row.ip }}</span>
+            </ElTooltip>
+            <span v-else class="cell-line text-placeholder">-</span>
             <span class="cell-line text-secondary">
-              {{ [row.country, row.ip_type].filter(Boolean).join(' / ') || '-' }}
+              {{ countryName(row.country) || '-' }}
             </span>
+            <span class="cell-line cell-time">{{ fmtTime(row.occurred_at) }}</span>
           </div>
         </template>
 
-        <!-- 7. IP 详情 -->
+        <!-- 7. IP 详情（两行：运营商名称 / 归属类型） -->
         <template #asn="{ row }">
-          <template v-if="row.asn || row.connection_type">
+          <template v-if="row.asn_org || row.asn || row.connection_type">
             <ElTooltip placement="top" :show-after="200">
               <template #content>
                 <div class="tooltip-stack">
+                  <div v-if="row.asn_org">名称：{{ row.asn_org }}</div>
                   <div v-if="row.asn">ASN：AS{{ row.asn }}</div>
-                  <div v-if="row.connection_type">网络类型：{{ row.connection_type }}</div>
+                  <div v-if="row.connection_type">网络类型：{{ connTypeName(row.connection_type) }}</div>
                   <div v-if="row.ip_type">IP 类型：{{ row.ip_type }}</div>
                   <div v-if="row.is_vpn">VPN：是</div>
                   <div v-if="row.is_proxy">代理：是</div>
                 </div>
               </template>
-              <span class="cell-isp">{{ row.asn ? `AS${row.asn}` : row.connection_type }}</span>
+              <div class="cell-stack">
+                <span class="cell-line cell-isp">
+                  {{ row.asn_org || (row.asn ? `AS${row.asn}` : '-') }}
+                </span>
+                <span class="cell-line text-secondary">
+                  {{ connTypeName(row.connection_type) || '-' }}
+                </span>
+              </div>
             </ElTooltip>
           </template>
           <span v-else class="text-placeholder">-</span>
@@ -187,34 +186,38 @@
           </div>
         </template>
 
-        <!-- 9. 客户端信息 -->
+        <!-- 9. 客户端信息（三行：类型 / 名称 / 版本） -->
         <template #browser="{ row }">
-          <div class="cell-stack">
-            <span class="cell-line">类型: 浏览器</span>
-            <span class="cell-line">名称: {{ row.browser || '-' }}</span>
-            <span class="cell-line">
-              <ElTooltip v-if="row.user_agent" placement="top" :show-after="300">
-                <template #content>
-                  <div style="max-width: 400px; word-break: break-all">{{ row.user_agent }}</div>
-                </template>
-                <span class="cell-ua">UA</span>
-              </ElTooltip>
-              <span v-else class="text-placeholder">-</span>
-            </span>
-          </div>
+          <ElTooltip v-if="row.user_agent" placement="top" :show-after="200">
+            <template #content>
+              <div style="max-width: 400px; word-break: break-all">{{ row.user_agent }}</div>
+            </template>
+            <div class="cell-stack">
+              <span class="cell-line">类型：浏览器</span>
+              <span class="cell-line">名称：{{ browserDisplayName(row.browser_name) }}</span>
+              <span class="cell-line">版本：{{ browserVersion(row.user_agent) }}</span>
+            </div>
+          </ElTooltip>
+          <span v-else class="text-placeholder">-</span>
         </template>
 
-        <!-- 10. 客户端语言 -->
+        <!-- 10. 客户端语言（两行：首选标签 / 全部偏好） -->
         <template #accept_language="{ row }">
-          <template v-if="row.accept_language">
+          <ElTooltip v-if="row.accept_language" placement="top" :show-after="200">
+            <template #content>
+              <div class="tooltip-stack">
+                <div>原始值：{{ row.accept_language }}</div>
+                <div>偏好顺序：{{ allLangNames(row.accept_language) }}</div>
+              </div>
+            </template>
             <div class="lang-cell">
               <div class="lang-primary">
                 <ElTag type="danger" size="small" effect="dark" class="lang-preferred-tag">首选</ElTag>
-                <span class="lang-primary-text">{{ primaryLang(row.accept_language) }}</span>
+                <span class="lang-primary-text">{{ langName(primaryLang(row.accept_language)) }}</span>
               </div>
-              <div class="lang-others">{{ otherLangs(row.accept_language) }}</div>
+              <div class="lang-others">{{ otherLangNames(row.accept_language) || '-' }}</div>
             </div>
-          </template>
+          </ElTooltip>
           <span v-else class="text-placeholder">-</span>
         </template>
 
@@ -274,11 +277,107 @@
     return first.split(';')[0].trim()
   }
 
-  /** 其余语言列表 */
-  function otherLangs(raw?: string | null): string {
+  /** 拆出全部语言标签，按 Accept-Language 原有顺序（即 q 值降序） */
+  function langTags(raw?: string | null): string[] {
+    if (!raw) return []
+    return raw
+      .split(',')
+      .map((s) => s.split(';')[0].trim())
+      .filter(Boolean)
+  }
+
+  // Intl.DisplayNames 覆盖全部 BCP-47 标签，比手写映射表准确且免维护
+  const langDisplay = new Intl.DisplayNames(['zh-CN'], { type: 'language' })
+  const regionDisplay = new Intl.DisplayNames(['zh-CN'], { type: 'region' })
+
+  /** 语言标签转中文名：zh-CN → 简体中文（中国） */
+  function langName(tag?: string | null): string {
+    if (!tag || tag === '-') return '-'
+    if (tag === '*') return '任意语言'
+    try {
+      return langDisplay.of(tag) || tag
+    } catch {
+      return tag
+    }
+  }
+
+  /** 除首选之外的语言中文名，逗号分隔 */
+  function otherLangNames(raw?: string | null): string {
+    return langTags(raw).slice(1).map(langName).join('、')
+  }
+
+  /** 全部语言中文名，用于 tooltip */
+  function allLangNames(raw?: string | null): string {
+    return langTags(raw).map(langName).join('、')
+  }
+
+  /** 国家代码转中文名：HK → 中国香港 */
+  function countryName(code?: string | null): string {
+    if (!code) return ''
+    try {
+      return regionDisplay.of(code.toUpperCase()) || code
+    } catch {
+      return code
+    }
+  }
+
+  const CONN_TYPE_LABELS: Record<string, string> = {
+    datacenter: '机房',
+    hosting: '机房',
+    business: '企业专线',
+    cellular: '移动网络',
+    mobile: '移动网络',
+    residential: '家庭宽带',
+    dialup: '拨号',
+    cable: '有线宽带',
+    unknown: '未知'
+  }
+
+  /** 连接类型转中文 */
+  function connTypeName(raw?: string | null): string {
     if (!raw) return ''
-    const parts = raw.split(',').map((s) => s.split(';')[0].trim())
-    return parts.slice(1).join('、')
+    return CONN_TYPE_LABELS[raw.toLowerCase()] || raw
+  }
+
+  const BROWSER_LABELS: Record<string, string> = {
+    edge: 'Microsoft Edge',
+    chrome: 'Chrome',
+    safari: 'Safari',
+    firefox: 'Firefox',
+    opera: 'Opera',
+    samsung: 'Samsung Internet',
+    ie: 'Internet Explorer',
+    wechat: '微信内置浏览器',
+    micromessenger: '微信内置浏览器'
+  }
+
+  /** 后端存的是小写标识（chrome/edge），转成展示名 */
+  function browserDisplayName(raw?: string | null): string {
+    if (!raw) return '-'
+    return BROWSER_LABELS[raw.toLowerCase()] || raw
+  }
+
+  // 顺序敏感：Edge 的 UA 同时含 Chrome/Safari，Chrome 的 UA 也含 Safari，
+  // 必须让更具体的品牌先匹配，否则版本号会取错。
+  const UA_VERSION_RULES: Array<[RegExp, string]> = [
+    [/Edg(?:e|A|iOS)?\/([\d.]+)/, 'edge'],
+    [/OPR\/([\d.]+)/, 'opera'],
+    [/SamsungBrowser\/([\d.]+)/, 'samsung'],
+    [/MicroMessenger\/([\d.]+)/, 'wechat'],
+    [/Firefox\/([\d.]+)/, 'firefox'],
+    [/Chrome\/([\d.]+)/, 'chrome'],
+    [/Version\/([\d.]+).*Safari/, 'safari'],
+    [/MSIE ([\d.]+)/, 'ie']
+  ]
+
+  /** 从 UA 提取浏览器版本号 */
+  function browserVersion(ua?: string | null): string {
+    if (!ua) return '-'
+    for (const [re] of UA_VERSION_RULES) {
+      const m = ua.match(re)
+      if (m?.[1]) return m[1]
+    }
+    return '-'
   }
 
   type AccessLogSearchFormParams = {
