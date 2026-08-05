@@ -360,13 +360,22 @@ collect_domains() {
 
     if [ -n "$biz_domains" ]; then
         # 拼 JSON 数组：pydantic 的 list[str] 只接受 JSON，逗号分隔串会解析失败
-        local json="["
-        local first=1
-        for d in $biz_domains; do
-            [ "$first" -eq 1 ] && first=0 || json+=","
-            json+="\"https://${d}\""
-        done
-        json+="]"
+        # 特殊处理 "*"：允许通配符表示所有域名（需注意 allow_credentials 兼容性）
+        local json
+        if [ "$biz_domains" = "*" ]; then
+            json='["*"]'
+        else
+            json="["
+            local first=1
+            # 禁用通配符展开，避免 * 被 shell 展开成文件列表
+            set -o noglob
+            for d in $biz_domains; do
+                [ "$first" -eq 1 ] && first=0 || json+=","
+                json+="\"https://${d}\""
+            done
+            set +o noglob
+            json+="]"
+        fi
         sed -i "s|^GATEWAY_CORS_ORIGINS=.*|GATEWAY_CORS_ORIGINS=${json}|" "$ENV_FILE"
         log "GATEWAY_CORS_ORIGINS → ${json}"
     fi
