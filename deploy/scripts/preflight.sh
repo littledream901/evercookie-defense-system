@@ -9,7 +9,8 @@
 # =============================================================================
 set -uo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# REPO_ROOT 优先取外部注入，避免 deploy.sh 与直接调用时定位不一致
+REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env.production}"
 
 # 磁盘门槛可覆盖，用于磁盘受限但已知风险的场景（如小流量试运行）：
@@ -202,12 +203,18 @@ else
 
     # CORS 必须是 JSON 数组：pydantic 的 list[str] 无法解析逗号分隔串，
     # 配错会让服务在启动时直接崩。
+    # ADMIN_CORS_ORIGINS 是后台管理接口，严禁通配；
+    # GATEWAY_CORS_ORIGINS 面向 SDK 公开接入，允许 "*"，但需注意与 allow_credentials 的兼容性。
     for key in ADMIN_CORS_ORIGINS GATEWAY_CORS_ORIGINS; do
         val="$(grep -oP "^${key}=\K.*" "$ENV_FILE" 2>/dev/null || true)"
         [[ -z "$val" ]] && continue
         if [[ "$val" == \[*\] ]]; then
             if [[ "$val" == *'"*"'* ]]; then
-                bad "$key 含通配 \"*\"，生产不允许（与 allow_credentials 冲突）"
+                if [[ "$key" == "GATEWAY_CORS_ORIGINS" ]]; then
+                    warn "$key 含通配 \"*\"，请确保网关应用层已关闭 allow_credentials"
+                else
+                    bad "$key 含通配 \"*\"，生产不允许（与 allow_credentials 冲突）"
+                fi
             else
                 ok "$key 格式为 JSON 数组"
             fi
@@ -235,7 +242,7 @@ fi
 # ─────────────────────────────────────────────────────────────
 section "5. 编排与前端配置"
 
-COMPOSE_FILE="$REPO_ROOT/deploy/docker-compose.prod.yml"
+# 使用已设置的 COMPOSE_FILE，避免重复计算
 if [[ -f "$COMPOSE_FILE" ]]; then
     if [[ -f "$ENV_FILE" ]] && \
        docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" config -q 2>/dev/null; then

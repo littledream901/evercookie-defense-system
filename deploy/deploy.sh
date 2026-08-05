@@ -387,7 +387,9 @@ cmd_init() {
     collect_domains
 
     # 预检不通过就停，不要带着已知问题往下走
-    if ! run_fg "环境预检" bash "$SCRIPTS_DIR/preflight.sh"; then
+    # 显式导出路径变量，避免子脚本因 BASH_SOURCE 展开位置不同而误判仓库根
+    if ! REPO_ROOT="$PROJECT_DIR" ENV_FILE="$ENV_FILE" COMPOSE_FILE="$COMPOSE_FILE" \
+        run_fg "环境预检" bash "$SCRIPTS_DIR/preflight.sh"; then
         err "预检未通过。修复上述阻塞项后重跑：bash deploy/deploy.sh init"
     fi
 
