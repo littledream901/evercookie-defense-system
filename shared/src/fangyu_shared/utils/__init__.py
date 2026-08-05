@@ -19,9 +19,8 @@ from fangyu_shared.utils.crypto import (
 from fangyu_shared.utils.strings import mask_email, mask_ip, truncate
 from fangyu_shared.utils.time import (
     LOCAL_TZ,
-    MYSQL_TIME_ZONE,
-    local_now,
     to_epoch_ms,
+    utcnow,
     utcnow_iso,
     utcnow_ms,
 )
@@ -35,7 +34,6 @@ from fangyu_shared.utils.validators import (
 __all__ = [
     "DEFAULT_TIMESTAMP_WINDOW",
     "LOCAL_TZ",
-    "MYSQL_TIME_ZONE",
     "SIGN_SAFE_CHARS",
     "build_sign_payload",
     "constant_time_compare",
@@ -47,7 +45,7 @@ __all__ = [
     "is_timestamp_fresh",
     "is_valid_app_id",
     "is_valid_fingerprint",
-    "local_now",
+    "utcnow",
     "mask_email",
     "mask_ip",
     "run_with_timeout",

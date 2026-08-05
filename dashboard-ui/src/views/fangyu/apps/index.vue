@@ -294,6 +294,7 @@
 
 <script setup lang="ts">
   import { useTable } from '@/hooks/core/useTable'
+  import { formatTime } from '@/utils/format'
   import {
     fetchGetAppList,
     fetchDeleteApp,
@@ -667,7 +668,8 @@
         {
           prop: 'created_at',
           label: '创建时间',
-          width: 170
+          width: 170,
+          formatter: (row: any) => formatTime(row.created_at)
         },
         {
           prop: 'actions',

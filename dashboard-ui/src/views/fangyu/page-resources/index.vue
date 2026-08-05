@@ -88,6 +88,7 @@
 import ArtButtonTable from '@/components/core/forms/art-button-table/index.vue'
 import { useTable } from '@/hooks/core/useTable'
 import { fetchGetPageResourceList, fetchCreatePageResource, fetchUpdatePageResource, fetchDeletePageResource, fetchGetPageResourceTemplates } from '@/api/page-resources'
+import { formatTime } from '@/utils/format'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 
@@ -130,7 +131,8 @@ const { columns, columnChecks, data, loading, pagination, getData, fetchData,
       { prop: 'content_type', label: 'Content-Type', width: 200, showOverflowTooltip: true },
       { prop: 'enabled', label: '启用', width: 70,
         formatter: (r: PageResource) => h('span', { class: r.enabled ? 'text-green-600' : 'text-gray-400' }, r.enabled ? '是' : '否') },
-      { prop: 'updated_at', label: '更新时间', width: 170 },
+      { prop: 'updated_at', label: '更新时间', width: 170,
+        formatter: (r: PageResource) => formatTime(r.updated_at) },
       { prop: 'operation', label: '操作', width: 120, fixed: 'right',
         formatter: (r: PageResource) => h('div', [
           h(ArtButtonTable, { type: 'edit', onClick: () => showDialog('edit', r) }),

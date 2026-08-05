@@ -51,10 +51,11 @@
 <script setup lang="ts">
   import { ElButton, ElMessage, ElMessageBox, ElTag } from 'element-plus'
   import ArtButtonMore, {
-    type ButtonMoreItem
+    type MoreBtnOperation
   } from '@/components/core/forms/art-button-more/index.vue'
   import { useTable } from '@/hooks/core/useTable'
   import { fetchDeleteUser, fetchGetUserList, fetchResetUserPassword } from '@/api/rbac'
+  import { formatTime } from '@/utils/format'
   import { USER_STATUS_OPTIONS, USER_STATUS_TAGS } from '@/constants/fangyu'
   import { DialogType } from '@/types'
   import UserSearch from './modules/user-search.vue'
@@ -114,7 +115,8 @@
           formatter: (row: User) =>
             h(ElTag, { type: USER_STATUS_TAGS[row.status] || 'info' }, () => statusLabel(row.status))
         },
-        { prop: 'created_at', label: '创建时间', width: 180 },
+        { prop: 'created_at', label: '创建时间', width: 180,
+          formatter: (row: User) => formatTime(row.created_at) },
         {
           prop: 'operation',
           label: '操作',

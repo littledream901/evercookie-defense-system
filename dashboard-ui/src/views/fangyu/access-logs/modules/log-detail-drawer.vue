@@ -307,7 +307,14 @@
 
   function fmtTime(raw?: string | null): string {
     if (!raw) return '-'
-    return raw.replace('T', ' ').replace(/\.\d+.*$/, '').replace('Z', '') || '-'
+    // ClickHouse 存的是 UTC，aiochclient 返回不带时区的 naive datetime，
+    // FastAPI 序列化后无 Z 后缀。若直接交给 new Date 会被当本地时区，
+    // 导致东八区多加 8 小时。这里强制补 Z 让浏览器按 UTC 解析。
+    const iso = /[zZ]|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : `${raw}Z`
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return raw
+    // 转换为本地时区，格式：2024/1/1 16:00:00
+    return d.toLocaleString('zh-CN', { hour12: false })
   }
 
   function scoreClass(score?: number | null): string {

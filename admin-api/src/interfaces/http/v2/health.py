@@ -6,7 +6,7 @@ from fangyu_shared.clickhouse_manager import ClickHouseManager
 from fangyu_shared.metrics import metrics_endpoint
 from fangyu_shared.redis_manager import RedisManager
 from fangyu_shared.schemas.common import HealthCheckResponse, SuccessResponse
-from fangyu_shared.utils.time import local_now
+from fangyu_shared.utils.time import utcnow
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy import text
 
@@ -26,7 +26,7 @@ async def healthz(
             service=settings.service_name,
             status="ok",
             version=settings.version,
-            checked_at=local_now(),
+            checked_at=utcnow(),
         )
     )
 
@@ -70,7 +70,7 @@ async def readyz(
             service=settings.service_name,
             status=overall,
             version=settings.version,
-            checked_at=local_now(),
+            checked_at=utcnow(),
             dependencies=deps,
         )
     )

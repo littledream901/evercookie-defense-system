@@ -45,11 +45,20 @@ export function shortText(text: string, maxLen = 30): string {
 /**
  * 将 ISO 时间字符串格式化为本地可读时间
  *
- * @example formatTime('2024-01-01T08:00:00Z')  // "2024/1/1 16:00:00"
+ * 后端统一以 UTC 存储并返回带 Z 后缀的 ISO 字符串（见 shared/schemas/common.py
+ * 的 BaseSchema 序列化器），浏览器会自动按用户本地时区展示。
+ *
+ * 对于历史遗留或异常数据（缺少时区标记的裸串），函数会兜底补 Z 按 UTC 解析，
+ * 避免在东八区被误当本地时间导致 8 小时偏移。
+ *
+ * @example formatTime('2024-01-01T08:00:00Z')  // "2024/1/1 16:00:00"（东八区）
  */
 export function formatTime(val: string | null | undefined): string {
   if (!val) return '-'
-  const d = new Date(val)
+  // 已带时区标记（Z / +08:00 / -05:00）时不动，否则兜底补 Z
+  const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(val)
+  const iso = hasTz ? val : `${val}Z`
+  const d = new Date(iso)
   if (isNaN(d.getTime())) return val
   return d.toLocaleString('zh-CN', { hour12: false })
 }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fangyu_shared.utils.time import local_now
+from fangyu_shared.utils.time import utcnow
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -111,7 +111,7 @@ class UserRepository:
         user = await self._session.get(UserModel, user_id)
         if user is None:
             return
-        user.last_login_at = local_now() if at is None else datetime.fromisoformat(at)
+        user.last_login_at = utcnow() if at is None else datetime.fromisoformat(at)
 
     async def get_role_ids(self, user_id: int) -> list[int]:
         stmt = select(UserRoleModel.role_id).where(UserRoleModel.user_id == user_id)

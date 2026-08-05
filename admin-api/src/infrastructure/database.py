@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fangyu_shared.utils.time import MYSQL_TIME_ZONE
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -33,11 +32,11 @@ class Database:
         pool_recycle: int = 3600,
         echo: bool = False,
     ) -> None:
-        # 固定会话时区，让 server_default=func.now() 与 Python 侧写入的时间一致。
+        # 固定会话时区为 UTC，与 ClickHouse、Python 侧 utcnow() 保持一致。
         # 不依赖 MySQL 实例的 global time_zone，换机器不会漂。
         connect_args: dict[str, object] = {}
         if url.startswith("mysql"):
-            connect_args["init_command"] = f"SET time_zone = '{MYSQL_TIME_ZONE}'"
+            connect_args["init_command"] = "SET time_zone = '+00:00'"
 
         cls._engine = create_async_engine(
             url,

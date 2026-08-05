@@ -8,7 +8,7 @@ from fangyu_shared.exceptions import (
 )
 from fangyu_shared.logging import get_logger
 from fangyu_shared.schemas.rule import DecisionRule, RuleKind, RuleStatus, ScoringRule
-from fangyu_shared.utils.time import local_now
+from fangyu_shared.utils.time import utcnow
 
 from src.domain.rule.state_machine import SYNCABLE_STATUSES, RuleStateMachine
 from src.domain.rule.version import RuleVersion
@@ -181,7 +181,7 @@ class RuleService:
             raise ResourceNotFoundException(f"规则不存在: {rule_id}")
         RuleStateMachine.ensure_transition(rule.status, RuleStatus.PUBLISHED)
         rule.status = RuleStatus.PUBLISHED
-        now = local_now()
+        now = utcnow()
         rule.published_at = now
         rule.version += 1
         updated = await self._repo.update(rule)

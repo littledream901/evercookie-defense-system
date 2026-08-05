@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from fangyu_shared.utils.time import local_now
+from fangyu_shared.utils.time import utcnow
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -82,7 +82,7 @@ class ThreatIntelRepository:
         page: int = 1,
         page_size: int = 100,
     ) -> tuple[list[ThreatIntelModel], int]:
-        now = local_now()
+        now = utcnow()
         base_where = and_(
             ThreatIntelModel.is_active == True,
             (ThreatIntelModel.expires_at == None) | (ThreatIntelModel.expires_at > now),
@@ -115,7 +115,7 @@ class ThreatIntelRepository:
         口径与 :meth:`list_active` 一致（排除已过期条目），使前端卡片显示的
         条数与列表实际可见条数对得上。
         """
-        now = local_now()
+        now = utcnow()
         rows = await self._session.execute(
             select(ThreatIntelModel.source, func.count())
             .where(
@@ -127,7 +127,7 @@ class ThreatIntelRepository:
         return {source: int(count) for source, count in rows.all()}
 
     async def list_all_active_ips(self) -> list[str]:
-        now = local_now()
+        now = utcnow()
         rows = await self._session.scalars(
             select(ThreatIntelModel.ip).where(
                 ThreatIntelModel.is_active == True,

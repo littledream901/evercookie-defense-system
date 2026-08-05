@@ -52,7 +52,9 @@
             <span :class="row.error_count > 0 ? 'text-red-500' : ''">{{ row.error_count }}</span>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="last_hit_at" label="最近命中" width="170" />
+        <ElTableColumn prop="last_hit_at" label="最后命中" width="170">
+          <template #default="{ row }">{{ formatTime(row.last_hit_at) }}</template>
+        </ElTableColumn>
       </ElTable>
       <div class="mt-2 text-xs text-g-500">
         近 24 小时，仅统计 target_kind=url_pool 的记录。占比可用于核对权重配置是否生效。
@@ -62,6 +64,7 @@
 </template>
 
 <script setup lang="ts">
+  import { formatTime } from '@/utils/format'
   import { fetchGetPoolDistribution } from '@/api/logs'
   import { fetchGetAppList } from '@/api/apps'
   import { recentRange } from '@/constants/fangyu'

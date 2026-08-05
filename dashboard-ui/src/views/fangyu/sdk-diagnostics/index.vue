@@ -267,14 +267,17 @@
 
   const fmt = (v: string | null) => {
     if (!v) return '—'
-    const d = new Date(v)
+    // ClickHouse 返回的 UTC 时间，强制补 Z 后缀让浏览器按 UTC 解析
+    const iso = /[zZ]|[+-]\d{2}:?\d{2}$/.test(v) ? v : `${v}Z`
+    const d = new Date(iso)
     return Number.isNaN(d.getTime()) ? v : d.toLocaleString('zh-CN', { hour12: false })
   }
 
   const lastSeenText = computed(() => {
     const last = data.value?.last_seen_at
     if (!last) return '窗口内无记录'
-    const diffMin = Math.floor((Date.now() - new Date(last).getTime()) / 60000)
+    const iso = /[zZ]|[+-]\d{2}:?\d{2}$/.test(last) ? last : `${last}Z`
+    const diffMin = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
     const rel = diffMin < 1 ? '刚刚' : diffMin < 60 ? `${diffMin} 分钟前` : `${Math.floor(diffMin / 60)} 小时前`
     return `${fmt(last)}（${rel}）`
   })
@@ -282,8 +285,9 @@
   // 超过 1 小时没有流量就标黄提醒：正常有量的站点不会这么久没记录
   const lastSeenStale = computed(() => {
     const last = data.value?.last_seen_at
-    if (!last) return true
-    return Date.now() - new Date(last).getTime() > 3600_000
+    if (!last) return false
+    const iso = /[zZ]|[+-]\d{2}:?\d{2}$/.test(last) ? last : `${last}Z`
+    return Date.now() - new Date(iso).getTime() > 3600_000
   })
 
   const pct = (part: number, whole: number) =>

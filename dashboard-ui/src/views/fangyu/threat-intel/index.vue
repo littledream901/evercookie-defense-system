@@ -457,6 +457,7 @@ import { ElMessage, ElMessageBox, ElTag } from 'element-plus'
 import IntelTabBase from './components/IntelTabBase.vue'
 import IntelSourceCard from './components/IntelSourceCard.vue'
 import type { FilterField } from './components/IntelTabBase.vue'
+import { formatTime } from '@/utils/format'
 import {
   fetchGetThreatIntelList,
   fetchAddThreatIntel,
@@ -535,7 +536,7 @@ const overviewCards = computed(() => [
   {
     label: '最后同步',
     value: overview.value?.last_sync_time
-      ? new Date(overview.value.last_sync_time).toLocaleString()
+      ? formatTime(overview.value.last_sync_time)
       : '未同步',
     desc: 'Redis 同步时间'
   }
@@ -775,7 +776,8 @@ const fingerprintColumns = [
   { prop: 'risk_score',  label: '风险分',    width: 80 },
   { prop: 'hit_count',   label: '命中次数',  width: 90 },
   { prop: 'source',      label: '来源',      width: 120 },
-  { prop: 'created_at',  label: '录入时间',  width: 160 },
+  { prop: 'created_at',  label: '录入时间',  width: 160,
+    formatter: (row: any) => formatTime(row.created_at) },
   { label: '操作', width: 80, fixed: 'right' as const, formatter: mkDeleteBtn('fingerprint', r => r.id) }
 ]
 

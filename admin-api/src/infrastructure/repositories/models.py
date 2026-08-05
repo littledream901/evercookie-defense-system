@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fangyu_shared.utils.time import local_now
+from fangyu_shared.utils.time import utcnow
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -139,7 +139,7 @@ class RuleSiteModel(Base):
     site_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("biz_application.id", ondelete="CASCADE"), nullable=False
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=local_now, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
 
 class RuleModel(Base, TimestampMixin):

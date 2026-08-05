@@ -30,6 +30,7 @@
 <script setup lang="ts">
   import { useTable } from '@/hooks/core/useTable'
   import { fetchGetPermissionList } from '@/api/rbac'
+  import { formatTime } from '@/utils/format'
   import PermissionDialog from './modules/permission-dialog.vue'
 
   defineOptions({ name: 'FangyuPermissions' })
@@ -42,7 +43,8 @@
       columnsFactory: () => [
         { prop: 'code', label: '权限码' },
         { prop: 'description', label: '描述' },
-        { prop: 'created_at', label: '创建时间' }
+        { prop: 'created_at', label: '创建时间',
+          formatter: (row: any) => formatTime(row.created_at) }
       ]
     }
   })

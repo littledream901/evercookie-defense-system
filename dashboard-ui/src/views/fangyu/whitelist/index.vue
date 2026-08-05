@@ -42,6 +42,7 @@
 <script setup lang="ts">
 import ArtButtonTable from '@/components/core/forms/art-button-table/index.vue'
 import { fetchGetWhitelistList, fetchAddWhitelistEntry, fetchDeleteWhitelistEntry, fetchDeleteAllWhitelist } from '@/api/whitelist'
+import { formatTime } from '@/utils/format'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import type { ColumnOption } from '@/types'
@@ -74,7 +75,8 @@ const columns = computed<ColumnOption<WhitelistEntry>[]>(() => [
   { prop: 'note', label: '备注', showOverflowTooltip: true },
   { prop: 'created_by', label: '创建人', width: 100,
     formatter: (r: WhitelistEntry) => r.created_by ?? '-' },
-  { prop: 'created_at', label: '创建时间', width: 170 },
+  { prop: 'created_at', label: '创建时间', width: 170,
+    formatter: (r: WhitelistEntry) => formatTime(r.created_at) },
   { prop: 'operation', label: '操作', width: 80, fixed: 'right',
     formatter: (r: WhitelistEntry) =>
       h(ArtButtonTable, { type: 'delete', onClick: () => deleteEntry(r) })
