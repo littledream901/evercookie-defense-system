@@ -51,6 +51,8 @@
     iconColor?: string
   }
 
+  export type MoreBtnOperation = ButtonMoreItem
+
   interface Props {
     /** 下拉项列表 */
     list: ButtonMoreItem[]

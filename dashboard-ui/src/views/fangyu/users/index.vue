@@ -51,7 +51,7 @@
 <script setup lang="ts">
   import { ElButton, ElMessage, ElMessageBox, ElTag } from 'element-plus'
   import ArtButtonMore, {
-    type MoreBtnOperation
+    type ButtonMoreItem
   } from '@/components/core/forms/art-button-more/index.vue'
   import { useTable } from '@/hooks/core/useTable'
   import { fetchDeleteUser, fetchGetUserList, fetchResetUserPassword } from '@/api/rbac'
