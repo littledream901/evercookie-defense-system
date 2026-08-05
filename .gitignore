@@ -16,6 +16,10 @@ htmlcov/
 .tox/
 .hypothesis/
 
+# 临时产物：适配器打包结果与一次性运维脚本，不入库
+adapters/fangyu-defense.zip
+migrate_clickhouse.py
+
 # 环境
 .env
 .env.local
