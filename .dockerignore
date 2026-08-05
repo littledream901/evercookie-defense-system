@@ -20,15 +20,18 @@
 .gitignore
 .github
 
-# 根目录的环境变量文件含明文口令，绝不进镜像。
-# 这些模式不带路径前缀，只匹配根目录，不影响 dashboard-ui/ 下的同名文件。
+# 根目录的环境变量文件含明文口令，需谨慎处理。
+# .env.production 是前端构建必需的（vite 读 VITE_* 变量），且只含公开配置，允许进镜像。
 /.env
-/.env.*
+/.env.local
+/.env.*.local
+/.env.development
 !/.env.example
 !/.env.production.example
+!/.env.production
 
-# dashboard-ui 的 .env.production 是构建期必需的（vite 在 production
-# mode 下读它取 VITE_* 变量），且不含密钥，必须保留在上下文内。
+# 注意：.env.production 会被 COPY 到镜像构建期，但不会留在最终运行时镜像中。
+# dashboard-ui 的多阶段构建只把 dist/ 产物拷到 runtime 阶段，.env 文件不会泄露。
 
 # 部署产物与日志
 deploy/.logs

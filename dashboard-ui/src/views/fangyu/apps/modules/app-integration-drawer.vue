@@ -12,7 +12,7 @@
     </ElAlert>
 
     <!-- 网关地址未配置时的警告 -->
-    <ElAlert v-if="isGatewayMissing" type="warning" :closable="false" class="mb-4" show-icon>
+    <ElAlert v-if="isGatewayMissing" type="warning" :closable="false" class="mb-6" show-icon>
       <template #title>网关地址未配置</template>
       <div class="text-sm">
         请在下方输入框填写实际的网关域名（如 <code>https://defense.yourdomain.com</code>），
@@ -339,9 +339,11 @@
   const activeTab = ref('nginx')
   
   // 网关地址优先级：应用配置 → 构建时环境变量 → 提示用户配置
-  // 不再硬编码 defense.example.com，避免用户误以为配置已生效
+  // 只有明确的示例域名才视为占位符，避免误判用户配置的真实域名
   const rawGatewayUrl = props.app?.gateway_url ?? import.meta.env.VITE_GATEWAY_URL
-  const isPlaceholder = !rawGatewayUrl || /example\.com/.test(rawGatewayUrl)
+  const isPlaceholder = !rawGatewayUrl || 
+    /^https?:\/\/(gateway|defense)\.example\.com/.test(rawGatewayUrl) ||
+    rawGatewayUrl.includes('yourdomain.com')
   
   const gatewayUrl = ref(
     isPlaceholder ? '' : rawGatewayUrl,

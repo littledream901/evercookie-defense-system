@@ -482,11 +482,18 @@ cmd_update() {
 
     local old_tag
     old_tag="$(read_env IMAGE_TAG unknown)"
+    log "当前版本：${old_tag}"
 
     # 1. 拉代码。.env.production 已在 .gitignore 中，无需备份还原。
+    local old_commit new_commit
+    old_commit="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
     if [ -d ".git" ]; then
-        if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
-            warn "工作区有未提交改动，跳过 git pull 以免冲突"
+        local dirty
+        dirty="$(git status --porcelain 2>/dev/null)"
+        if [ -n "$dirty" ]; then
+            warn "工作区有未提交改动，跳过 git pull 以免冲突。改动文件："
+            echo "$dirty" | sed 's/^/       /'
+            warn "如需强制拉取，先执行：git stash 或 git checkout -- <file>"
         else
             run_step "拉取最新代码（$GIT_BRANCH）" \
                 git pull --ff-only origin "$GIT_BRANCH" \
@@ -496,7 +503,12 @@ cmd_update() {
         warn "非 Git 仓库，跳过拉取代码"
     fi
 
-    log "当前提交：$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    new_commit="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    if [ "$old_commit" = "$new_commit" ]; then
+        log "当前提交：$new_commit（未变更）"
+    else
+        log "当前提交：$old_commit → $new_commit"
+    fi
 
     # 2. 版本号推进。tag 不变会导致回滚无法区分新旧镜像。
     local new_tag
