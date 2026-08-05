@@ -302,3 +302,86 @@ def test_render_pool_falls_back_to_next_on_bad_url() -> None:
 
 def test_render_pool_all_bad_returns_none() -> None:
     assert render_pool(["javascript:x", "data:text/html,x"], seed="r1") is None
+
+
+# ── {handle} 和 {path} 规范化 ──────────────────────────────────────────────────
+
+def test_render_handle_from_path() -> None:
+    """handle 是 path 最后一个非空路径片段。"""
+    out = render_target(
+        "https://example.com/products/{handle}",
+        visit_url="https://site.com/red-shoes",
+    )
+    assert out == "https://example.com/products/red-shoes"
+
+
+def test_render_handle_multi_level_path() -> None:
+    """多级路径时 handle 是最后一段。"""
+    out = render_target(
+        "https://example.com/{handle}",
+        visit_url="https://site.com/category/shoes/red-sneakers",
+    )
+    assert out == "https://example.com/red-sneakers"
+
+
+def test_render_path_normalized_no_trailing_slash() -> None:
+    """path 规范化：去除末尾斜杠（根路径除外）。"""
+    out = render_target(
+        "{path}",
+        visit_url="https://site.com/products/",
+    )
+    assert out == "/products"
+
+
+def test_render_path_root_keeps_slash() -> None:
+    """根路径保持为 /。"""
+    out = render_target(
+        "{path}",
+        visit_url="https://site.com/",
+    )
+    assert out == "/"
+
+
+def test_render_handle_empty_returns_none() -> None:
+    """当模板包含 {handle} 但 handle 为空时返回 None。"""
+    out = render_target(
+        "https://example.com/product/{handle}",
+        visit_url="https://site.com/",
+    )
+    assert out is None
+
+
+def test_render_handle_with_query_params() -> None:
+    """查询参数不影响 handle 提取。"""
+    out = render_target(
+        "https://example.com/{handle}",
+        visit_url="https://site.com/red-shoes?color=red&size=10",
+    )
+    assert out == "https://example.com/red-shoes"
+
+
+def test_render_handle_url_encoded() -> None:
+    """handle 中包含 URL 编码字符。"""
+    out = render_target(
+        "https://example.com/{handle}",
+        visit_url="https://site.com/red%20shoes",
+    )
+    assert out == "https://example.com/red%20shoes"
+
+
+def test_render_path_and_handle_together() -> None:
+    """path 和 handle 可以同时使用。"""
+    out = render_target(
+        "https://example.com{path}?item={handle}",
+        visit_url="https://site.com/category/red-shoes",
+    )
+    assert out == "https://example.com/category/red-shoes?item=red-shoes"
+
+
+def test_render_handle_hash_route() -> None:
+    """SPA hash 路由时从 fragment 提取 handle。"""
+    out = render_target(
+        "{handle}",
+        visit_url="https://site.com/#/products/red-shoes?id=1",
+    )
+    assert out == "red-shoes"

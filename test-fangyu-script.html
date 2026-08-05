@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fangyu 防护脚本测试页面</title>
+  
+  <!-- ========================================
+       Fangyu 防护脚本（可切换同步/异步模式）
+       默认不启用防护，需通过 ?mode=sync 或 ?mode=async 显式激活
+       ======================================== -->
+  <script>
+  // ===== 参数解析 =====
+  // 默认：不执行防护脚本（避免直接双击打开就被跳走）
+  // ?mode=sync   : 启用同步模式（阻塞式）
+  // ?mode=async  : 启用异步模式（页面先隐藏）
+  // ?delay=1500  : 异步模式下的模拟延迟毫秒数
+  // ?reset=1     : 清空所有存储后进入首页
+  var _params = new URLSearchParams(location.search);
+  
+  if(_params.get('reset') === '1'){
+    try{ sessionStorage.clear(); localStorage.clear(); }catch(e){}
+    // 清 cookie
+    document.cookie.split(';').forEach(function(c){
+      var eq=c.indexOf('=');
+      var name=eq>-1?c.substr(0,eq).trim():c.trim();
+      document.cookie=name+'=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+    });
+    // 清空后跳回首页（无参数 = 默认安全模式）
+    location.replace(location.pathname);
+  }
+  
+  // 只有明确指定 mode 参数时才启用防护脚本
+  var MODE = _params.get('mode') || '';
+  var GUARD_ENABLED = (MODE === 'sync' || MODE === 'async');
+  var SIMULATE_DELAY = parseInt(_params.get('delay') || '0', 10);
+  
+  if(!GUARD_ENABLED){
+    console.log('%c�️ 防护脚本未启用（默认安全模式）', 'color: #6EE7B7; font-weight: bold; font-size: 14px;');
+    console.log('%c点击页面上的按钮或在 URL 添加 ?mode=sync / ?mode=async 启用防护', 'color: #B4C6FC;');
+  }
+  
+  !function(){
+    // 未启用防护，直接返回，不发请求也不读缓存
+    if(!GUARD_ENABLED) return;
+    
+    var allowed=false,cache=null;
+    try{cache=JSON.parse(sessionStorage.getItem("_fc")||"null")}catch(e){}
+
+    if(cache&&cache.e>Date.now()){
+      if(cache.m==="pass") allowed=true;
+      else if(cache.m==="redirect"&&cache.u) return location.replace(cache.u);
+      else if(cache.m==="deny"){
+        document.documentElement.innerHTML='<body style="margin:0"><div style="text-align:center;padding:100px;font:14px sans-serif"><h1>403 Forbidden</h1></div></body>';
+        return;
+      }
+    }
+
+    if(!allowed){
+      var ck=document.cookie.match(/_sd_0000=([^;]+)/),fp="";
+      if(ck) fp=decodeURIComponent(ck[1]);
+      else{
+        var ua=navigator.userAgent||"",lang=(navigator.language||"").slice(0,5),scr=screen.width+"x"+screen.height;
+        fp="lite:"+function(s){for(var h=0,i=0;i<s.length;i++){var c=s.charCodeAt(i);h=(h<<5)-h+c;h|=0}return(h>>>0).toString(36)}(ua+"|"+scr+"|"+lang);
+      }
+
+      var xhr=new XMLHttpRequest;
+      var isAsync = (MODE === 'async');
+      
+      // ===== 异步模式：页面先隐藏 =====
+      if(isAsync){
+        var hideStyle=document.createElement("style");
+        hideStyle.id="_fh";
+        hideStyle.textContent="html{visibility:hidden!important}";
+        (document.head||document.documentElement).appendChild(hideStyle);
+        console.log('🔒 [ASYNC] 页面已隐藏，等待决策响应...');
+        
+        // 6秒兜底：防止网络问题导致永久空白
+        var fallbackTimer = setTimeout(function(){
+          var s=document.getElementById("_fh");
+          if(s) s.remove();
+          console.log('⏱️ [ASYNC] 超时兜底，强制显示页面');
+        }, 6000);
+      }
+      
+      try{
+        xhr.open("POST","https://gateway.foxfingerlab.com/v2/decide",isAsync);
+        xhr.setRequestHeader("Content-Type","application/json");
+        xhr.setRequestHeader("X-App-Key","site_eba8689a");
+        
+        // ===== 异步模式的回调 =====
+        if(isAsync){
+          xhr.onload = function(){
+            console.log('📥 [ASYNC] 收到响应，状态码: ' + xhr.status);
+            
+            // 模拟网络延迟
+            setTimeout(function(){
+              if(xhr.status===200){
+                var data;
+                try{data=JSON.parse(xhr.responseText);data=data.data||data}catch(e){allowed=true}
+                if(data){
+                  if(data.mechanism&&data.ttlSeconds>0){
+                    try{sessionStorage.setItem("_fc",JSON.stringify({m:data.mechanism,u:data.targetUrl,e:Date.now()+Math.min(data.ttlSeconds*1000,300000)}))}catch(e){}
+                  }
+                  if(data.mechanism==="redirect"&&data.targetUrl){
+                    console.log('🔀 [ASYNC] 执行 redirect');
+                    clearTimeout(fallbackTimer);
+                    return location.replace(data.targetUrl);
+                  }
+                  if(data.mechanism==="deny"){
+                    console.log('🚫 [ASYNC] 执行 deny');
+                    clearTimeout(fallbackTimer);
+                    document.documentElement.innerHTML='<body style="margin:0"><div style="text-align:center;padding:100px;font:14px sans-serif"><h1>403 Forbidden</h1></div></body>';
+                    return;
+                  }
+                  if(data.mechanism==="pass") allowed=true;
+                }
+              }else allowed=true;
+              
+              // 显示页面
+              clearTimeout(fallbackTimer);
+              var s=document.getElementById("_fh");
+              if(s) s.remove();
+              console.log('✅ [ASYNC] 决策完成，显示页面 (allowed=' + allowed + ')');
+            }, SIMULATE_DELAY);
+          };
+          
+          xhr.onerror = function(){
+            console.log('❌ [ASYNC] 请求失败，默认放行');
+            clearTimeout(fallbackTimer);
+            var s=document.getElementById("_fh");
+            if(s) s.remove();
+          };
+          
+          xhr.ontimeout = function(){
+            console.log('⏱️ [ASYNC] 请求超时，默认放行');
+            clearTimeout(fallbackTimer);
+            var s=document.getElementById("_fh");
+            if(s) s.remove();
+          };
+        }
+        
+        xhr.send(JSON.stringify({context:{appId:1,ingress:"sdk",fingerprint:fp,userAgent:navigator.userAgent,visitUrl:location.href,path:location.pathname,method:"GET",clientLanguage:navigator.language||null,repeatKey:"_sd_0000",repeatValue:fp}}));
+        
+        // ===== 同步模式：阻塞直到响应 =====
+        if(!isAsync){
+          console.log('⏳ [SYNC] 阻塞等待决策响应...');
+          if(xhr.status===200){
+            var data;
+            try{data=JSON.parse(xhr.responseText);data=data.data||data}catch(e){allowed=true}
+            if(data){
+              if(data.mechanism&&data.ttlSeconds>0){
+                try{sessionStorage.setItem("_fc",JSON.stringify({m:data.mechanism,u:data.targetUrl,e:Date.now()+Math.min(data.ttlSeconds*1000,300000)}))}catch(e){}
+              }
+              if(data.mechanism==="redirect"&&data.targetUrl){
+                console.log('🔀 [SYNC] 执行 redirect');
+                return location.replace(data.targetUrl);
+              }
+              if(data.mechanism==="deny"){
+                console.log('🚫 [SYNC] 执行 deny');
+                document.documentElement.innerHTML='<body style="margin:0"><div style="text-align:center;padding:100px;font:14px sans-serif"><h1>403 Forbidden</h1></div></body>';
+                return;
+              }
+              if(data.mechanism==="pass") allowed=true;
+            }
+          }else allowed=true;
+          console.log('✅ [SYNC] 决策完成 (allowed=' + allowed + ')');
+        }
+      }catch(e){
+        console.log('❌ 异常: ' + e.message);
+        allowed=true;
+        if(isAsync){
+          var s=document.getElementById("_fh");
+          if(s) s.remove();
+        }
+      }
+    }
+
+    // ===== 同步模式且未通过：延迟隐藏（演示用） =====
+    if(!allowed && MODE === 'sync'){
+      var s=document.createElement("style");
+      s.id="_fh";
+      s.textContent="html{visibility:hidden!important}";
+      (document.head||document.documentElement).appendChild(s);
+      setTimeout(function(){var e=document.getElementById("_fh");e&&e.remove()},6000);
+      console.log('🔒 [SYNC] 决策未通过，隐藏页面');
+    }
+  }();
+  </script>
+  
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: linear-gradient(135deg, #0A0D12 0%, #161D2B 100%);
+      color: #E0E7FF;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: #0F131C;
+      border-radius: 16px;
+      padding: 40px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+    h1 {
+      color: #3B6DFF;
+      font-size: clamp(24px, 5vw, 36px);
+      margin-bottom: 16px;
+      letter-spacing: -0.02em;
+    }
+    .status {
+      display: inline-block;
+      padding: 8px 16px;
+      background: rgba(110, 231, 183, 0.15);
+      color: #6EE7B7;
+      border-radius: 999px;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 32px;
+    }
+    .section {
+      margin-top: 32px;
+      padding: 24px;
+      background: rgba(59, 109, 255, 0.05);
+      border-left: 3px solid #3B6DFF;
+      border-radius: 8px;
+    }
+    .section h2 {
+      color: #3B6DFF;
+      font-size: 18px;
+      margin-bottom: 12px;
+    }
+    .section p {
+      line-height: 1.8;
+      color: #B4C6FC;
+    }
+    .btn {
+      display: inline-block;
+      margin-top: 16px;
+      padding: 12px 24px;
+      background: #3B6DFF;
+      color: white;
+      border: none;
+      border-radius: 999px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn:hover {
+      background: #5B8DFF;
+      transform: translateY(-1px);
+    }
+    code {
+      background: rgba(59, 109, 255, 0.2);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      color: #6EE7B7;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🛡️ Fangyu 防护脚本测试</h1>
+    <div class="status" id="page-status">✅ 页面已加载 - 防护脚本运行中</div>
+    
+    <!-- 默认安全模式提示 -->
+    <div id="debug-notice" style="display:none; margin: 16px 0; padding: 16px; background: rgba(110, 231, 183, 0.15); border-left: 3px solid #6EE7B7; border-radius: 8px;">
+      <strong style="color: #6EE7B7;">�️ 默认安全模式</strong>
+      <p style="margin: 8px 0 0 0; color: #B4C6FC; font-size: 14px;">
+        当前未启用防护脚本，页面可正常浏览与操作。点击下方的模式按钮启用不同的防护策略进行测试。
+      </p>
+    </div>
+    
+    <div class="section">
+      <h2>🎛️ 当前模式</h2>
+      <p id="current-mode" style="font-size: 16px; font-weight: 600;"></p>
+    </div>
+    
+    <div class="section">
+      <h2>📋 测试说明</h2>
+      <p>
+        本页面集成了完整的 Fangyu 防护脚本，包含增强的调试功能。
+        右上角的调试面板会实时显示防护脚本的执行流程和决策结果。
+      </p>
+    </div>
+    
+    <div class="section">
+      <h2>🔍 观察要点</h2>
+      <p>
+        <strong>1. 初始状态：</strong> 页面应该被 <code>display:none</code> 隐藏<br>
+        <strong>2. 决策请求：</strong> 查看 Network 面板中的 <code>/v2/decide</code> 请求<br>
+        <strong>3. 放行时机：</strong> 观察页面何时变为可见<br>
+        <strong>4. 错误处理：</strong> 断网或 API 失败时的行为
+      </p>
+    </div>
+    
+    <div class="section">
+      <h2>🧪 测试场景</h2>
+      <p>
+        <strong>场景 1 - 正常访问：</strong> 查看是否收到决策响应并正确执行<br>
+        <strong>场景 2 - 网络失败：</strong> 开发者工具 Network 中勾选 "Offline" 后刷新<br>
+        <strong>场景 3 - 缓存命中：</strong> 刷新页面，观察是否使用本地缓存决策<br>
+        <strong>场景 4 - 超时测试：</strong> 使用 Network throttling 模拟慢速网络
+      </p>
+      <button class="btn" onclick="location.href='?reset=1'">� 清空所有缓存并重置</button>
+      <button class="btn" onclick="location.href=location.pathname">🏠 返回安全模式</button>
+      <button class="btn" onclick="sessionStorage.clear(); location.reload()">🗑️ 清除缓存并重载</button>
+      <button class="btn" onclick="sessionStorage.clear(); location.href='?mode=sync'">⚡ 同步模式（阻塞）</button>
+      <button class="btn" onclick="sessionStorage.clear(); location.href='?mode=async&delay=0'">🌐 异步模式</button>
+      <button class="btn" onclick="sessionStorage.clear(); location.href='?mode=async&delay=1500'">⏳ 异步 + 1.5秒延迟</button>
+      <button class="btn" onclick="sessionStorage.clear(); location.href='?mode=async&delay=3000'">🐢 异步 + 3秒延迟</button>
+    </div>
+    
+    <div class="section">
+      <h2>📊 当前环境信息</h2>
+      <p>
+        <strong>User Agent:</strong> <code id="ua"></code><br>
+        <strong>Screen:</strong> <code id="screen"></code><br>
+        <strong>Language:</strong> <code id="lang"></code><br>
+        <strong>URL:</strong> <code id="url"></code>
+      </p>
+    </div>
+  </div>
+  
+  <script>
+    // 显示环境信息
+    document.getElementById('ua').textContent = navigator.userAgent.substring(0, 80) + '...';
+    document.getElementById('screen').textContent = screen.width + 'x' + screen.height;
+    document.getElementById('lang').textContent = navigator.language;
+    document.getElementById('url').textContent = location.href;
+    
+    // 显示当前模式
+    var params = new URLSearchParams(location.search);
+    var mode = params.get('mode') || '';
+    var delay = params.get('delay') || '0';
+    var modeText = '';
+    
+    // 未启用防护（默认）
+    if(!mode || (mode !== 'sync' && mode !== 'async')){
+      document.getElementById('debug-notice').style.display = 'block';
+      modeText = '�️ <strong style="color: #6EE7B7;">默认安全模式（防护未启用）</strong><br>' +
+                 '<span style="color: #B4C6FC; font-size: 14px;">• 没有执行决策请求，也没有读取缓存<br>' +
+                 '• 页面可以正常浏览，不会被跳转、拦截或隐藏<br>' +
+                 '• 点击下方按钮切换到对应测试模式</span>';
+    } else if(mode === 'sync'){
+      modeText = '⚡ <strong style="color: #3B6DFF;">同步模式（Synchronous XHR）</strong><br>' +
+                 '<span style="color: #B4C6FC; font-size: 14px;">• 阻塞式请求，浏览器等待决策返回后才继续渲染<br>' +
+                 '• 页面不会出现"白屏闪烁"，但浏览器会提示同步 XHR 已废弃<br>' +
+                 '• 适合生产环境，确保防护逻辑在页面加载前完成</span>';
+    } else {
+      modeText = '🌐 <strong style="color: #6EE7B7;">异步模式（Asynchronous XHR）</strong><br>' +
+                 '<span style="color: #B4C6FC; font-size: 14px;">• 非阻塞式请求，页面先隐藏（visibility:hidden），等决策返回后显示<br>' +
+                 '• 模拟网络延迟: <strong>' + (delay === '0' ? '无延迟' : delay + 'ms') + '</strong><br>' +
+                 '• 打开控制台可观察页面从隐藏到显示的过程<br>' +
+                 '• 6 秒兜底机制：若请求超时，自动显示页面避免永久空白</span>';
+    }
+    
+    document.getElementById('current-mode').innerHTML = modeText;
+  </script>
+</body>
+</html>

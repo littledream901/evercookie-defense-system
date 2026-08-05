@@ -277,7 +277,7 @@
                         <div style="max-width:300px;font-size:12px;line-height:1.8">
                           {ip} {ip_enc} {fingerprint} {country} {score} {score_int} {verdict}<br>
                           {connection_type} {is_vpn} {is_proxy} {ua_enc} {referer_enc}<br>
-                          {url} {url_enc} {scheme} {host} {path} {query} {app_id} {request_id}
+                          {url} {url_enc} {scheme} {host} {path} {handle} {query} {app_id} {request_id}
                         </div>
                       </template>
                       <span class="text-xs cursor-help" style="color:#409eff">变量</span>

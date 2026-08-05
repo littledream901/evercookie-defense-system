@@ -56,9 +56,18 @@ def render_target(
 
     请求维度
     --------
-    ``{scheme}`` ``{host}`` ``{path}`` ``{query}`` ``{url}``
+    ``{scheme}`` ``{host}`` ``{path}`` ``{handle}`` ``{query}`` ``{url}``
     ``{url_enc}``（URL 编码的完整地址，适合做 redirect back 参数）
     ``{app_id}`` ``{request_id}`` ``{ts}``（Unix 秒级时间戳）
+
+    - ``{path}``：URL 路径（不含 query），始终以 ``/`` 开头且不以 ``/`` 结尾
+      （根路径 ``/`` 除外）。如 ``https://site.com/products/red-shoes``
+      → ``/products/red-shoes``；``https://site.com/products/`` → ``/products``。
+    - ``{handle}``：``{path}`` 最后一个非空路径片段，不含 ``/``。用于把访客当前
+      浏览的资源标识透传到跳转目标（如商品 slug）。示例：
+      ``https://site.com/products/red-shoes`` → ``red-shoes``。
+      当模板包含 ``{handle}`` 但 handle 为空时（如访问根路径），返回 ``None``
+      表示放弃跳转，避免生成 ``https://target.com/products/`` 这样残缺的地址。
 
     访客画像维度
     ------------
@@ -91,6 +100,17 @@ def render_target(
     # SPA hash 路由：#/foo?a=1 时真实路径在 fragment 里
     if path == "/" and parsed.fragment.startswith("/"):
         path = parsed.fragment.split("?", 1)[0] or "/"
+    
+    # 规范化 {path}：去除末尾 /（根路径除外）
+    if path != "/" and path.endswith("/"):
+        path = path.rstrip("/")
+    
+    # 提取 {handle}：最后一个非空路径片段
+    handle = ""
+    if path and path != "/":
+        segments = [s for s in path.split("/") if s]
+        if segments:
+            handle = segments[-1]
 
     score_str = str(score) if score != "" else ""
     try:
@@ -98,11 +118,16 @@ def render_target(
     except (ValueError, TypeError):
         score_int_str = ""
 
+    # 当模板包含 {handle} 但 handle 为空时，跳过跳转
+    if "{handle}" in cleaned and not handle:
+        return None
+    
     replacements = {
         # 请求维度
         "{scheme}":        parsed.scheme,
         "{host}":          parsed.netloc,
         "{path}":          path,
+        "{handle}":        handle,
         "{query}":         f"?{parsed.query}" if parsed.query else "",
         "{url}":           visit_url or "",
         "{url_enc}":       urlquote(visit_url or "", safe=""),

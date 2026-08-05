@@ -366,7 +366,8 @@
   const REDIRECT_VARS = [
     { ph: '{url}',             desc: '访客原始 URL（明文）' },
     { ph: '{url_enc}',         desc: '访客原始 URL（URL 编码），适合做 redirect-back 参数' },
-    { ph: '{path}',            desc: 'URL 路径（不含 query）' },
+    { ph: '{path}',            desc: 'URL 路径（不含 query），如 /products/red-shoes' },
+    { ph: '{handle}',          desc: '路径最后一段（不含 /），如 red-shoes，用于透传资源标识' },
     { ph: '{query}',           desc: 'query 字符串（含前缀 ?）' },
     { ph: '{scheme}',          desc: '协议 http / https' },
     { ph: '{host}',            desc: '域名+端口' },
