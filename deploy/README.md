@@ -117,21 +117,18 @@ bash deploy/scripts/gen-secrets.sh    # 自动生成随机口令
 chmod 600 .env.production
 ```
 
-`gen-secrets.sh` 只填充口令类占位符，以下三项必须手工改：
+`gen-secrets.sh` 只填充口令类占位符，以下四项必须手工改：
 
 ```bash
+GATEWAY_DOMAIN=https://defense.yourdomain.com
 ADMIN_CORS_ORIGINS=["https://admin.yourdomain.com"]
 GATEWAY_CORS_ORIGINS=["https://www.yourdomain.com"]
 IMAGE_TAG=v2.0.0
 ```
 
+`GATEWAY_DOMAIN` 是决策网关的对外访问地址，管理后台"接入指引"抽屉里生成的所有代码片段都基于该值。`deploy.sh` 会在部署时自动把它同步写入 `dashboard-ui/.env.production` 的 `VITE_GATEWAY_URL`，无需再单独维护前端配置。
+
 `*_CORS_ORIGINS` 是 pydantic 的 `list[str]`，**必须写 JSON 数组**。写成逗号分隔字符串会让服务启动时解析失败直接崩溃。
-
-同时修改前端生产配置 `dashboard-ui/.env.production`：
-
-```bash
-VITE_GATEWAY_URL = https://defense.yourdomain.com
-```
 
 `VITE_API_URL` 保持 `/` 不要改——前端与 admin-api 同源，由 UI 容器内 Nginx 反代。
 
@@ -162,7 +159,7 @@ bash deploy/deploy.sh init
 | 占位符 | 说明 |
 |---|---|
 | `{{ADMIN_DOMAIN}}` | 后台域名 |
-| `{{GATEWAY_DOMAIN}}` | 网关域名，须与 `VITE_GATEWAY_URL` 一致 |
+| `{{GATEWAY_DOMAIN}}` | 网关域名，须与 `.env.production` 的 `GATEWAY_DOMAIN` 一致 |
 | `{{UI_PORT}}` | `UI_PUBLISH_PORT`，默认 8080 |
 | `{{GATEWAY_PORT}}` | `GATEWAY_PUBLISH_PORT`，默认 8000 |
 | `{{OFFICE_CIDR}}` | 允许访问后台的办公网段 |

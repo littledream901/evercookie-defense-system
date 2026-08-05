@@ -249,6 +249,19 @@ else
     bad "缺少 $COMPOSE_FILE"
 fi
 
+# 网关域名权威源：.env.production 的 GATEWAY_DOMAIN。
+# 前端 .env.production 由 deploy.sh 从这里同步，UI 侧值必须与之一致。
+if [[ -f "$ENV_FILE" ]]; then
+    GW_DOMAIN="$(grep -oP '^GATEWAY_DOMAIN=\K.*' "$ENV_FILE" 2>/dev/null | tr -d '"' | sed 's|/$||')"
+    if [[ -z "$GW_DOMAIN" ]]; then
+        bad ".env.production 缺少 GATEWAY_DOMAIN，前端接入指引将显示占位地址"
+    elif echo "$GW_DOMAIN" | grep -q 'example\.com'; then
+        bad "GATEWAY_DOMAIN 仍是示例值 ($GW_DOMAIN)，请改为实际网关域名"
+    else
+        ok "GATEWAY_DOMAIN=$GW_DOMAIN"
+    fi
+fi
+
 # 前端生产配置：Mock 地址混入生产是最容易漏的一项
 UI_ENV="$REPO_ROOT/dashboard-ui/.env.production"
 if [[ -f "$UI_ENV" ]]; then
@@ -259,8 +272,21 @@ if [[ -f "$UI_ENV" ]]; then
     fi
     if grep -q 'defense.example.com\|example.com' "$UI_ENV"; then
         bad "dashboard-ui/.env.production 的 VITE_GATEWAY_URL 仍是示例域名"
+        echo "         修复：编辑 .env.production 设 GATEWAY_DOMAIN，再重跑 deploy.sh"
     else
         ok "VITE_GATEWAY_URL 已替换为实际域名"
+    fi
+
+    # 交叉校验：UI 侧值必须与后端 GATEWAY_DOMAIN 完全一致，否则说明
+    # 之前跳过了 sync_gateway_url_to_ui 或有人手工改过一边没改另一边
+    if [[ -n "${GW_DOMAIN:-}" ]] && ! echo "$GW_DOMAIN" | grep -q 'example\.com'; then
+        UI_GW="$(grep -oP '^VITE_GATEWAY_URL\s*=\s*\K.*' "$UI_ENV" 2>/dev/null | tr -d '"' | sed 's|/$||' | xargs)"
+        if [[ "$UI_GW" != "$GW_DOMAIN" ]]; then
+            bad "VITE_GATEWAY_URL ($UI_GW) 与 GATEWAY_DOMAIN ($GW_DOMAIN) 不一致"
+            echo "         修复：重跑 deploy.sh init 或手工同步两处"
+        else
+            ok "前后端网关地址一致"
+        fi
     fi
 else
     bad "缺少 dashboard-ui/.env.production"

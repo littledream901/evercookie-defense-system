@@ -11,10 +11,23 @@
       以下代码已自动填入当前站点的 Site ID 与 App Secret。
     </ElAlert>
 
+    <!-- 网关地址未配置时的警告 -->
+    <ElAlert v-if="isGatewayMissing" type="warning" :closable="false" class="mb-4" show-icon>
+      <template #title>网关地址未配置</template>
+      <div class="text-sm">
+        请在下方输入框填写实际的网关域名（如 <code>https://defense.yourdomain.com</code>），
+        或联系运维在服务器 <code>.env.production</code> 中设置 <code>GATEWAY_DOMAIN</code> 后重新部署。
+      </div>
+    </ElAlert>
+
     <!-- 网关地址（用户可改） -->
     <div class="flex items-center gap-2 mb-4">
       <span class="text-sm text-g-600 whitespace-nowrap">网关地址</span>
-      <ElInput v-model="gatewayUrl" placeholder="https://defense.example.com" />
+      <ElInput
+        v-model="gatewayUrl"
+        placeholder="https://gateway.yourdomain.com"
+        :class="{ 'border-warning': isGatewayMissing }"
+      />
     </div>
 
     <ElTabs v-model="activeTab">
@@ -324,15 +337,20 @@
   })
 
   const activeTab = ref('nginx')
+  
+  // 网关地址优先级：应用配置 → 构建时环境变量 → 提示用户配置
+  // 不再硬编码 defense.example.com，避免用户误以为配置已生效
+  const rawGatewayUrl = props.app?.gateway_url ?? import.meta.env.VITE_GATEWAY_URL
+  const isPlaceholder = !rawGatewayUrl || /example\.com/.test(rawGatewayUrl)
+  
   const gatewayUrl = ref(
-    props.app?.gateway_url
-    ?? import.meta.env.VITE_GATEWAY_URL
-    ?? 'https://defense.example.com',
+    isPlaceholder ? '' : rawGatewayUrl,
   )
 
   const siteId = computed(() => props.app?.site_id ?? 'YOUR_SITE_ID')
   const appSecret = computed(() => props.app?.app_secret ?? 'YOUR_APP_SECRET')
   const gw = computed(() => gatewayUrl.value.replace(/\/$/, ''))
+  const isGatewayMissing = computed(() => !gatewayUrl.value.trim())
   // SDK 的 appId 要的是数字主键（Site.id），不是 site_id 那个 site_<hex8> 字符串。
   // 两者用途不同：site_id 走 X-App-Key header 做身份识别，id 是租户维度。
   const numericAppId = computed(() => props.app?.id ?? 0)
@@ -422,24 +440,60 @@ define('FANGYU_APP_SECRET',  '${appSecret.value}');`)
   });
 <\/script>`)
 
-  const shopifyCode = computed(() => `<head>
-  <meta charset="utf-8">
-
-  {%- comment -%}Fangyu 防护（兼容所有浏览器，首次访问 ~150ms 白屏）{%- endcomment -%}
-  <style id="_fh">html{visibility:hidden!important;opacity:0!important}</style>
-  <script>
-!function(){function e(e){var t=document.getElementById("_fh");t&&t.remove(),document.documentElement.style.cssText="visibility:visible!important;opacity:1!important",e&&setTimeout(e,0)}var t="_fr",n=sessionStorage.getItem(t);if(n===location.href)return sessionStorage.removeItem(t),void e();var o=null;try{o=JSON.parse(sessionStorage.getItem("_fc")||"null")}catch(e){}if(o&&o.e>Date.now()){if("redirect"===o.m&&o.u)return sessionStorage.setItem(t,location.href),void location.replace(o.u);if("pass"===o.m)return void e()}var r=document.cookie.match(/_sd_0000=([^;]+)/),i="";if(r)i=decodeURIComponent(r[1]);else{var a=navigator.userAgent||"unknown",c=(navigator.language||"en").slice(0,5),s=screen.width+"x"+screen.height;i="lite:"+function(e){for(var t=0,n=0;n<e.length;n++){var o=e.charCodeAt(n);t=(t<<5)-t+o,t|=0}return(t>>>0).toString(36)}(a+"|"+s+"|"+c)}var u=new XMLHttpRequest;u.open("POST","${gw.value}/v2/decide",!0),u.timeout=5e3,u.setRequestHeader("Content-Type","application/json"),u.setRequestHeader("X-App-Key","${siteId.value}"),u.onload=function(){if(e(),200===u.status)try{var n=JSON.parse(u.responseText),o=n.data||n;if(o.mechanism&&o.ttlSeconds>0&&sessionStorage.setItem("_fc",JSON.stringify({m:o.mechanism,u:o.targetUrl,e:Date.now()+Math.min(1e3*o.ttlSeconds,3e5)})),"redirect"===o.mechanism&&o.targetUrl)return sessionStorage.setItem(t,location.href),void location.replace(o.targetUrl);if("deny"===o.mechanism)return void(document.body.innerHTML='<div style="text-align:center;padding:100px;font:14px sans-serif"><h1>403 Forbidden</h1></div>')}catch(e){}},u.onerror=u.ontimeout=function(){e()},u.send(JSON.stringify({context:{appId:${numericAppId.value},ingress:"sdk",fingerprint:i,userAgent:navigator.userAgent,visitUrl:location.href,path:location.pathname,method:"GET",clientLanguage:navigator.language||null,repeatKey:"_sd_0000",repeatValue:i}}))}();
-  <\/script>
-  <script src="${gw.value}/sdk/sd-sdk.min.js" defer><\/script>
-  <script>
-document.addEventListener('DOMContentLoaded',function(){if(typeof SdSdk!=='undefined'){SdSdk.protect({apiBase:'${gw.value}',apiKey:'${siteId.value}',appId:${numericAppId.value},collectBehavior:true})}});
-  <\/script>
-
-  {%- if settings.favicon != blank -%}
-    <link rel="icon" type="image/png" href="${LIQUID_FAVICON}">
-  {%- endif -%}
+  const shopifyCode = computed(() => `<script>
+!function(){
+  var allowed=false,cache=null;
+  try{cache=JSON.parse(sessionStorage.getItem("_fc")||"null")}catch(e){}
   
-  <!-- 后续原有代码保持不变 -->`)
+  if(cache&&cache.e>Date.now()){
+    if(cache.m==="pass") allowed=true;
+    else if(cache.m==="redirect"&&cache.u) return location.replace(cache.u);
+    else if(cache.m==="deny"){
+      document.open();
+      document.write("<!DOCTYPE html><html><body style=margin:0><div style=text-align:center;padding:100px;font:14px sans-serif><h1>403 Forbidden</h1></div></body></html>");
+      document.close();
+      return;
+    }
+  }
+  
+  if(!allowed){
+    var ck=document.cookie.match(/_sd_0000=([^;]+)/),fp="";
+    if(ck) fp=decodeURIComponent(ck[1]);
+    else{
+      var ua=navigator.userAgent||"",lang=(navigator.language||"").slice(0,5),scr=screen.width+"x"+screen.height;
+      fp="lite:"+function(s){for(var h=0,i=0;i<s.length;i++){var c=s.charCodeAt(i);h=(h<<5)-h+c;h|=0}return(h>>>0).toString(36)}(ua+"|"+scr+"|"+lang);
+    }
+    
+    var xhr=new XMLHttpRequest;
+    try{
+      xhr.open("POST","${gw.value}/v2/decide",false);
+      xhr.setRequestHeader("Content-Type","application/json");
+      xhr.setRequestHeader("X-App-Key","${siteId.value}");
+      xhr.send(JSON.stringify({context:{appId:${numericAppId.value},ingress:"sdk",fingerprint:fp,userAgent:navigator.userAgent,visitUrl:location.href,path:location.pathname,method:"GET",clientLanguage:navigator.language||null,repeatKey:"_sd_0000",repeatValue:fp}}));
+      
+      if(xhr.status===200){
+        var data;
+        try{data=JSON.parse(xhr.responseText);data=data.data||data}catch(e){allowed=true}
+        if(data){
+          if(data.mechanism&&data.ttlSeconds>0){
+            try{sessionStorage.setItem("_fc",JSON.stringify({m:data.mechanism,u:data.targetUrl,e:Date.now()+Math.min(data.ttlSeconds*1000,300000)}))}catch(e){}
+          }
+          if(data.mechanism==="redirect"&&data.targetUrl) return location.replace(data.targetUrl);
+          if(data.mechanism==="deny"){
+            document.open();
+            document.write("<!DOCTYPE html><html><body style=margin:0><div style=text-align:center;padding:100px;font:14px sans-serif><h1>403 Forbidden</h1></div></body></html>");
+            document.close();
+            return;
+          }
+          if(data.mechanism==="pass") allowed=true;
+        }
+      }else allowed=true;
+    }catch(e){allowed=true}
+  }
+  
+  if(!allowed) document.write("<style id=_fh>html{visibility:hidden!important}</style><script>setTimeout(function(){var e=document.getElementById('_fh');e&&e.remove()},6000)<\/script>");
+}();
+<\/script>`)
 
   const curlCode = computed(() => `curl -X POST ${gw.value}/v2/decide \\
   -H "Content-Type" application/json" \\

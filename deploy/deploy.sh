@@ -304,18 +304,39 @@ prepare_env_file() {
     bash "$SCRIPTS_DIR/gen-secrets.sh" || err "生成凭据失败"
 }
 
+# 从 .env.production 的 GATEWAY_DOMAIN 同步到前端 .env.production
+# 两处配置分裂是"部署后 UI 显示 defense.example.com"的根因，这里统一处理
+sync_gateway_url_to_ui() {
+    [ -f "$ENV_FILE" ] || return 0
+    [ -f "$UI_ENV_FILE" ] || return 0
+
+    local gateway_url
+    gateway_url="$(grep -oP '^GATEWAY_DOMAIN=\K.*' "$ENV_FILE" 2>/dev/null | tr -d '"' | sed 's|/$||')"
+
+    if [ -z "$gateway_url" ] || echo "$gateway_url" | grep -q 'example\.com'; then
+        warn "GATEWAY_DOMAIN 未配置或仍是示例值，前端接入指引会显示占位地址"
+        echo "    请编辑 $ENV_FILE 设置 GATEWAY_DOMAIN=https://<你的网关域名>"
+        return 0
+    fi
+
+    sed -i "s|^VITE_GATEWAY_URL.*|VITE_GATEWAY_URL = ${gateway_url}|" "$UI_ENV_FILE"
+    log "VITE_GATEWAY_URL → ${gateway_url}"
+}
+
 # 交互式收集域名。非交互环境（CI / 管道）跳过，由用户自行编辑。
 collect_domains() {
     if [ ! -t 0 ] || [ "${NON_INTERACTIVE:-0}" = "1" ]; then
         warn "非交互模式，跳过域名配置。请手工编辑以下项："
-        echo "    $ENV_FILE      → ADMIN_CORS_ORIGINS / GATEWAY_CORS_ORIGINS"
-        echo "    $UI_ENV_FILE   → VITE_GATEWAY_URL"
+        echo "    $ENV_FILE      → GATEWAY_DOMAIN / ADMIN_CORS_ORIGINS / GATEWAY_CORS_ORIGINS"
+        echo "    编辑完成后重跑 deploy.sh 会自动把 GATEWAY_DOMAIN 同步到前端"
+        sync_gateway_url_to_ui
         return 0
     fi
 
     # 已配置过就不再问
     if ! grep -q 'example\.com' "$ENV_FILE" 2>/dev/null; then
         log "域名已配置，跳过"
+        sync_gateway_url_to_ui
         return 0
     fi
 
@@ -345,10 +366,14 @@ collect_domains() {
         log "GATEWAY_CORS_ORIGINS → ${json}"
     fi
 
-    if [ -n "$gateway_domain" ] && [ -f "$UI_ENV_FILE" ]; then
-        sed -i "s|^VITE_GATEWAY_URL.*|VITE_GATEWAY_URL = https://${gateway_domain}|" "$UI_ENV_FILE"
-        log "VITE_GATEWAY_URL → https://${gateway_domain}"
+    if [ -n "$gateway_domain" ]; then
+        # 写入后端权威源
+        sed -i "s|^GATEWAY_DOMAIN=.*|GATEWAY_DOMAIN=https://${gateway_domain}|" "$ENV_FILE"
+        log "GATEWAY_DOMAIN → https://${gateway_domain}"
     fi
+
+    # 无论交互输入了什么，最后统一从后端 .env.production 同步到前端
+    sync_gateway_url_to_ui
 }
 
 # ──────────────────── init ────────────────────
