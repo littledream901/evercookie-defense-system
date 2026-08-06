@@ -98,6 +98,11 @@ services:
       # 不显式给出会回落到代码默认的 localhost，容器内指向自身。
       GATEWAY_REDIS_URL: redis://redis:6379/0
       GATEWAY_CLICKHOUSE_URL: http://clickhouse:8123
+      # MMDB 文件路径（与 admin 共享同一挂载卷）
+      GATEWAY_MMDB_COUNTRY_PATH: /data/mmdb/GeoLite2-Country.mmdb
+      GATEWAY_MMDB_ASN_PATH: /data/mmdb/GeoLite2-ASN.mmdb
+    volumes:
+      - mmdb-data:/data/mmdb
     depends_on:
       redis: { condition: service_healthy }
       mysql: { condition: service_healthy }
@@ -123,6 +128,10 @@ services:
       # app_key 映射、app_secret 反向索引、规则缓存、白名单、评分配置全靠这个共享库。
       # 分库不报错，但会静默切断同步——规则不生效、SDK 401、挑战令牌签不出来。
       ADMIN_REDIS_URL: redis://redis:6379/0
+      # MMDB 文件管理目录（用于上传/下载，与 gateway 共享同一挂载卷）
+      MMDB_DIR: /data/mmdb
+    volumes:
+      - mmdb-data:/data/mmdb
     depends_on:
       redis: { condition: service_healthy }
       mysql: { condition: service_healthy }
@@ -208,6 +217,7 @@ volumes:
   mysql-data:
   clickhouse-data:
   grafana-data:
+  mmdb-data:
 
 networks:
   fangyu-net:
