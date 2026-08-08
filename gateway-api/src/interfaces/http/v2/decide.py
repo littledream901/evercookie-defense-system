@@ -86,25 +86,25 @@ def _resolve_client_language(payload: DecisionRequest, request: Request) -> Deci
     )
 
 
-def _guard_app_id(payload: DecisionRequest, resolved: ResolvedAppKey) -> DecisionRequest:
-    """比对 payload.appId 与 API Key 解析出的 site_id，冲突即拒绝。
+def _guard_site_id(payload: DecisionRequest, resolved: ResolvedAppKey) -> DecisionRequest:
+    """比对 payload.siteId 与 API Key 解析出的 site_id，冲突即拒绝。
 
-    适配器无需在 context 中填写 appId；gateway 统一以 X-App-Key 派生的
+    适配器无需在 context 中填写 siteId；gateway 统一以 X-App-Key 派生的
     site_id 为准，并回填到 context 中，以便下游使用。
     
     Note:
-        context.site_id 字段实际存储站点主键（Site.id），这是
+        context.site_id 字段实际存储站点主键（Site.id），用于多租户隔离。
     """
     if resolved.site_id <= 0:
-        # 免鉴权模式（仅本地/debug）：payload 必须自带 appId。
+        # 免鉴权模式（仅本地/debug）：payload 必须自带 siteId。
         if payload.context.site_id <= 0:
             raise AuthenticationException("缺少 API Key")
         return payload
 
     if payload.context.site_id > 0 and payload.context.site_id != resolved.site_id:
-        raise AuthenticationException("API Key 与 appId 不匹配")
+        raise AuthenticationException("API Key 与 siteId 不匹配")
 
-    # 统一以 API Key 派生的 site_id 回填，适配器可省略 appId 字段。
+    # 统一以 API Key 派生的 site_id 回填，适配器可省略 siteId 字段。
     return payload.model_copy(
         update={"context": payload.context.model_copy(update={"site_id": resolved.site_id})}
     )
@@ -122,7 +122,7 @@ async def decide(
     service: DecisionService = Depends(get_decision_service),
 ) -> SuccessResponse[DecisionResponse]:
     guarded = _resolve_client_language(
-        _resolve_context_ip(_guard_app_id(payload, resolved), request), request
+        _resolve_context_ip(_guard_site_id(payload, resolved), request), request
     )
     response = await service.decide(guarded)
     return SuccessResponse[DecisionResponse](data=response, request_id=response.request_id)
@@ -140,7 +140,7 @@ async def decide_fast(
     service: DecisionService = Depends(get_decision_service),
 ) -> DecisionResponse:
     guarded = _resolve_client_language(
-        _resolve_context_ip(_guard_app_id(payload, resolved), request), request
+        _resolve_context_ip(_guard_site_id(payload, resolved), request), request
     )
     fast_payload = guarded.model_copy(update={"require_details": False})
     return await service.decide(fast_payload)

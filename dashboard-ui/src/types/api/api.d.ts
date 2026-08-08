@@ -271,14 +271,14 @@ declare namespace Api {
      * 
      * 注意：
      * - site_key: 站点标识字符串（格式 site_<hex8>），用于 API 认证的 X-App-Key header
-     * - id: 站点数字主键，用于数据库关联和 SDK 配置的 appId 参数
+     * - id: 站点数字主键，用于数据库关联和 SDK 配置的 siteId 参数
      * - app_id: 外键，指向所属应用的 Application.id
      * 
      * SDK 配置示例：
      * ```js
      * SdSdk.guard({
      *   apiKey: site.site_key,  // 字符串标识，用于身份验证
-     *   appId: site.id           // 数字主键，用于租户隔离（注意：不是 site.app_id）
+     *   siteId: site.id          // 数字主键，用于租户隔离（注意：不是 site.app_id）
      * })
      * ```
      */

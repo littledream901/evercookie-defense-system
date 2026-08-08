@@ -7,13 +7,17 @@ admin 侧在下列操作时同步：
 - 轮换 API Key：先 ``unbind(旧 key)`` 再 ``bind(新 key)``
 - 删除站点：``unbind(site_key)``
 
-Redis 键位：
-- 正向 ``fangyu:app_keys:{site_key}`` → ``{"app_id": <site_id>, "app_secret": "..."}``
-  （注：JSON 字段名 app_id 是历史遗留，值是站点 ID）
-- 反向 ``fangyu:app_secrets:{site_id}`` → ``site_secret``（供 challenge token 签发按
-  site_id 反查，正向键无法按 site_id 检索）
-
-注：正向键前缀保持 app_keys 是历史遗留，实际值是站点 ID（Site.id）而非应用 ID。
+Redis 键位约定（历史兼容）：
+- 正向键 ``fangyu:app_keys:{site_key}`` → ``{"app_id": <site_id>, "app_secret": "..."}``
+  
+  **重要**：JSON 字段名 ``app_id`` 是 V2 历史遗留命名，实际存储的是站点主键（Site.id）。
+  Gateway 依赖此键名解析 API Key，修改会导致鉴权失败。V3 架构中：
+  - Redis 字段名保持 ``app_id`` 不变（历史兼容）
+  - 字段值是 ``Site.id``（站点主键）
+  - ``Site.app_id`` 外键指向所属应用（Application.id）
+  
+- 反向键 ``fangyu:app_secrets:{site_id}`` → ``site_secret``
+  供 challenge token 签发时按 site_id 反查密钥（正向键无法按 site_id 检索）
 
 为什么写 JSON 而不是裸 site_id
 -----------------------------

@@ -43,6 +43,11 @@ SecurityChecker 前面不够用：真正把人误伤到需要人工干预的，�
 
 代价是进程被强杀时在飞的事件会丢。用 :meth:`drain_events` 在 lifespan 关闭
 阶段等待排空把这个窗口收敛到「正常关闭时不丢」。
+
+Prometheus 指标说明
+------------------
+历史原因，部分 Prometheus 指标标签仍使用 ``app_id`` 命名，但实际值是 ``site_id``（站点主键）。
+这是 V2 → V3 架构迁移的历史遗留，保持标签名不变以避免 Grafana 面板全部重建。
 """
 
 from __future__ import annotations

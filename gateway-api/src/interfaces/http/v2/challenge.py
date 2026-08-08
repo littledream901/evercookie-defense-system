@@ -4,7 +4,7 @@
 Gateway 校验 token 签名与答案正确性，通过后签发通行凭据（写 Redis），
 客户端下次请求携带凭据即可短路决策流水线。
 
-凭据格式：使用 NonceStore 机制，key = `fy:challenge_pass:{app_id}:{fingerprint}`，
+凭据格式：使用 NonceStore 机制，key = `fy:challenge_pass:{site_id}:{fingerprint}`，
 value = verdict（"trusted"），TTL = token 中的 ttl。
 
 为什么不直接写 DecisionCache：
@@ -17,7 +17,7 @@ value = verdict（"trusted"），TTL = token 中的 ttl。
 - token 签名校验：防伪造
 - nonce 一次性：防重放（同一 token 只能提交一次答案）
 - fingerprint 绑定：防跨访客盗用
-- app_id 绑定：防跨租户盗用
+- site_id 绑定：防跨租户盗用
 - 答案校验：captcha 由第三方服务校验，js_challenge 验证客户端计算结果
 """
 
