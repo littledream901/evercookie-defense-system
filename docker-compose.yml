@@ -44,9 +44,9 @@ services:
       MYSQL_USER: fangyu
       MYSQL_PASSWORD: fangyu_pass
     command:
-      - --default-authentication-plugin=mysql_native_password
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
+      - --authentication-policy=mysql_native_password
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
