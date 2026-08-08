@@ -321,13 +321,15 @@ def get_reputation_sync_service(
 def require_permission(code: str):
     """路由级权限守卫工厂。
 
-    使用: dependencies=[Depends(require_permission("rule.write"))]
+    使用: user = Depends(require_permission("rule.write"))
+    返回: dict 包含 user_id，供业务逻辑使用
     """
 
     async def _guard(
         user_id: int = Depends(get_current_user_id),
         auth_service: AuthService = Depends(get_auth_service),
-    ) -> None:
+    ) -> dict:
         await auth_service.check_permission(user_id, code)
+        return {"user_id": user_id}
 
     return _guard
