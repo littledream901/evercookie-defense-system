@@ -207,7 +207,7 @@ class AdminAPISecurityTest:
     async def _get(self, path: str, headers: dict | None = None,
                    expected: int = 200, name: str = "", category: str = "",
                    severity: str = "info") -> TestResult:
-        h = headers or await self._headers()
+        h = await self._headers() if headers is None else headers
         t0 = time.monotonic()
         resp = await self.client.get(f"{self.base_url}{path}", headers=h, timeout=10)
         latency = (time.monotonic() - t0) * 1000
@@ -244,7 +244,7 @@ class AdminAPISecurityTest:
     async def _put(self, path: str, json_body: dict | None = None,
                    headers: dict | None = None, expected: int = 200,
                    name: str = "", category: str = "") -> TestResult:
-        h = headers or await self._headers()
+        h = await self._headers() if headers is None else headers
         t0 = time.monotonic()
         resp = await self.client.put(
             f"{self.base_url}{path}", json=json_body, headers=h, timeout=10,
@@ -277,7 +277,7 @@ class AdminAPISecurityTest:
     async def _patch(self, path: str, json_body: dict | None = None,
                      headers: dict | None = None, expected: int = 200,
                      name: str = "", category: str = "") -> TestResult:
-        h = headers or await self._headers()
+        h = await self._headers() if headers is None else headers
         t0 = time.monotonic()
         resp = await self.client.patch(
             f"{self.base_url}{path}", json=json_body, headers=h, timeout=10,
@@ -604,7 +604,7 @@ class AdminAPISecurityTest:
         self._add(r)
 
         # 4.5 Empty token (no auth header at all)
-        r = await self._get("/v2/auth/me", headers=None, expected=401,
+        r = await self._get("/v2/auth/me", headers={}, expected=401,
                             category="authz", name="empty token", severity="critical")
         self._add(r)
 
