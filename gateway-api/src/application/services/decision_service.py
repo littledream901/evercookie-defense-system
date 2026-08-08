@@ -1397,6 +1397,9 @@ class DecisionService:
         MMDB/UA 解析结果留空。这是有意的取舍：频控拦截要尽可能便宜，
         为了补全日志字段而去做一次画像构建不值得。
         """
+        # 跳过未鉴权请求的日志发布（app_key_required=False 时 site_id=0）
+        if ctx.site_id <= 0:
+            return
         try:
             now_ms = utcnow_ms()
             ip = snapshot.ip if snapshot else None
@@ -1439,6 +1442,7 @@ class DecisionService:
                 osName=ua.os if ua else None,
                 browserName=ua.browser if ua else None,
                 isBot=ua.is_bot if ua else False,
+                crawlerName=ua.crawler_name if ua else None,
                 crawlerCategory=ua.crawler_category if ua else None,
                 crawlerVendor=ua.crawler_vendor if ua else None,
                 # 访客追踪（Evercookie 自愈）
