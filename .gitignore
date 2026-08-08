@@ -66,3 +66,7 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# 一次性部署脚本目录，非核心代码
+install-nginx-lua/
+install-cloudflare-worker/
