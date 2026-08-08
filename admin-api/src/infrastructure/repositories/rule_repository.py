@@ -214,7 +214,7 @@ class RuleAdminRepository:
             counts[site_id] = int(count)
         return counts
 
-    async def create(self, rule: AnyRule, app_id: int | None = None) -> AnyRule:
+    async def create(self, rule: AnyRule) -> AnyRule:
         model = RuleModel(
             name=rule.name,
             description=rule.description or "",
@@ -229,8 +229,6 @@ class RuleAdminRepository:
             rule_group=rule.group,
             tags=list(rule.tags),
             version=rule.version,
-            app_id=app_id,
-            inherit_from_app=getattr(rule, "inherit_from_app", False),
         )
         self._session.add(model)
         await self._session.flush()
