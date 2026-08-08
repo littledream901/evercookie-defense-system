@@ -249,7 +249,7 @@ class SiteService:
             return
         effective_secret = secret or site.site_secret
         # 注意：Redis JSON 字段名仍用 app_id/app_secret，与 gateway 约定保持一致
-        await self._app_key_sync.bind(site.site_key, site.id, effective_secret)
+        await self._app_key_sync.bind(site.site_key, site.id, effective_secret, site.is_active)
 
     async def _sync_unbind(self, site_key: str, site_id: int | None = None) -> None:
         """解绑 Redis 映射。传 site_id 时连带清理反向索引（仅用于删除）。"""

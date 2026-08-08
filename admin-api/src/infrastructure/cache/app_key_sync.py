@@ -61,10 +61,10 @@ class AppKeyRedisSync:
     def _secret_key(self, site_id: int) -> str:
         return f"{self._secret_prefix}{site_id}"
 
-    async def bind(self, api_key: str, site_id: int, app_secret: str | None = None) -> None:
+    async def bind(self, api_key: str, site_id: int, app_secret: str | None = None, is_active: bool = True) -> None:
         if not api_key or site_id <= 0:
             return
-        payload: dict[str, Any] = {"app_id": site_id}
+        payload: dict[str, Any] = {"app_id": site_id, "is_active": is_active}
         if app_secret:
             payload["app_secret"] = app_secret
         value = orjson.dumps(payload).decode()
@@ -118,10 +118,11 @@ class AppKeyRedisSync:
         new_key: str,
         site_id: int,
         app_secret: str | None = None,
+        is_active: bool = True,
     ) -> None:
         if old_key and old_key != new_key:
             await self.unbind(old_key)
-        await self.bind(new_key, site_id, app_secret)
+        await self.bind(new_key, site_id, app_secret, is_active)
 
 
 __all__ = ["AppKeyRedisSync"]

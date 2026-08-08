@@ -65,6 +65,8 @@ class AppCredential:
     site_id: int
     """站点主键（Site.id）"""
     site_secret: str | None = None
+    is_active: bool = True
+    """站点激活状态，仅激活站点允许通过鉴权"""
 
 
 @dataclass(slots=True)
@@ -167,6 +169,7 @@ class AppKeyResolver:
 
         site_id_raw: Any = text
         secret: str | None = None
+        is_active: bool = True  # 旧数据默认激活
         if text.startswith("{"):
             try:
                 payload = orjson.loads(text)
@@ -180,6 +183,7 @@ class AppKeyResolver:
                 return None
 
             secret = payload.get("site_secret") or payload.get("app_secret")  # 兼容旧键名
+            is_active = payload.get("is_active", True)  # 旧数据默认激活
             try:
                 site_id = int(site_id_raw)
             except (ValueError, TypeError):
@@ -193,7 +197,7 @@ class AppKeyResolver:
 
         if site_id <= 0:
             return None
-        return AppCredential(site_id=site_id, site_secret=secret)
+        return AppCredential(site_id=site_id, site_secret=secret, is_active=is_active)
 
     def invalidate(self, api_key: str) -> None:
         """在测试或 admin 侧回调时可主动清缓存。"""
@@ -356,6 +360,10 @@ class AppKeyEnforcementMiddleware(BaseHTTPMiddleware):
         if credential is None:
             return _auth_failure_response(request, "API Key 无效或已失效")
 
+        if not credential.is_active:
+            _logger.warning("site_inactive_rejected", site_id=credential.site_id, path=request.url.path)
+            return _auth_failure_response(request, "站点已停用或删除", code="SITE_INACTIVE")
+
         verified = False
         if getattr(settings, "signature_required", False):
             check = await verify_request_signature(
@@ -430,6 +438,10 @@ async def require_app_key(request: Request) -> ResolvedAppKey:
     credential = await get_app_key_resolver().resolve_credential(api_key)
     if credential is None:
         raise AuthenticationException("API Key 无效或已失效")
+
+    if not credential.is_active:
+        _logger.warning("site_inactive_rejected_fallback", site_id=credential.site_id)
+        raise AuthenticationException("站点已停用或删除")
 
     if getattr(settings, "signature_required", False):
         # 必须传 nonce_store：漏传会让 verify_request_signature 跳过整段重放校验，
