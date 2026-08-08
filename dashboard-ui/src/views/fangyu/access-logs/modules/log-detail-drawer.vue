@@ -71,7 +71,7 @@
                 </ElDescriptionsItem>
                 <ElDescriptionsItem label="是否爬虫">
                   <ElTag v-if="detail.is_bot" type="warning" size="small">
-                    {{ detail.crawler_vendor || detail.crawler_category || 'bot' }}
+                    {{ detail.crawler_name || detail.crawler_vendor || detail.crawler_category || 'bot' }}
                   </ElTag>
                   <span v-else class="text-g-400">否</span>
                 </ElDescriptionsItem>
@@ -98,7 +98,7 @@
             <!-- 决策流水线时序：各阶段可视化 -->
             <div class="pipeline-flow">
               <div
-                v-for="stage in pipelineStages"
+                v-for="stage in PIPELINE_STAGES"
                 :key="stage.key"
                 class="pipeline-step"
                 :class="{ 'pipeline-step--active': stage.key === detail.stage }"
@@ -223,7 +223,7 @@
                 <div class="behavior-card" :class="detail.is_bot ? 'card-danger' : 'card-normal'">
                   <div class="card-icon">🤖</div>
                   <div class="card-label">爬虫识别</div>
-                  <div class="card-value">{{ detail.is_bot ? (detail.crawler_vendor || detail.crawler_category || '是') : '否' }}</div>
+                  <div class="card-value">{{ detail.is_bot ? (detail.crawler_name || detail.crawler_vendor || detail.crawler_category || '是') : '否' }}</div>
                 </div>
                 <div class="behavior-card" :class="detail.evercookie_restore ? 'card-danger' : 'card-normal'">
                   <div class="card-icon">🍪</div>
@@ -261,6 +261,9 @@
                   >
                     {{ detail.connection_type || '-' }}
                   </ElTag>
+                </ElDescriptionsItem>
+                <ElDescriptionsItem label="爬虫名称">
+                  {{ detail.crawler_name || '-' }}
                 </ElDescriptionsItem>
                 <ElDescriptionsItem label="爬虫类别">
                   {{ detail.crawler_category || '-' }}
@@ -357,6 +360,12 @@
   import { fetchBlacklistIps, fetchBlacklistFingerprints } from '@/api/blacklist'
   import { VERDICT_TAGS, MECHANISM_TAGS, DECIDED_BY_LABELS } from '@/constants/disposition'
   import { CONNECTION_TYPE_TAGS, httpStatusTag } from '@/constants/fangyu'
+  import {
+    VERDICT_LABELS,
+    MECHANISM_LABELS,
+    SCORER_LABELS,
+    PIPELINE_STAGES
+  } from '@/constants/accessLogDetail'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import request from '@/utils/http'
 
@@ -370,35 +379,6 @@
     actual: string
     matched: boolean
   }
-
-  const VERDICT_LABELS: Record<string, string> = {
-    trusted: '放行', suspect: '可疑', hostile: '拦截'
-  }
-  const MECHANISM_LABELS: Record<string, string> = {
-    pass: '放行', serve_alt: '替代内容', redirect: '跳转',
-    challenge: '人机挑战', deny: '拒绝', not_found: '假装404'
-  }
-
-  /** 评分器名称映射 */
-  const SCORER_LABELS: Record<string, string> = {
-    ip_reputation: 'IP 声誉',
-    proxy: '代理检测',
-    user_agent: 'UA 检测',
-    interaction: '人机交互',
-    device: '设备异常',
-    frequency: '访问频率',
-    geo: '地理位置'
-  }
-
-  /** 决策流水线阶段顺序（用于时序可视化） */
-  const pipelineStages = [
-    { key: 'allowlist',     label: '白名单' },
-    { key: 'threat_intel',  label: '威胁情报' },
-    { key: 'hybrid_lookup', label: '混合层查询' },
-    { key: 'decision_rule', label: '决策规则' },
-    { key: 'scoring',       label: '风险评分' },
-    { key: 'default',       label: '兜底策略' },
-  ]
 
   function fmtTime(raw?: string | null): string {
     if (!raw) return '-'
@@ -455,7 +435,7 @@
   const traces = ref<DecisionTrace[]>([])
   const tracesLoading = ref(false)
   const tracesLoaded = ref(false)
-  const activeTraceCollapse = ref<string[]>([])
+  const activeTraceCollapse = ref<string[]>(['traces'])  // 默认展开
 
   // 请求序号：防止快速切换记录时先发后至的响应覆盖当前记录
   let loadSeq = 0
@@ -510,6 +490,7 @@
         return
       }
       activeTab.value = 'meta'
+      activeTraceCollapse.value = ['traces']  // 打开抽屉时恢复默认展开状态
       loadDetail()
       // 当切换到决策链路 Tab 时加载 traces
       if (activeTab.value === 'decision') {
