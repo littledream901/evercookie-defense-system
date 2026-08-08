@@ -24,8 +24,8 @@ depends_on = None
 
 
 def upgrade():
-    # biz_rule_version 保留数据，仅摘除指向 biz_rule 的外键，避免重建父表时被阻塞
-    op.drop_constraint('fk_biz_rule_version_rule', 'biz_rule_version', type_='foreignkey')
+    # biz_rule_version 保留数据,仅摘除指向 biz_rule 的外键,避免重建父表时被阻塞
+    op.drop_constraint('fk_rule_version_rule', 'biz_rule_version', type_='foreignkey')
 
     op.execute("SET FOREIGN_KEY_CHECKS=0")
     op.execute("DROP TABLE IF EXISTS biz_rule_site")
@@ -102,7 +102,7 @@ def upgrade():
     # 与迁移前状态一致，故关闭校验以保留数据。
     op.execute("SET FOREIGN_KEY_CHECKS=0")
     op.create_foreign_key(
-        'fk_biz_rule_version_rule', 'biz_rule_version', 'biz_rule',
+        'fk_rule_version_rule', 'biz_rule_version', 'biz_rule',
         ['rule_id'], ['id'], ondelete='CASCADE',
     )
     op.execute("SET FOREIGN_KEY_CHECKS=1")
