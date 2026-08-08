@@ -111,7 +111,7 @@
         <div class="section-block">
           <div class="section-title">注意事项</div>
           <ul class="note-list">
-            <li><strong>绝对不要</strong>将 <code>FANGYU_APP_SECRET</code> 的值直接写入 <code>wrangler.toml</code> 并提交到代码库，应始终用 <code>wrangler secret put</code> 管理。</li>
+            <li><strong>绝对不要</strong>将 <code>FANGYU_SITE_SECRET</code> 的值直接写入 <code>wrangler.toml</code> 并提交到代码库，应始终用 <code>wrangler secret put</code> 管理。</li>
             <li>Worker 免费计划每日有 10 万次请求限额，高流量站点请确认 CF 套餐。</li>
             <li>部署命令：<code>wrangler deploy</code>；本地调试：<code>wrangler dev</code>。</li>
           </ul>
@@ -190,9 +190,9 @@
         <ElAlert title="参数说明" type="info" :closable="false" style="margin-top: 16px">
           <ul style="margin: 0; padding-left: 20px">
             <li><code>apiBase</code>: 网关地址</li>
-            <li><code>apiKey</code>: 站点标识 (site_key)，用于 X-App-Key 请求头身份验证</li>
-            <li><code>appId</code>: 站点数字主键 (Site.id)，用于租户隔离<br/>
-              <small style="color: #999">注意：这是站点主键，而非应用主键 Application.id</small>
+            <li><code>apiKey</code>: 站点密钥字符串 (site_key)，用于 X-App-Key 请求头身份验证</li>
+            <li><code>siteId</code>: 站点数字主键 (Site.id)，用于租户隔离<br/>
+              <small style="color: #999">注意：这是站点的 id 字段（整数），不是 site_key 字段（字符串）</small>
             </li>
           </ul>
         </ElAlert>
@@ -365,8 +365,6 @@
   const appSecret = computed(() => 'YOUR_SITE_SECRET')
   const gw = computed(() => gatewayUrl.value.replace(/\/$/, ''))
   const isGatewayMissing = computed(() => !gatewayUrl.value.trim())
-  // SDK 的 appId 要的是数字主键（Site.id），不是 site_key 那个 site_<hex8> 字符串。
-  // 两者用途不同：site_key 走 X-App-Key header 做身份识别，id 是租户维度。
   const numericAppId = computed(() => props.app?.id ?? 0)
 
   // Liquid 的双花括号会被 Vue 模板编译器当成插值解析，必须拆开拼接后再输出
@@ -404,35 +402,37 @@
   const nginxCode = computed(() => `# nginx.conf — server 块内添加：
 set $fangyu_gateway_url  "${gw.value}";
 set $fangyu_site_key     "${siteId.value}";   # 站点密钥字符串，用作 X-App-Key 请求头
-set $fangyu_site_id      "${numericAppId.value}";  # 站点数字主键（Site.id），用于 SDK 配置的 appId 参数
+set $fangyu_site_id      "${numericAppId.value}";  # 站点数字主键（Site.id），用于 SDK 配置的 siteId 参数
 set $fangyu_site_secret  "${appSecret.value}";  # 站点签名密钥
 set $fangyu_fail_mode    "open";             # open | closed
-set $fy_sdk_snippet      "";  # SDK 注入必需
+set $fy_sdk_snippet      "";  # ⚠️ 关键！SDK 注入必需！
 
 access_by_lua_file /etc/nginx/lua/fangyu/defense.lua;`)
 
   const cfTomlCode = computed(() => `# wrangler.toml
 [vars]
 FANGYU_GATEWAY_URL = "${gw.value}"
-FANGYU_SITE_ID     = "${siteId.value}"
+FANGYU_SITE_KEY    = "${siteId.value}"
+FANGYU_SITE_ID     = "${numericAppId.value}"
 FANGYU_FAIL_MODE   = "open"
 
-# 注意：FANGYU_APP_SECRET 不在此文件设置，通过 wrangler secret 管理`)
+# 注意：FANGYU_SITE_SECRET 不在此文件设置，通过 wrangler secret 管理`)
 
   const cfSecretCmd = computed(
-    () => `# 在终端执行（密钥不进代码库）：\nwrangler secret put FANGYU_APP_SECRET`,
+    () => `# 在终端执行（密钥不进代码库）：\nwrangler secret put FANGYU_SITE_SECRET`,
   )
 
   const wpCode = computed(() => `<?php
 // wp-config.php（或插件设置页）
 // 添加在 "/* That's all, stop editing! */" 之前
 define('FANGYU_GATEWAY_URL', '${gw.value}');
-define('FANGYU_SITE_ID',     '${siteId.value}');  // 同时用作 X-App-Key
-define('FANGYU_APP_SECRET',  '${appSecret.value}');`)
+define('FANGYU_SITE_KEY',    '${siteId.value}');  // 站点密钥，用作 X-App-Key
+define('FANGYU_SITE_ID',     ${numericAppId.value});  // 站点数字主键
+define('FANGYU_SITE_SECRET', '${appSecret.value}');`)
 
   // SDK 不读任何全局配置变量，必须显式调用 SdSdk.guard()。
   // 字段名以 client-sdk/src/config.ts 的 SdkConfig 为准：
-  // apiBase / apiKey / appId 三者是 validateConfig() 强制校验的必填项。
+  // apiBase / apiKey / siteId 三者是 validateConfig() 强制校验的必填项。
   //
   // 本片段是 standalone 接入（无服务端层，SDK 是唯一防线），因此用同步 +
   // guard()。带 CF Worker / nginx-lua / WordPress 服务端层的站点不用这个片段，
@@ -450,7 +450,7 @@ define('FANGYU_APP_SECRET',  '${appSecret.value}');`)
   SdSdk.guard({
     apiBase: '${gw.value}',
     apiKey:  '${siteId.value}',
-    appId:   ${numericAppId.value}
+    siteId:   ${numericAppId.value}
     // 高价值页面可加：hideUntilDecided: true —— 判定完成前隐藏内容，
     // 防止 Bot 在跳转生效前抓到正文（默认关闭，不影响正常访客渲染）
   });
@@ -483,7 +483,7 @@ define('FANGYU_APP_SECRET',  '${appSecret.value}');`)
       xhr.open("POST","${gw.value}/v2/decide",false);
       xhr.setRequestHeader("Content-Type","application/json");
       xhr.setRequestHeader("X-App-Key","${siteId.value}");
-      xhr.send(JSON.stringify({context:{appId:${numericAppId.value},ingress:"sdk",fingerprint:fp,userAgent:navigator.userAgent,visitUrl:location.href,path:location.pathname,method:"GET",clientLanguage:navigator.language||null,repeatKey:"_sd_0000",repeatValue:fp}}));
+      xhr.send(JSON.stringify({context:{siteId:${numericAppId.value},ingress:"sdk",fingerprint:fp,userAgent:navigator.userAgent,visitUrl:location.href,path:location.pathname,method:"GET",clientLanguage:navigator.language||null,repeatKey:"_sd_0000",repeatValue:fp}}));
 
       if(xhr.status===200){
         var data;

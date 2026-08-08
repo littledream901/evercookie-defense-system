@@ -164,6 +164,55 @@
                 <span v-else class="text-g-400">无</span>
               </ElDescriptionsItem>
             </ElDescriptions>
+
+            <!-- 规则命中明细（TTL 7天） -->
+            <div class="mt-4">
+              <ElCollapse v-model="activeTraceCollapse">
+                <ElCollapseItem name="traces">
+                  <template #title>
+                    <div class="trace-title">
+                      <span class="trace-title-text">规则条件命中明细</span>
+                      <ElTag v-if="traces.length > 0" type="success" size="small" class="ml-2">
+                        {{ traces.length }} 条
+                      </ElTag>
+                      <ElTag v-else-if="tracesLoaded" type="info" size="small" class="ml-2">
+                        暂无数据
+                      </ElTag>
+                      <ElTag type="warning" size="small" effect="plain" class="ml-2">
+                        数据保留 7 天
+                      </ElTag>
+                    </div>
+                  </template>
+                  
+                  <div v-loading="tracesLoading" class="traces-content">
+                    <template v-if="traces.length > 0">
+                      <div
+                        v-for="(trace, idx) in traces"
+                        :key="idx"
+                        class="trace-item"
+                        :class="{ 'trace-matched': trace.matched, 'trace-unmatched': !trace.matched }"
+                      >
+                        <div class="trace-header">
+                          <span class="trace-icon">{{ trace.matched ? '✅' : '❌' }}</span>
+                          <span class="trace-rule">
+                            规则 #{{ trace.rule_id }}
+                            <span v-if="trace.rule_name" class="trace-rule-name">{{ trace.rule_name }}</span>
+                          </span>
+                        </div>
+                        <div class="trace-condition">
+                          <ElTag size="small" type="info" effect="plain" class="trace-field">{{ trace.field }}</ElTag>
+                          <span class="trace-op">{{ trace.op }}</span>
+                          <ElText code class="trace-expected">{{ trace.expected }}</ElText>
+                          <span class="trace-arrow">→</span>
+                          <ElText code class="trace-actual">{{ trace.actual }}</ElText>
+                        </div>
+                      </div>
+                    </template>
+                    <ElEmpty v-else-if="tracesLoaded" description="该请求无规则条件明细，或数据已过期（保留期 7 天）" :image-size="80" />
+                  </div>
+                </ElCollapseItem>
+              </ElCollapse>
+            </div>
           </ElTabPane>
 
           <!-- ── Tab 3: 行为分析 ── -->
@@ -309,6 +358,18 @@
   import { VERDICT_TAGS, MECHANISM_TAGS, DECIDED_BY_LABELS } from '@/constants/disposition'
   import { CONNECTION_TYPE_TAGS, httpStatusTag } from '@/constants/fangyu'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import request from '@/utils/http'
+
+  /** 规则条件命中记录 */
+  interface DecisionTrace {
+    rule_id: number
+    rule_name: string | null
+    field: string
+    op: string
+    expected: string
+    actual: string
+    matched: boolean
+  }
 
   const VERDICT_LABELS: Record<string, string> = {
     trusted: '放行', suspect: '可疑', hostile: '拦截'
@@ -390,8 +451,35 @@
   const blockDuration = ref(3600)
   const blockReason   = ref('')
 
+  // 规则命中明细
+  const traces = ref<DecisionTrace[]>([])
+  const tracesLoading = ref(false)
+  const tracesLoaded = ref(false)
+  const activeTraceCollapse = ref<string[]>([])
+
   // 请求序号：防止快速切换记录时先发后至的响应覆盖当前记录
   let loadSeq = 0
+
+  /** 加载规则条件命中明细 */
+  async function loadTraces() {
+    if (!props.requestId) return
+    tracesLoading.value = true
+    tracesLoaded.value = false
+    traces.value = []
+    try {
+      const res = await request.get<DecisionTrace[]>({
+        url: `/api/v2/access-logs/${props.requestId}/traces`,
+        params: props.siteId ? { siteId: props.siteId } : {}
+      })
+      traces.value = res || []
+      tracesLoaded.value = true
+    } catch (err) {
+      console.error('加载规则明细失败:', err)
+      tracesLoaded.value = true
+    } finally {
+      tracesLoading.value = false
+    }
+  }
 
   async function loadDetail() {
     if (!props.requestId) return
@@ -414,11 +502,28 @@
   watch(
     () => [props.requestId, props.visible] as const,
     ([id, visible]) => {
-      if (!visible || !id) return
+      if (!visible || !id) {
+        // 关闭抽屉时重置状态
+        traces.value = []
+        tracesLoaded.value = false
+        activeTraceCollapse.value = []
+        return
+      }
       activeTab.value = 'meta'
       loadDetail()
+      // 当切换到决策链路 Tab 时加载 traces
+      if (activeTab.value === 'decision') {
+        loadTraces()
+      }
     }
   )
+
+  // 监听 Tab 切换，首次进入决策链路时加载 traces
+  watch(activeTab, async (newTab) => {
+    if (newTab === 'decision' && props.visible && props.requestId && !tracesLoaded.value) {
+      await loadTraces()
+    }
+  })
 
   function scoreTextType(score?: number | null): '' | 'danger' | 'warning' | 'success' {
     if (score == null) return ''
@@ -638,4 +743,85 @@
 .mt-4 { margin-top: 16px; }
 .mr-1 { margin-right: 4px; }
 .mb-4 { margin-bottom: 16px; }
+
+/* ── 规则命中明细 ── */
+.trace-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.trace-title-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+}
+.traces-content {
+  padding: 12px 0;
+  min-height: 60px;
+}
+.trace-item {
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  border: 1px solid #e4e7ed;
+  background: #fafafa;
+  transition: all 0.2s;
+}
+.trace-item:hover {
+  background: #f5f7fa;
+  border-color: #c0c4cc;
+}
+.trace-matched {
+  border-left: 3px solid #67c23a;
+  background: #f0f9ff;
+}
+.trace-unmatched {
+  border-left: 3px solid #f56c6c;
+  background: #fef0f0;
+}
+.trace-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.trace-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+.trace-rule {
+  font-size: 13px;
+  font-weight: 600;
+  color: #303133;
+}
+.trace-rule-name {
+  margin-left: 6px;
+  font-weight: 500;
+  color: #606266;
+}
+.trace-condition {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  padding-left: 24px;
+}
+.trace-field {
+  font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+}
+.trace-op {
+  color: #909399;
+  font-weight: 500;
+}
+.trace-expected,
+.trace-actual {
+  font-size: 11px;
+  max-width: 200px;
+  word-break: break-all;
+}
+.trace-arrow {
+  color: #c0c4cc;
+  font-weight: bold;
+}
 </style>

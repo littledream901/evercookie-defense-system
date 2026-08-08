@@ -55,17 +55,17 @@ export function fetchUpdateRule(siteId: number, ruleId: number, data: Api.Fangyu
   })
 }
 
-/** 删除规则 */
+/** 删除规则（全局接口） */
 export function fetchDeleteRule(ruleId: number) {
   return request.del<null>({
-    url: `/api/v2/sites/0/rules/${ruleId}`
+    url: `/api/v2/rules/${ruleId}`
   })
 }
 
-/** 发布规则 */
+/** 发布规则（全局接口） */
 export function fetchPublishRule(ruleId: number, data?: { change_summary?: string }) {
   return request.post<Api.Fangyu.Rule>({
-    url: `/api/v2/sites/0/rules/${ruleId}/publish`,
+    url: `/api/v2/rules/${ruleId}/publish`,
     data
   })
 }
@@ -73,35 +73,43 @@ export function fetchPublishRule(ruleId: number, data?: { change_summary?: strin
 /** 置为灰度影子（下发到 gateway 求值，但不参与真实处置） */
 export function fetchShadowRule(ruleId: number) {
   return request.post<Api.Fangyu.Rule>({
-    url: `/api/v2/sites/0/rules/${ruleId}/shadow`
+    url: `/api/v2/rules/${ruleId}/shadow`
   })
 }
 
-/** 停用规则 */
+/** 停用规则（全局接口） */
 export function fetchDisableRule(ruleId: number) {
   return request.post<Api.Fangyu.Rule>({
-    url: `/api/v2/sites/0/rules/${ruleId}/disable`
+    url: `/api/v2/rules/${ruleId}/disable`
   })
 }
 
-/** 归档规则 */
+/** 归档规则（全局接口） */
 export function fetchArchiveRule(ruleId: number) {
   return request.post<Api.Fangyu.Rule>({
-    url: `/api/v2/sites/0/rules/${ruleId}/archive`
+    url: `/api/v2/rules/${ruleId}/archive`
   })
 }
 
-/** 恢复规则（归档 → 草稿） */
+/** 恢复规则（归档 → 草稿，全局接口） */
 export function fetchUnarchiveRule(ruleId: number) {
   return request.post<Api.Fangyu.Rule>({
-    url: `/api/v2/sites/0/rules/${ruleId}/unarchive`
+    url: `/api/v2/rules/${ruleId}/unarchive`
   })
 }
 
-/** 规则版本列表 */
+/** 规则版本列表（全局接口） */
 export function fetchGetRuleVersions(ruleId: number) {
   return request.get<Record<string, unknown>[]>({
-    url: `/api/v2/sites/0/rules/${ruleId}/versions`
+    url: `/api/v2/rules/${ruleId}/versions`
+  })
+}
+
+/** 规则回滚到指定版本（全局接口） */
+export function fetchRollbackRule(ruleId: number, targetVersion: number) {
+  return request.post<Api.Fangyu.Rule>({
+    url: `/api/v2/rules/${ruleId}/rollback`,
+    data: { target_version: targetVersion }
   })
 }
 

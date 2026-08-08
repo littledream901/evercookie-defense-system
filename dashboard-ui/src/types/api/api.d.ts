@@ -714,6 +714,17 @@ declare namespace Api {
       keyword?: string
     }
 
+    /** 规则条件命中记录（decision_traces 表，TTL 7天） */
+    interface DecisionTrace {
+      rule_id: number
+      rule_name: string | null
+      field: string
+      op: string
+      expected: string
+      actual: string
+      matched: boolean
+    }
+
     /** 分析查询基础参数 */
     interface AnalyticsParams {
       site_id?: number | null

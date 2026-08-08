@@ -358,6 +358,136 @@ async def create_global_rule(
     return SuccessResponse(data=created)
 
 
+@global_router.delete(
+    "/{rule_id}",
+    response_model=SuccessResponse[None],
+    dependencies=[Depends(require_permission("rule.write"))],
+)
+async def delete_global_rule(
+    rule_id: int,
+    service: RuleService = Depends(get_rule_service),
+) -> SuccessResponse[None]:
+    """删除规则（全局接口）。"""
+    await service.delete(rule_id)
+    return SuccessResponse(message="规则删除成功")
+
+
+@global_router.post(
+    "/{rule_id}/publish",
+    response_model=SuccessResponse[AnyRule],
+    dependencies=[Depends(require_permission("rule.publish"))],
+)
+async def publish_global_rule(
+    rule_id: int,
+    user_id: int = Depends(get_current_user_id),
+    service: RuleService = Depends(get_rule_service),
+) -> SuccessResponse[AnyRule]:
+    """发布规则（全局接口）。"""
+    rule = await service.publish(rule_id, author_id=user_id)
+    return SuccessResponse(data=rule)
+
+
+@global_router.post(
+    "/{rule_id}/shadow",
+    response_model=SuccessResponse[AnyRule],
+    dependencies=[Depends(require_permission("rule.publish"))],
+)
+async def shadow_global_rule(
+    rule_id: int,
+    user_id: int = Depends(get_current_user_id),
+    service: RuleService = Depends(get_rule_service),
+) -> SuccessResponse[AnyRule]:
+    """把规则置为灰度影子（全局接口）。"""
+    rule = await service.to_shadow(rule_id, author_id=user_id)
+    return SuccessResponse(data=rule)
+
+
+@global_router.post(
+    "/{rule_id}/disable",
+    response_model=SuccessResponse[AnyRule],
+    dependencies=[Depends(require_permission("rule.publish"))],
+)
+async def disable_global_rule(
+    rule_id: int,
+    service: RuleService = Depends(get_rule_service),
+) -> SuccessResponse[AnyRule]:
+    """停用规则（全局接口）。"""
+    rule = await service.disable(rule_id)
+    return SuccessResponse(data=rule)
+
+
+@global_router.post(
+    "/{rule_id}/archive",
+    response_model=SuccessResponse[AnyRule],
+    dependencies=[Depends(require_permission("rule.write"))],
+)
+async def archive_global_rule(
+    rule_id: int,
+    service: RuleService = Depends(get_rule_service),
+) -> SuccessResponse[AnyRule]:
+    """归档规则（全局接口）。"""
+    rule = await service.archive(rule_id)
+    return SuccessResponse(data=rule)
+
+
+@global_router.post(
+    "/{rule_id}/unarchive",
+    response_model=SuccessResponse[AnyRule],
+    dependencies=[Depends(require_permission("rule.write"))],
+)
+async def unarchive_global_rule(
+    rule_id: int,
+    service: RuleService = Depends(get_rule_service),
+) -> SuccessResponse[AnyRule]:
+    """恢复规则为草稿（全局接口）。"""
+    rule = await service.unarchive(rule_id)
+    return SuccessResponse(data=rule)
+
+
+@global_router.get(
+    "/{rule_id}/versions",
+    response_model=SuccessResponse[list[dict[str, Any]]],
+    dependencies=[Depends(require_permission("rule.read"))],
+)
+async def list_global_rule_versions(
+    rule_id: int,
+    service: RuleService = Depends(get_rule_service),
+) -> SuccessResponse[list[dict[str, Any]]]:
+    """规则版本列表（全局接口）。"""
+    versions = await service.list_versions(rule_id)
+    return SuccessResponse(
+        data=[
+            {
+                "id": v.id,
+                "rule_id": v.rule_id,
+                "version": v.version,
+                "author_id": v.author_id,
+                "change_summary": v.change_summary,
+                "created_at": v.created_at,
+                "published_at": v.published_at,
+                "snapshot": v.snapshot,
+            }
+            for v in versions
+        ]
+    )
+
+
+@global_router.post(
+    "/{rule_id}/rollback",
+    response_model=SuccessResponse[AnyRule],
+    dependencies=[Depends(require_permission("rule.publish"))],
+)
+async def rollback_global_rule(
+    rule_id: int,
+    payload: RuleRollbackRequest,
+    user_id: int = Depends(get_current_user_id),
+    service: RuleService = Depends(get_rule_service),
+) -> SuccessResponse[AnyRule]:
+    """规则回滚到指定版本（全局接口）。"""
+    rule = await service.rollback(rule_id, payload.target_version, author_id=user_id)
+    return SuccessResponse(data=rule)
+
+
 @global_router.post(
     "/{rule_id}/set-sites",
     response_model=SuccessResponse[AnyRule],

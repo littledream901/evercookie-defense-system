@@ -86,6 +86,14 @@ export function fetchGetPoolDistribution(params: {
   })
 }
 
+/** 访问日志规则命中明细（TTL 7天） */
+export function fetchGetAccessLogTraces(requestId: string, params?: { siteId?: number }) {
+  return request.get<Api.Fangyu.DecisionTrace[]>({
+    url: `/api/v2/access-logs/${requestId}/traces`,
+    params
+  })
+}
+
 /** 审计日志列表 */
 export function fetchGetAuditLogList(params?: Api.Fangyu.AuditLogListParams) {
   return request.get<Api.Common.PageResponse<Api.Fangyu.AuditLog>>({
