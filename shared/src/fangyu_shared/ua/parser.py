@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from functools import lru_cache
 from typing import Any
 
-from fangyu_shared.ua.crawlers import match_crawler
+from fangyu_shared.ua.crawlers import match_crawler, extract_crawler_name
 
 DEVICE_TYPES: frozenset[str] = frozenset({"desktop", "mobile", "tablet", "bot", "tv", "console", "wearable", "unknown"})
 
@@ -34,6 +34,7 @@ class UAResult:
     client_name: str = "unknown"
     is_bot: bool = False
     is_mobile: bool = False
+    crawler_name: str | None = None
     crawler_category: str | None = None
     crawler_vendor: str | None = None
     crawler_verifiable: bool = False
@@ -269,6 +270,7 @@ def parse_user_agent(user_agent: str | None) -> UAResult:
     ua = user_agent[:_MAX_UA_LENGTH]
 
     crawler = match_crawler(ua)
+    crawler_name = extract_crawler_name(ua, crawler)
     crawler_category = crawler.category if crawler else None
     crawler_vendor = crawler.vendor if crawler else None
 
@@ -285,6 +287,7 @@ def parse_user_agent(user_agent: str | None) -> UAResult:
         and _REAL_BROWSER_TOKEN_RE.search(ua)
     ):
         is_bot = False
+        crawler_name = None
         crawler_category = None
         crawler_vendor = None
 
@@ -311,6 +314,7 @@ def parse_user_agent(user_agent: str | None) -> UAResult:
         client_name=client_name,
         is_bot=is_bot,
         is_mobile=device_type in {"mobile", "tablet"},
+        crawler_name=crawler_name,
         crawler_category=crawler_category,
         crawler_vendor=crawler_vendor,
         crawler_verifiable=bool(crawler and crawler.verifiable),

@@ -22,6 +22,9 @@
     decidedBy?: string
     deviceType?: string
     isBot?: boolean
+    isCrawler?: boolean
+    crawlerCategory?: string
+    crawlerVendor?: string
     ipType?: string
     riskTags?: string[]
     accessSource?: string
@@ -76,6 +79,46 @@
   const botOptions = [
     { label: '仅爬虫', value: true },
     { label: '仅真人', value: false }
+  ]
+
+  /** 爬虫分类选项 */
+  const crawlerCategoryOptions = [
+    { label: '搜索引擎', value: 'search_engine' },
+    { label: '社交平台', value: 'social' },
+    { label: 'AI 爬虫', value: 'ai_crawler' },
+    { label: 'SEO 工具', value: 'seo' },
+    { label: '监控服务', value: 'monitoring' },
+    { label: '安全扫描', value: 'security' },
+    { label: 'HTTP 库', value: 'library' },
+    { label: '订阅抓取', value: 'feed' },
+    { label: '归档服务', value: 'archive' },
+    { label: '其他爬虫', value: 'other' }
+  ]
+
+  /** 爬虫厂商选项 */
+  const crawlerVendorOptions = [
+    { label: 'Google', value: 'google' },
+    { label: 'Bing', value: 'bing' },
+    { label: 'Baidu', value: 'baidu' },
+    { label: 'Yandex', value: 'yandex' },
+    { label: 'Facebook', value: 'facebook' },
+    { label: 'LinkedIn', value: 'linkedin' },
+    { label: 'Twitter', value: 'twitter' },
+    { label: 'OpenAI', value: 'openai' },
+    { label: 'Anthropic', value: 'anthropic' },
+    { label: 'Bytedance', value: 'bytedance' },
+    { label: 'Apple', value: 'apple' },
+    { label: 'Amazon', value: 'amazon' },
+    { label: 'Semrush', value: 'semrush' },
+    { label: 'Ahrefs', value: 'ahrefs' },
+    { label: 'Moz', value: 'moz' },
+    { label: 'Screaming Frog', value: 'screamingfrog' },
+    { label: 'DataDog', value: 'datadog' },
+    { label: 'Pingdom', value: 'pingdom' },
+    { label: 'UptimeRobot', value: 'uptimerobot' },
+    { label: 'Internet Archive', value: 'internetarchive' },
+    { label: 'Common Crawl', value: 'commoncrawl' },
+    { label: '其他', value: 'unknown' }
   ]
 
   const ipTypeOptions = [
@@ -139,6 +182,24 @@
       key: 'isBot',
       type: 'select',
       props: { placeholder: '请选择', options: botOptions, clearable: true }
+    },
+    {
+      label: '是否识别爬虫',
+      key: 'isCrawler',
+      type: 'select',
+      props: { placeholder: '请选择', options: botOptions, clearable: true }
+    },
+    {
+      label: '爬虫分类',
+      key: 'crawlerCategory',
+      type: 'select',
+      props: { placeholder: '请选择爬虫分类', options: crawlerCategoryOptions, clearable: true }
+    },
+    {
+      label: '爬虫厂商',
+      key: 'crawlerVendor',
+      type: 'select',
+      props: { placeholder: '请选择爬虫厂商', options: crawlerVendorOptions, clearable: true, filterable: true }
     },
     {
       label: 'IP 类型',

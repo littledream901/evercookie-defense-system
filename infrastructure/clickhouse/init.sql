@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS fangyu.decision_events
     os_name          LowCardinality(String) DEFAULT '',
     browser_name     LowCardinality(String) DEFAULT '',
     is_bot           UInt8 DEFAULT 0,
+    crawler_name     LowCardinality(String) DEFAULT '',
     crawler_category LowCardinality(String) DEFAULT '',
     crawler_vendor   LowCardinality(String) DEFAULT '',
 

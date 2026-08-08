@@ -34,7 +34,6 @@
       v-model="dialogVisible"
       :title="dialogType === 'add' ? '新建规则' : `编辑规则：${ruleForm.name}`"
       width="760px"
-      destroy-on-close
     >
       <ElScrollbar max-height="82vh">
         <ElForm ref="ruleFormRef" :model="ruleForm" :rules="ruleRules" label-width="90px" class="rule-editor-form">
@@ -99,7 +98,7 @@
                   placeholder="字段"
                   class="w-full"
                   filterable
-                  @change="() => { cond.operator = getDefaultOperator(cond.field); cond.value = defaultValueFor(FIELD_MAP[cond.field]?.type, getDefaultOperator(cond.field)) as string | string[] }"
+                  @change="handleFieldChange(idx)"
                 >
                   <ElOptionGroup v-for="grp in FIELD_GROUPS" :key="grp.label" :label="grp.label">
                     <ElOption v-for="f in grp.fields" :key="f.value" :label="f.label" :value="f.value" />
@@ -110,58 +109,21 @@
                 <ElSelect
                   v-model="cond.operator"
                   class="w-full"
-                  @change="() => { cond.value = LIST_OPS.has(cond.operator) ? [] : '' }"
+                  @change="handleOperatorChange(idx)"
                 >
-                  <ElOption v-for="op in getOperatorOptions(cond.field)" :key="op.value" :label="op.label" :value="op.value" />
+                  <ElOption 
+                    v-for="op in getSupportedOperators(cond.field)" 
+                    :key="op.value" 
+                    :label="op.label" 
+                    :value="op.value" 
+                  />
                 </ElSelect>
               </ElCol>
               <ElCol :span="10">
-                <!-- bool 字段 -->
-                <ElSelect v-if="FIELD_MAP[cond.field]?.type === 'bool'" v-model="cond.value" class="w-full">
-                  <ElOption label="是 (true)" :value="true" />
-                  <ElOption label="否 (false)" :value="false" />
-                </ElSelect>
-                <!-- enum 字段：有预定义选项 -->
-                <ElSelect
-                  v-else-if="FIELD_MAP[cond.field]?.options?.length"
+                <SmartValueInput
                   v-model="cond.value"
-                  class="w-full"
-                  :multiple="LIST_OPS.has(cond.operator)"
-                  collapse-tags
-                >
-                  <!--
-                    可空字段配 eq/neq 时提供「空」，用于写「字段不等于空」排除数据缺失。
-                    ElOption 的 value prop 不接受 null，用哨兵值承载，提交时还原为 null。
-                  -->
-                  <ElOption
-                    v-if="FIELD_MAP[cond.field]?.nullable && !LIST_OPS.has(cond.operator)"
-                    label="空（无数据）"
-                    :value="NULL_SENTINEL"
-                  />
-                  <ElOption
-                    v-for="opt in FIELD_MAP[cond.field]!.options"
-                    :key="opt"
-                    :label="optionLabel(cond.field, opt)"
-                    :value="opt"
-                  />
-                </ElSelect>
-                <!-- text/number 字段：列表操作符 → 多值 tag 输入 -->
-                <ElSelect
-                  v-else-if="LIST_OPS.has(cond.operator)"
-                  v-model="cond.value"
-                  class="w-full"
-                  multiple
-                  allow-create
-                  filterable
-                  default-first-option
-                  :reserve-keyword="false"
-                  placeholder="输入后按 Enter 确认"
-                />
-                <!-- 普通文本/数字输入 -->
-                <ElInput
-                  v-else
-                  v-model="cond.value"
-                  :placeholder="FIELD_MAP[cond.field]?.hint || '值'"
+                  :field-key="cond.field"
+                  :operator="cond.operator"
                 />
               </ElCol>
               <ElCol :span="2" style="display:flex;justify-content:center">
@@ -304,35 +266,7 @@
     </ElDialog>
 
     <!-- 规则模板选择弹窗 -->
-    <ElDialog v-model="templateDialogVisible" title="从模板套用条件" width="720px" destroy-on-close>
-      <p class="text-sm text-g-500 mb-3">
-        套用后会覆盖当前的匹配条件与处置动作，名称和分组保持不变。可在套用后继续调整。
-      </p>
-      <ElScrollbar max-height="60vh">
-        <div v-loading="templateLoading">
-          <div v-for="t in templates" :key="t.id" class="template-item" @click="applyTemplate(t)">
-            <div class="template-item__head">
-              <span class="template-item__name">{{ t.name }}</span>
-              <ElTag size="small" :type="t.priority === 'critical' ? 'danger' : t.priority === 'high' ? 'warning' : 'info'">
-                {{ t.priority }}
-              </ElTag>
-              <ElTag v-if="t.kind === 'scoring'" size="small" type="info">打分规则</ElTag>
-            </div>
-            <div class="template-item__desc">{{ t.description }}</div>
-            <div class="template-item__conds">
-              <ElTag v-for="(c, i) in t.conditions || []" :key="i" size="small" effect="plain">
-                {{ FIELD_MAP[c.field]?.label || c.field }}
-                {{ OPERATOR_LABELS[c.op] || c.op }}
-                {{ formatTemplateValue(c.field, c.value) }}
-              </ElTag>
-            </div>
-          </div>
-        </div>
-      </ElScrollbar>
-      <template #footer>
-        <ElButton @click="templateDialogVisible = false">取消</ElButton>
-      </template>
-    </ElDialog>
+    <RuleTemplateDialog v-model="templateDialogVisible" @select="applyTemplate" />
 
     <!-- 分配站点弹窗（many-to-many 多选） -->
     <ElDialog v-model="assignDialogVisible" title="分配站点" width="420px" destroy-on-close>
@@ -349,9 +283,14 @@
   </div>
 </template>
 <script setup lang="ts">
-  import { Delete, Plus, QuestionFilled, Edit, Upload, VideoPause, Box, RefreshLeft, Files, View } from '@element-plus/icons-vue'
+  import { ref, reactive, computed, h, onMounted } from 'vue'
   import { useTable } from '@/hooks/core/useTable'
-  import { fetchArchiveRule, fetchCreateGlobalRule, fetchDeleteRule, fetchDisableRule, fetchPublishRule, fetchShadowRule, fetchUnarchiveRule, fetchUpdateRule, fetchSetRuleSites, fetchGetAllRules, fetchGetRuleTemplates } from '@/api/rules'
+  import { Delete, Plus, QuestionFilled, Edit, Upload, VideoPause, Box, RefreshLeft, Files, View, WarningFilled } from '@element-plus/icons-vue'
+  import type { FormInstance, FormRules } from 'element-plus'
+  import { ElButton, ElIcon, ElSpace, ElTag, ElTooltip, ElMessage, ElMessageBox } from 'element-plus'
+  import { fetchArchiveRule, fetchCreateGlobalRule, fetchDeleteRule, fetchDisableRule, fetchPublishRule, fetchShadowRule, fetchUnarchiveRule, fetchUpdateRule, fetchSetRuleSites, fetchGetAllRules } from '@/api/rules'
+  import SmartValueInput from '@/components/SmartValueInput.vue'
+  import { getFieldType } from '@/constants/fieldMetadata'
   import { fetchGetAppList } from '@/api/apps'
   import { RULE_PRIORITY_OPTIONS, RULE_STATUS_TAGS, RULE_STATUS_LABELS, pruneParams } from '@/constants/fangyu'
   import {
@@ -361,13 +300,13 @@
     createRotation
   } from '@/constants/disposition'
   import RotationPoolEditor from '@/components/RotationPoolEditor.vue'
+  import RuleTemplateDialog from '@/components/RuleTemplateDialog.vue'
   import { fetchGetPageResourceList } from '@/api/page-resources'
   import {
     FIELD_GROUPS, FIELD_MAP, getOperatorOptions, defaultValueFor, LIST_OPS,
-    conditionRiskHint, OPERATOR_LABELS, optionLabel
+    conditionRiskHint, OPERATOR_LABELS
   } from '@/constants/ruleFields'
-  import { ElButton, ElIcon, ElSpace, ElTag, ElTooltip, ElMessage, ElMessageBox } from 'element-plus'
-  import type { FormInstance, FormRules } from 'element-plus'
+  import type { RuleTemplate } from '@/constants/ruleTemplates'
 
   defineOptions({ name: 'FangyuRules' })
 
@@ -502,69 +441,112 @@
     }
   }
 
+  // ========== 工具函数 ==========
+  // 获取字段支持的操作符
+  // 缓存操作符选项，避免重复计算
+  const operatorCache = new Map<string, Array<{ label: string; value: string }>>()
+  const getSupportedOperators = (field: string) => {
+    if (!operatorCache.has(field)) {
+      operatorCache.set(field, getOperatorOptions(field))
+    }
+    return operatorCache.get(field)!
+  }
+
+  // 获取操作符标签
+  const getOperatorLabel = (op: string) => {
+    return OPERATOR_LABELS[op] || op
+  }
+
   function addCondition()             { ruleForm.conditions.push({ field: 'ip.ip', operator: 'eq', value: '' }) }
   function removeCondition(i: number) { ruleForm.conditions.splice(i, 1) }
 
-  /* ── 规则模板 ── */
-  const templateDialogVisible = ref(false)
-  const templateLoading = ref(false)
-  const templates = ref<Api.Fangyu.RuleTemplate[]>([])
-
-  async function openTemplates() {
-    templateDialogVisible.value = true
-    if (templates.value.length) return
-    templateLoading.value = true
-    try {
-      templates.value = (await fetchGetRuleTemplates()) ?? []
-    } finally {
-      templateLoading.value = false
+  /* ── 智能组件处理函数 ── */
+  function handleFieldChange(idx: number) {
+    const cond = ruleForm.conditions[idx]
+    // 字段改变时，重置操作符为该字段的默认操作符
+    const supportedOps = getSupportedOperators(cond.field)
+    cond.operator = supportedOps.length > 0 ? supportedOps[0].value : 'eq'
+    // 重置值
+    const fieldType = getFieldType(cond.field)
+    if (fieldType === 'bool') {
+      cond.value = true
+    } else if (['in', 'in_ci', 'not_in', 'not_in_ci'].includes(cond.operator)) {
+      cond.value = []
+    } else {
+      cond.value = ''
     }
   }
 
-  /** 模板条件取值的展示文案，枚举值走中文映射，与条件编辑器保持一致 */
-  function formatTemplateValue(field: string, v: unknown) {
-    if (v === null) return '空'
-    if (typeof v === 'boolean') return v ? '是' : '否'
-    const hasOptions = Boolean(FIELD_MAP[field]?.options?.length)
-    const render = (x: unknown) =>
-      hasOptions && typeof x === 'string' ? optionLabel(field, x) : String(x)
-    if (Array.isArray(v)) return v.map(render).join(' / ')
-    return render(v)
+  function handleOperatorChange(idx: number) {
+    const cond = ruleForm.conditions[idx]
+    // 操作符改变时，调整值的类型
+    const isListOp = ['in', 'in_ci', 'not_in', 'not_in_ci'].includes(cond.operator)
+    if (isListOp && !Array.isArray(cond.value)) {
+      cond.value = cond.value ? [cond.value] : []
+    } else if (!isListOp && Array.isArray(cond.value)) {
+      cond.value = cond.value.length > 0 ? cond.value[0] : ''
+    }
+  }
+
+  /* ── 规则模板 ── */
+  const templateDialogVisible = ref(false)
+
+  function openTemplates() {
+    templateDialogVisible.value = true
   }
 
   /**
    * 套用模板到当前表单
-   *
-   * 打分模板没有 disposition，套用时只覆盖条件，保留表单已有的处置动作，
-   * 由运营自行决定——否则会把处置清成默认值而运营不易察觉。
+   * 
+   * 新模板系统使用 onMatch/onMiss 替代旧的 disposition
    */
-  function applyTemplate(t: Api.Fangyu.RuleTemplate) {
+  function applyTemplate(t: RuleTemplate) {
+    // 填充条件（注意新模板使用 operator 而非 op）
     ruleForm.conditions = (t.conditions ?? []).map((c) => ({
       field: c.field,
-      operator: c.op,
+      operator: c.operator,
       value: c.value === null ? NULL_SENTINEL : (c.value as any)
     }))
-    ruleForm.matchAll = true
+    
+    // 设置匹配模式和基础信息
+    ruleForm.matchAll = t.matchAll ?? true
     if (t.priority) ruleForm.priority = t.priority
     if (!ruleForm.description) ruleForm.description = t.description ?? ''
-    if (t.disposition) {
-      const mech = t.disposition.mechanism
-      // 必须带上 target.kind：漏掉会让后端收到 kind=undefined，
-      // page_resource / url 这类必须有 kind 才成立的目标类型直接失配。
+    
+    // 填充处置动作（onMatch）
+    if (t.onMatch) {
+      const mech = t.onMatch.mechanism
       ruleForm.disposition_match = {
         mechanism: mech,
-        challengeKind: t.disposition.challengeKind ?? null,
-        ttlSeconds: t.disposition.ttlSeconds ?? 300,
+        challengeKind: t.onMatch.challengeKind ?? null,
+        ttlSeconds: t.onMatch.ttlSeconds ?? 300,
         target: {
-          kind: t.disposition.target?.kind ?? defaultTargetKindFor(mech),
-          url: t.disposition.target?.url ?? null,
-          urls: t.disposition.target?.urls ?? null,
-          rotation: t.disposition.target?.rotation ?? null,
-          httpStatus: t.disposition.target?.httpStatus ?? null
-        }
+        kind: t.onMatch.target?.kind ?? defaultTargetKindFor(mech),
+        url: t.onMatch.target?.url ?? null,
+        urls: (t.onMatch.target as any)?.urls ?? null,
+        rotation: (t.onMatch.target as any)?.rotation ?? null,
+        httpStatus: t.onMatch.target?.statusCode ?? null
+      } as Api.Fangyu.DispositionTarget
       }
     }
-    templateDialogVisible.value = false
+    
+    // 填充未命中处置动作（onMiss，通常为 allow）
+    if (t.onMiss) {
+      const mech = t.onMiss.mechanism
+      ruleForm.disposition_miss = {
+        mechanism: mech,
+        challengeKind: t.onMiss.challengeKind ?? null,
+        ttlSeconds: t.onMiss.ttlSeconds ?? 0,
+        target: {
+        kind: t.onMiss.target?.kind ?? defaultTargetKindFor(mech),
+        url: t.onMiss.target?.url ?? null,
+        urls: (t.onMiss.target as any)?.urls ?? null,
+        rotation: (t.onMiss.target as any)?.rotation ?? null,
+        httpStatus: t.onMiss.target?.statusCode ?? null
+      } as Api.Fangyu.DispositionTarget
+      }
+    }
+    
     ElMessage.success(`已套用模板「${t.name}」`)
   }
 
@@ -577,19 +559,19 @@
       apiParams: { page: 1, pageSize: 20 },
       immediate: true,
       columnsFactory: () => [
-        { type: 'selection', width: 50 },
-        { prop: 'id',       label: 'ID',     width: 60 },
-        { prop: 'name',     label: '名称',   width: 200, showOverflowTooltip: true },
-        { prop: 'status',   label: '状态',   width: 100,
+        { type: 'selection', width: 55 },
+        { prop: 'id',       label: 'ID',     width: 80 },
+        { prop: 'name',     label: '名称',   minWidth: 180, showOverflowTooltip: true },
+        { prop: 'status',   label: '状态',   width: 90,
           formatter: (r: Rule) => h(ElTag, { size: 'small', type: RULE_STATUS_TAGS[r.status] ?? 'info' }, () => RULE_STATUS_LABELS[r.status] ?? r.status) },
-        { prop: 'priority', label: '优先级', width: 100 },
-        { prop: 'version',  label: '版本',   width: 100 },
-        { prop: 'group',    label: '分组',   width: 100, formatter: (r: Rule) => r.group ?? '-' },
-        { prop: 'siteIds', label: '绑定站点', width: 100,
+        { prop: 'priority', label: '优先级', width: 90 },
+        { prop: 'version',  label: '版本',   width: 80 },
+        { prop: 'group',    label: '分组',   width: 120, showOverflowTooltip: true, formatter: (r: Rule) => r.group ?? '-' },
+        { prop: 'siteIds', label: '绑定站点', width: 120,
           formatter: (r: Rule) => r.siteIds?.length
             ? h(ElTag, { size: 'small', type: 'primary' }, () => `${r.siteIds.length} 个站点`)
             : h(ElTag, { size: 'small', type: 'info' }, () => '未分配') },
-        { prop: 'operation', label: '操作', width: 320, fixed: 'right',
+        { prop: 'operation', label: '操作', width: 360, fixed: 'right',
           formatter: (r: any) => {
             const btns: ReturnType<typeof h>[] = []
             const s = r.status
@@ -667,31 +649,38 @@
   function showDialog(type: RuleDialogType, row?: Rule) {
     dialogType.value  = type
     currentRule.value = row ?? {}
-    Object.assign(ruleForm, INITIAL_FORM())
-    if (type === 'edit' && row) {
+    
+    if (type === 'add') {
+      // 新建规则：使用初始表单
+      Object.assign(ruleForm, INITIAL_FORM())
+    } else if (type === 'edit' && row) {
+      // 编辑规则：使用浅拷贝优化性能
       const getDisp = (d: any): DecisionDisposition => d
-        ? JSON.parse(JSON.stringify(d))
+        ? { ...d, rotation: d.rotation ? { ...d.rotation } : undefined }
         : createDecisionDisposition()
 
-      Object.assign(ruleForm, {
-        name:        row.name        ?? '',
-        priority:    row.priority    ?? 'normal',
-        group:       row.group       ?? 'default',
-        description: row.description ?? '',
-        matchAll:    (row as any).matchAll ?? (row as any).match_all ?? true,
-        conditions:  Array.isArray(row.conditions)
-          ? row.conditions.map((c: any) => ({
-              field:    c.field,
-              operator: c.op ?? c.operator,
-              // 不能用 ?? '' 兜底：null 是有意义的取值（「字段不等于空」用来
-              // 排除数据缺失），转成空串会静默改变规则语义。
-              value:    c.value === null ? NULL_SENTINEL : (c.value ?? ''),
-            }))
-          : [],
-        disposition_match: getDisp((row as any).disposition_match ?? row.disposition),
-        disposition_miss:  getDisp((row as any).disposition_miss)
-      })
+      // 直接赋值，避免深拷贝
+      ruleForm.name = row.name ?? ''
+      ruleForm.priority = row.priority ?? 'normal'
+      ruleForm.group = row.group ?? 'default'
+      ruleForm.description = row.description ?? ''
+      ruleForm.matchAll = (row as any).matchAll ?? (row as any).match_all ?? true
+      
+      // 条件数组：只在必要时转换
+      if (Array.isArray(row.conditions)) {
+        ruleForm.conditions = row.conditions.map((c: any) => ({
+          field:    c.field,
+          operator: c.op ?? c.operator,
+          value:    c.value === null ? NULL_SENTINEL : (c.value ?? ''),
+        }))
+      } else {
+        ruleForm.conditions = []
+      }
+      
+      ruleForm.disposition_match = getDisp((row as any).disposition_match ?? row.disposition)
+      ruleForm.disposition_miss = getDisp((row as any).disposition_miss)
     }
+    
     dialogVisible.value = true
   }
 

@@ -73,16 +73,30 @@ class RuleService:
         _logger.info("rule_sites_set", rule_id=rule_id, site_count=len(target))
         return updated
 
-    async def bind_rules_to_site(self, site_id: int, rule_ids: list[int]) -> int:
+    async def bind_rules_to_site(self, site_id: int, rule_ids: list[int]) -> tuple[int, dict]:
         """全量覆盖某站点绑定的规则，并重建该站点的缓存分片。
 
-        返回绑定后的规则条数。
+        返回绑定后的规则条数和冲突检测结果。
         """
         await self._repo.bind_rules_to_site(site_id, rule_ids)
+        
+        # 冲突检测：获取绑定的规则并检测冲突
+        from src.domain.rule.conflict_detector import RuleConflictDetector
+        
+        rules = await self._repo.list_published_by_site(site_id)
+        detector = RuleConflictDetector()
+        conflicts = detector.detect(rules)
+        conflict_info = detector.format_conflicts_for_display(conflicts)
+        
         # 绑定关系变了，整片重建最稳妥（避免逐条增删漏掉已下线规则）
         await self.sync_published_to_cache(site_id)
-        _logger.info("site_rules_bound", site_id=site_id, rule_count=len(set(rule_ids)))
-        return len(set(rule_ids))
+        _logger.info(
+            "site_rules_bound", 
+            site_id=site_id, 
+            rule_count=len(set(rule_ids)),
+            conflicts=len(conflicts)
+        )
+        return len(set(rule_ids)), conflict_info
 
     async def count_rules_by_site(self, site_ids: list[int]) -> dict[int, int]:
         return await self._repo.count_rules_by_site(site_ids)

@@ -194,6 +194,35 @@ declare namespace Api {
 
   /** 防御系统业务类型 */
   namespace Fangyu {
+    /** 规则简要信息 */
+    interface RuleBrief {
+      name: string
+      status: string
+    }
+
+    /** 规则冲突信息 */
+    interface RuleConflict {
+      type: string
+      severity: 'high' | 'medium' | 'low'
+      rule_ids: number[]
+      rule_names: string[]
+      message: string
+      suggestion?: string
+    }
+
+    /** 规则冲突检测结果 */
+    interface ConflictDetectionResult {
+      has_conflicts: boolean
+      high_severity_count: number
+      conflicts: RuleConflict[]
+    }
+
+    /** 规则绑定响应 */
+    interface RuleBindResponse {
+      bound: number
+      conflicts: ConflictDetectionResult
+    }
+
     /** 站点（主体对象，api_secret 仅在创建/轮换响应中出现）
      *
      * site_id 同时作为 X-App-Key 请求头的值，无独立 app_id 字段。
@@ -222,10 +251,8 @@ declare namespace Api {
       owner_user_id: number | null
       created_at: string | null
       updated_at: string | null
-      /** 绑定的规则名称（列表接口附带，可选） */
-      rule_name?: string | null
-      /** 绑定的规则状态（列表接口附带，可选） */
-      rule_status?: string | null
+      /** 绑定的规则列表（列表接口附带，可选） */
+      rules?: RuleBrief[]
     }
 
     /** 创建 / 轮换站点响应（结构与 Site 一致，app_secret 已在 Site 中） */
@@ -537,6 +564,7 @@ declare namespace Api {
       ip_type: string | null
       country: string | null
       asn: number | null
+      asn_org: string | null
       connection_type: string | null
       is_vpn: boolean | null
       is_proxy: boolean | null
@@ -546,26 +574,35 @@ declare namespace Api {
       browser: string | null
       user_agent: string | null
       fingerprint: string | null
+      fingerprint_is_derived: boolean
       is_bot: boolean
+      crawler_name: string | null
       crawler_vendor: string | null
       crawler_category: string | null
       verdict: string | null
       mechanism: string | null
+      target_kind: string | null
+      target_url: string | null
       http_status: number | null
       decided_by: string | null
       stage: string | null
       rule_id: number | null
+      rule_ids: number[] | null
       reason: string | null
       score: number | null
+      scorer_scores: Record<string, number> | null
       evercookie_restore: boolean
       shadow_rule_ids: number[] | null
+      shadow_verdicts: string[] | null
       decision_cost_ms: number | null
       host: string | null
       path: string | null
+      method: string | null
       referer: string | null
       repeat_key: string | null
       repeat_value: string | null
       accept_language: string | null
+      ingress: string | null
       occurred_at: string | null
 
     }
@@ -585,7 +622,9 @@ declare namespace Api {
       decidedBy?: string
       country?: string
       deviceType?: string
+      crawlerName?: string
       crawlerCategory?: string
+      crawlerVendor?: string
       connectionType?: string
       path?: string
       isBot?: boolean
@@ -797,6 +836,7 @@ declare namespace Api {
     /** 单一接入来源（sdk / adapter）的实测指标 */
     interface IngressStat {
       ingress: string
+      host: string
       total: number
       /** 指纹由网关按 IP+UA 派生的请求数；SDK 侧出现即说明埋码没真正采到指纹 */
       derived_count: number

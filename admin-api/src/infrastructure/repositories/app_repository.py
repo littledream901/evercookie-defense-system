@@ -168,10 +168,10 @@ class AppRepository:
 
     async def get_rule_stats_for_sites(
         self, site_ids: list[int]
-    ) -> dict[int, tuple[str | None, str | None]]:
-        """批量查询每个站点绑定的规则名称和状态（一站点最多一条规则）。
+    ) -> dict[int, list[tuple[str, str]]]:
+        """批量查询每个站点绑定的规则名称和状态列表。
         
-        返回 {site_id: (rule_name, rule_status)}
+        返回 {site_id: [(rule_name, rule_status), ...]}
         """
         if not site_ids:
             return {}
@@ -183,13 +183,12 @@ class AppRepository:
             )
             .join(RuleModel, RuleModel.id == RuleSiteModel.rule_id)
             .where(RuleSiteModel.site_id.in_(site_ids))
-            .limit(len(site_ids) * 2)  # 防御性上限
+            .order_by(RuleSiteModel.site_id, RuleModel.id)
         )
         rows = (await self._session.execute(stmt)).all()
-        result: dict[int, tuple[str | None, str | None]] = {}
+        result: dict[int, list[tuple[str, str]]] = {sid: [] for sid in site_ids}
         for sid, name, status in rows:
-            if sid not in result:  # 取第一条
-                result[sid] = (name, status)
+            result[sid].append((name, status))
         return result
 
     @staticmethod

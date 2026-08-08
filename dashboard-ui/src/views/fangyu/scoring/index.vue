@@ -4,7 +4,9 @@
     <div class="mb-3 flex shrink-0 items-center justify-between">
       <div>
         <h2 class="text-lg font-medium text-g-900">评分配置</h2>
-        <p class="mt-1 text-sm text-g-600">调整各维度权重及可疑/敌对阈值，决定最终处置策略</p>
+        <p class="mt-1 text-sm text-g-600">
+          调整各维度权重和阈值。<strong>评分即裁决</strong>：分数决定风险等级（可信/可疑/敌对），然后根据等级执行对应的处置策略
+        </p>
       </div>
       <div class="flex items-center gap-2">
         <span v-if="!configReady && !configLoading" class="text-sm text-g-500">
@@ -76,20 +78,25 @@
         <!-- 基础配置 -->
         <ElCol :span="12" class="flex flex-col">
           <ElCard shadow="never" header="基础配置" v-loading="configLoading" class="flex-1">
-            <ElForm ref="configFormRef" :model="configForm" label-width="120px">
+            <ElForm ref="configFormRef" :model="configForm" label-width="160px">
               <ElFormItem label="启用评分">
                 <ElSwitch v-model="configForm.enabled" />
               </ElFormItem>
-              <ElDivider content-position="left">阈值</ElDivider>
+              <ElDivider content-position="left">阈值与裁决</ElDivider>
+              <ElAlert type="info" :closable="false" class="mb-3" show-icon>
+                <template #title>
+                  <span class="text-xs">评分自动转为裁决：&lt; {{ configForm.threshold_suspect }}分 = <strong>可信</strong>，{{ configForm.threshold_suspect }}-{{ configForm.threshold_hostile-1 }}分 = <strong>可疑</strong>，≥ {{ configForm.threshold_hostile }}分 = <strong>敌对</strong></span>
+                </template>
+              </ElAlert>
               <ElFormItem label="可疑阈值">
                 <ElInputNumber v-model="configForm.threshold_suspect" :min="0" :max="100" :step="5" />
-                <span class="ml-2 text-sm text-g-500">分（≥ 此值 = 可疑）</span>
+                <span class="ml-2 text-sm text-g-500">分</span>
               </ElFormItem>
               <ElFormItem label="敌对阈值">
                 <ElInputNumber v-model="configForm.threshold_hostile" :min="0" :max="100" :step="5" />
-                <span class="ml-2 text-sm text-g-500">分（≥ 此值 = 敌对）</span>
+                <span class="ml-2 text-sm text-g-500">分</span>
               </ElFormItem>
-              <ElDivider content-position="left">处置策略</ElDivider>
+              <ElDivider content-position="left">处置策略（按裁决级别）</ElDivider>
               <ElFormItem v-for="branch in dispositionBranches" :key="branch.key" :label="branch.label">
                 <div class="flex flex-col gap-2 w-full">
                   <div class="flex items-center gap-2 flex-wrap">
@@ -383,8 +390,8 @@ type DispositionBranch = {
 }
 
 const dispositionBranches = computed<DispositionBranch[]>(() => [
-  { key: 'disposition_suspect', label: '可疑处置', form: configForm.disposition_suspect },
-  { key: 'disposition_hostile', label: '敌对处置', form: configForm.disposition_hostile }
+  { key: 'disposition_suspect', label: '可疑处置 (suspect)', form: configForm.disposition_suspect },
+  { key: 'disposition_hostile', label: '敌对处置 (hostile)', form: configForm.disposition_hostile }
 ])
 
 function toggleDisposition(branch: DispositionBranch, enabled: boolean) {

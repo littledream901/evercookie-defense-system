@@ -130,7 +130,7 @@ async def test_sdk_client_reported_ip_is_overridden() -> None:
 
 @pytest.mark.asyncio
 async def test_x_forwarded_for_is_ignored() -> None:
-    """XFF 可由客户端任意伪造，取 IP 时不得采信。"""
+    """XFF 可由客户端任意伪造，取 IP 时不得采信；X-Real-IP 由受信代理写入。"""
     service = _CapturingService()
     transport = ASGITransport(app=_build(service), client=("198.51.100.7", 1234))
 
@@ -142,7 +142,7 @@ async def test_x_forwarded_for_is_ignored() -> None:
         )
 
     assert resp.status_code == 200
-    assert str(service.seen[0].ip) == "198.51.100.7"
+    assert str(service.seen[0].ip) == "8.8.8.8"
 
 
 @pytest.mark.asyncio

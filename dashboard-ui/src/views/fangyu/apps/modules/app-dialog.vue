@@ -149,7 +149,7 @@
 <script setup lang="ts">
 import { fetchCreateApp, fetchUpdateApp } from '@/api/apps'
 import { fetchGetAllRules, fetchBindRulesToSite } from '@/api/rules'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules, InputInstance } from 'element-plus'
 import type { DialogType } from '@/types'
 import { RULE_STATUS_TAGS, RULE_STATUS_LABELS } from '@/constants/fangyu'
@@ -199,12 +199,11 @@ const loadAllRules = async () => {
 }
 
 const loadSiteRules = async (siteId: number) => {
-  rulesLoading.value = true
   try {
     const res = await fetchGetAllRules({ siteId, page: 1, pageSize: 200 })
     selectedRuleIds.value = (res.items ?? []).map((r) => r.id)
-  } finally {
-    rulesLoading.value = false
+  } catch (err) {
+    console.error('加载站点规则失败:', err)
   }
 }
 
@@ -306,6 +305,12 @@ watch(
     if (visible) {
       initForm()
       nextTick(() => formRef.value?.clearValidate())
+      // 预加载所有规则列表（避免切换 tab 时延迟）
+      loadAllRules()
+      // 如果是编辑模式，预加载当前站点的规则绑定
+      if (isEdit.value && props.appData?.id) {
+        loadSiteRules(props.appData.id)
+      }
     }
   },
   { immediate: true }
@@ -346,7 +351,24 @@ const handleSubmit = async () => {
       await fetchUpdateApp(props.appData.id, buildUpdatePayload())
       // 规则绑定有变更时，提交绑定关系
       if (rulesChanged.value && props.appData.id) {
-        await fetchBindRulesToSite(props.appData.id, selectedRuleIds.value)
+        const res = await fetchBindRulesToSite(props.appData.id, selectedRuleIds.value)
+        
+        // 检查冲突
+        if (res.conflicts?.has_conflicts) {
+          const highCount = res.conflicts.high_severity_count
+          if (highCount > 0) {
+            ElMessageBox.alert(
+              `检测到 ${highCount} 个高危冲突，这些规则可能无法正常工作。请在规则列表中查看详情并修复。`,
+              '规则冲突警告',
+              { type: 'warning', confirmButtonText: '我知道了' }
+            )
+          } else {
+            ElMessage.warning({
+              message: `检测到 ${res.conflicts.conflicts.length} 个潜在冲突，建议检查规则配置`,
+              duration: 5000
+            })
+          }
+        }
       }
       ElMessage.success('站点更新成功')
       dialogVisible.value = false

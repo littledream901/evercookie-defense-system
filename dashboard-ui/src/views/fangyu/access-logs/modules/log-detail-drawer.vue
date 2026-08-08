@@ -123,6 +123,29 @@
               <ElDescriptionsItem label="决策耗时">
                 {{ detail.decision_cost_ms != null ? `${detail.decision_cost_ms} ms` : '-' }}
               </ElDescriptionsItem>
+            </ElDescriptions>
+
+            <!-- 评分明细 -->
+            <template v-if="detail.scorer_scores && Object.keys(detail.scorer_scores).length > 0">
+              <div class="section-title mt-4">评分明细</div>
+              <ElDescriptions :column="2" border size="small" label-min-width="120px">
+                <ElDescriptionsItem label="总分">
+                  <ElText :type="scoreTextType(detail.score)" strong>{{ detail.score ?? 0 }} 分</ElText>
+                </ElDescriptionsItem>
+                <ElDescriptionsItem label="阈值说明">
+                  <span class="text-xs text-g-500">&lt; 30 可信，30-74 可疑，≥ 75 敌对</span>
+                </ElDescriptionsItem>
+                <ElDescriptionsItem
+                  v-for="(score, name) in detail.scorer_scores"
+                  :key="name"
+                  :label="SCORER_LABELS[name] || name"
+                >
+                  <ElText :type="scorerTextType(score)">{{ score }} 分</ElText>
+                </ElDescriptionsItem>
+              </ElDescriptions>
+            </template>
+
+            <ElDescriptions :column="2" border size="small" label-min-width="100px" class="mt-3">
               <ElDescriptionsItem label="HTTP 状态">
                 <ElTag :type="httpStatusTag(detail.http_status)" size="small">
                   {{ detail.http_status || '-' }}
@@ -295,6 +318,17 @@
     challenge: '人机挑战', deny: '拒绝', not_found: '假装404'
   }
 
+  /** 评分器名称映射 */
+  const SCORER_LABELS: Record<string, string> = {
+    ip_reputation: 'IP 声誉',
+    proxy: '代理检测',
+    user_agent: 'UA 检测',
+    interaction: '人机交互',
+    device: '设备异常',
+    frequency: '访问频率',
+    geo: '地理位置'
+  }
+
   /** 决策流水线阶段顺序（用于时序可视化） */
   const pipelineStages = [
     { key: 'allowlist',     label: '白名单' },
@@ -390,6 +424,13 @@
     if (score == null) return ''
     if (score >= 70) return 'danger'
     if (score >= 30) return 'warning'
+    return 'success'
+  }
+
+  function scorerTextType(score?: number | null): '' | 'danger' | 'warning' | 'success' {
+    if (score == null || score === 0) return ''
+    if (score >= 20) return 'danger'
+    if (score >= 10) return 'warning'
     return 'success'
   }
 

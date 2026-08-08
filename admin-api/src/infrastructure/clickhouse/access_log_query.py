@@ -14,7 +14,7 @@ _SELECT_COLUMNS = """
     decided_by, decided_stage, decided_rule_id,
     score, scorer_scores, rule_ids, reason,
     country, asn, asn_org, connection_type, is_vpn, is_proxy,
-    device_type, os_name, browser_name, is_bot, crawler_category, crawler_vendor,
+    device_type, os_name, browser_name, is_bot, crawler_name, crawler_category, crawler_vendor,
     accept_language,
     repeat_key, repeat_value, evercookie_restore,
     shadow_rule_ids, shadow_verdicts,
@@ -32,14 +32,16 @@ _FILTERABLE = (
     "path",
     "country",
     "device_type",
+    "crawler_name",
     "crawler_category",
+    "crawler_vendor",
     "connection_type",
     "repeat_value",
     "ingress",
 )
-"""白名单：可作为等值过滤条件的列。
+"""白名单:可作为等值过滤条件的列。
 
-只允许白名单内的列名拼进 SQL，值一律走参数化占位符，避免 SQL 注入。
+只允许白名单内的列名拼进 SQL,值一律走参数化占位符,避免 SQL 注入。
 """
 
 
@@ -57,11 +59,12 @@ class AccessLogQueryService:
         end: datetime,
         filters: dict[str, str] | None = None,
         is_bot: bool | None = None,
+        is_crawler: bool | None = None,
         page: int = 1,
         page_size: int = 50,
     ) -> tuple[list[dict[str, Any]], int]:
         where_sql, params = self._where(
-            app_id=app_id, start=start, end=end, filters=filters, is_bot=is_bot
+            app_id=app_id, start=start, end=end, filters=filters, is_bot=is_bot, is_crawler=is_crawler
         )
         params["limit"] = page_size
         params["offset"] = max(0, (page - 1) * page_size)
@@ -262,6 +265,151 @@ class AccessLogQueryService:
             params,
         )
 
+    async def crawler_overview(
+        self, *, app_id: int | None, start: datetime, end: datetime
+    ) -> dict[str, Any]:
+        """爬虫流量概览统计。"""
+        app_clause = "app_id = {app_id} AND " if app_id is not None else ""
+        params: dict[str, Any] = {"start": self._format_dt(start), "end": self._format_dt(end)}
+        if app_id is not None:
+            params["app_id"] = app_id
+        
+        # 总体统计
+        overview = await self._client.fetch_one(
+            f"""
+            SELECT count(*) AS total_requests,
+                   countIf(notEmpty(crawler_name) OR notEmpty(crawler_category)) AS crawler_requests,
+                   countIf(empty(crawler_name) AND empty(crawler_category)) AS non_crawler_requests,
+                   uniqExactIf(crawler_name, notEmpty(crawler_name)) AS unique_crawlers,
+                   countIf(verdict = 'hostile' AND (notEmpty(crawler_name) OR notEmpty(crawler_category))) AS hostile_crawler_requests
+            FROM {self._db}.decision_events
+            WHERE {app_clause}occurred_at >= {{start}}
+              AND occurred_at < {{end}}
+            """,
+            params,
+        )
+        return overview or {}
+
+    async def crawler_vendor_distribution(
+        self, *, app_id: int | None, start: datetime, end: datetime
+    ) -> list[dict[str, Any]]:
+        """按爬虫厂商统计分布。"""
+        app_clause = "app_id = {app_id} AND " if app_id is not None else ""
+        params: dict[str, Any] = {"start": self._format_dt(start), "end": self._format_dt(end)}
+        if app_id is not None:
+            params["app_id"] = app_id
+        
+        return await self._client.fetch(
+            f"""
+            SELECT crawler_vendor,
+                   count(*) AS request_count,
+                   uniqExact(crawler_name) AS crawler_types,
+                   countIf(verdict = 'hostile') AS hostile_count,
+                   countIf(verdict = 'suspicious') AS suspicious_count,
+                   countIf(verdict = 'clean') AS clean_count
+            FROM {self._db}.decision_events
+            WHERE {app_clause}occurred_at >= {{start}}
+              AND occurred_at < {{end}}
+              AND notEmpty(crawler_vendor)
+            GROUP BY crawler_vendor
+            ORDER BY request_count DESC
+            LIMIT 20
+            """,
+            params,
+        )
+
+    async def crawler_category_distribution(
+        self, *, app_id: int | None, start: datetime, end: datetime
+    ) -> list[dict[str, Any]]:
+        """按爬虫分类统计分布。"""
+        app_clause = "app_id = {app_id} AND " if app_id is not None else ""
+        params: dict[str, Any] = {"start": self._format_dt(start), "end": self._format_dt(end)}
+        if app_id is not None:
+            params["app_id"] = app_id
+        
+        return await self._client.fetch(
+            f"""
+            SELECT crawler_category,
+                   count(*) AS request_count,
+                   uniqExact(crawler_name) AS crawler_types,
+                   countIf(verdict = 'hostile') AS hostile_count,
+                   avg(decision_cost_ms) AS avg_cost_ms
+            FROM {self._db}.decision_events
+            WHERE {app_clause}occurred_at >= {{start}}
+              AND occurred_at < {{end}}
+              AND notEmpty(crawler_category)
+            GROUP BY crawler_category
+            ORDER BY request_count DESC
+            """,
+            params,
+        )
+
+    async def crawler_top_list(
+        self, *, app_id: int | None, start: datetime, end: datetime, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        """爬虫访问频率 Top 排行。"""
+        app_clause = "app_id = {app_id} AND " if app_id is not None else ""
+        params: dict[str, Any] = {
+            "start": self._format_dt(start),
+            "end": self._format_dt(end),
+            "limit": limit
+        }
+        if app_id is not None:
+            params["app_id"] = app_id
+        
+        return await self._client.fetch(
+            f"""
+            SELECT crawler_name,
+                   crawler_vendor,
+                   crawler_category,
+                   count(*) AS request_count,
+                   uniqExact(ip) AS unique_ips,
+                   countIf(verdict = 'hostile') AS blocked_count,
+                   min(occurred_at) AS first_seen_at,
+                   max(occurred_at) AS last_seen_at
+            FROM {self._db}.decision_events
+            WHERE {app_clause}occurred_at >= {{start}}
+              AND occurred_at < {{end}}
+              AND notEmpty(crawler_name)
+            GROUP BY crawler_name, crawler_vendor, crawler_category
+            ORDER BY request_count DESC
+            LIMIT {{limit}}
+            """,
+            params,
+        )
+
+    async def crawler_timeline(
+        self, *, app_id: int | None, start: datetime, end: datetime, granularity: str = "hour"
+    ) -> list[dict[str, Any]]:
+        """爬虫流量时间趋势（分爬虫/非爬虫）。"""
+        app_clause = "app_id = {app_id} AND " if app_id is not None else ""
+        params: dict[str, Any] = {"start": self._format_dt(start), "end": self._format_dt(end)}
+        if app_id is not None:
+            params["app_id"] = app_id
+        
+        # 时间粒度映射
+        interval_map = {
+            "hour": "toStartOfHour(occurred_at)",
+            "day": "toStartOfDay(occurred_at)",
+            "minute": "toStartOfMinute(occurred_at)"
+        }
+        time_bucket = interval_map.get(granularity, interval_map["hour"])
+        
+        return await self._client.fetch(
+            f"""
+            SELECT {time_bucket} AS time_bucket,
+                   countIf(notEmpty(crawler_name) OR notEmpty(crawler_category)) AS crawler_count,
+                   countIf(empty(crawler_name) AND empty(crawler_category)) AS non_crawler_count,
+                   count(*) AS total_count
+            FROM {self._db}.decision_events
+            WHERE {app_clause}occurred_at >= {{start}}
+              AND occurred_at < {{end}}
+            GROUP BY time_bucket
+            ORDER BY time_bucket ASC
+            """,
+            params,
+        )
+
     @staticmethod
     def _where(
         *,
@@ -270,6 +418,7 @@ class AccessLogQueryService:
         end: datetime,
         filters: dict[str, str] | None,
         is_bot: bool | None,
+        is_crawler: bool | None = None,
     ) -> tuple[str, dict[str, Any]]:
         clauses = [
             "occurred_at >= {start}",
@@ -291,6 +440,14 @@ class AccessLogQueryService:
         if is_bot is not None:
             clauses.append("is_bot = {is_bot}")
             params["is_bot"] = 1 if is_bot else 0
+        # is_crawler 筛选：基于 crawler_name 或 crawler_category 是否为空
+        if is_crawler is not None:
+            if is_crawler:
+                # 是爬虫：crawler_name 或 crawler_category 不为空
+                clauses.append("(notEmpty(crawler_name) OR notEmpty(crawler_category))")
+            else:
+                # 不是爬虫：两个字段都为空
+                clauses.append("(empty(crawler_name) AND empty(crawler_category))")
         return " AND ".join(clauses), params
 
     @staticmethod

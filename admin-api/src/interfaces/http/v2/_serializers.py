@@ -39,7 +39,10 @@ def permission_to_schema(perm: Permission) -> PermissionSchema:
     return PermissionSchema(code=perm.code, description=perm.description)
 
 
-def app_to_schema(app: Application, *, rule_name: str | None = None, rule_status: str | None = None) -> AppSchema:
+def app_to_schema(app: Application, *, rules: list[tuple[str, str]] | None = None) -> AppSchema:
+    from .schemas import RuleBrief
+    
+    rule_list = [RuleBrief(name=name, status=status) for name, status in (rules or [])]
     return AppSchema(
         id=app.id,
         site_id=app.site_id,
@@ -58,8 +61,7 @@ def app_to_schema(app: Application, *, rule_name: str | None = None, rule_status
         remark=app.remark,
         created_at=app.created_at,
         updated_at=app.updated_at,
-        rule_name=rule_name,
-        rule_status=rule_status,
+        rules=rule_list,
     )
 
 

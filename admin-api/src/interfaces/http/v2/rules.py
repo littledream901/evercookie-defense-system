@@ -375,14 +375,22 @@ async def set_rule_sites(
 
 @global_router.post(
     "/bind-to-site/{site_id}",
-    response_model=SuccessResponse[dict[str, int]],
+    response_model=SuccessResponse[dict[str, Any]],
     dependencies=[Depends(require_permission("rule.write"))],
 )
 async def bind_rules_to_site(
     site_id: int,
     payload: BindRulesRequest,
     service: RuleService = Depends(get_rule_service),
-) -> SuccessResponse[dict[str, int]]:
-    """全量覆盖某站点绑定的规则列表，并重建该站点缓存分片。"""
-    count = await service.bind_rules_to_site(site_id, payload.rule_ids)
-    return SuccessResponse(data={"bound": count})
+) -> SuccessResponse[dict[str, Any]]:
+    """全量覆盖某站点绑定的规则列表，并重建该站点缓存分片。
+    
+    返回绑定数量和冲突检测结果。
+    """
+    count, conflict_info = await service.bind_rules_to_site(site_id, payload.rule_ids)
+    return SuccessResponse(
+        data={
+            "bound": count,
+            "conflicts": conflict_info,
+        }
+    )

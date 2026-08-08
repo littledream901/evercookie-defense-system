@@ -28,6 +28,7 @@ from .schemas import (
     AppCreateResponse,
     AppSchema,
     AppUpdateRequest,
+    RuleBindResponse,
 )
 
 router = APIRouter(prefix="/sites", tags=["sites"])
@@ -62,8 +63,7 @@ async def list_apps(
             items=[
                 app_to_schema(
                     a,
-                    rule_name=rule_stats.get(a.id, (None, None))[0],
-                    rule_status=rule_stats.get(a.id, (None, None))[1],
+                    rules=rule_stats.get(a.id, []),
                 )
                 for a in items
             ],

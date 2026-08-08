@@ -17,6 +17,20 @@
       </template>
     </ElAlert>
 
+    <!-- 快速筛选按钮组 - 暂时隐藏
+    <div class="quick-filters mb-3">
+      <ElCheckTag
+        v-for="filter in quickFilters"
+        :key="filter.value"
+        :checked="isFilterActive(filter)"
+        @change="toggleQuickFilter(filter)"
+        class="quick-filter-tag"
+      >
+        {{ filter.label }}
+      </ElCheckTag>
+    </div>
+    -->
+
     <AccessLogSearch
       v-show="showSearchBar"
       v-model="searchForm"
@@ -117,7 +131,47 @@
           </div>
         </template>
 
-        <!-- 5. 访问来路：两行显示 + tooltip -->
+        <!-- 5. 爬虫识别（增强版，显示详细分类） -->
+        <template #crawler_info="{ row }">
+          <div v-if="row.crawler_name || row.crawler_category" class="crawler-detail">
+            <!-- 爬虫详细信息 -->
+            <template v-if="getCrawlerDetailInfo(row.crawler_name)">
+              <div class="crawler-main">
+                <span class="crawler-icon">{{ getCrawlerDetailInfo(row.crawler_name)?.icon }}</span>
+                <div class="crawler-text">
+                  <div class="crawler-name">{{ getCrawlerDetailInfo(row.crawler_name)?.displayName }}</div>
+                  <div class="crawler-meta">
+                    <span class="crawler-vendor">{{ getCrawlerDetailInfo(row.crawler_name)?.vendorName }}</span>
+                    <span class="crawler-sep">·</span>
+                    <span class="crawler-product">{{ getCrawlerDetailInfo(row.crawler_name)?.product }}</span>
+                  </div>
+                  <div class="crawler-purpose">{{ getCrawlerDetailInfo(row.crawler_name)?.purpose }}</div>
+                </div>
+              </div>
+              <ElTag 
+                :type="getCrawlerCategoryType(getCrawlerDetailInfo(row.crawler_name)?.subcategory || '') as any" 
+                size="small"
+                class="crawler-subcategory-tag"
+              >
+                {{ getSubcategoryLabel(getCrawlerDetailInfo(row.crawler_name)?.subcategory || '') }}
+              </ElTag>
+            </template>
+            
+            <!-- 降级显示：只有基础信息 -->
+            <template v-else>
+              <div class="crawler-basic">
+                <ElTag :type="getCrawlerCategoryColor(row.crawler_category) as any" size="small" effect="plain">
+                  {{ getCrawlerCategoryLabel(row.crawler_category) }}
+                </ElTag>
+                <span v-if="row.crawler_name" class="crawler-name-basic">{{ row.crawler_name }}</span>
+                <span v-if="row.crawler_vendor" class="crawler-vendor-basic">{{ row.crawler_vendor }}</span>
+              </div>
+            </template>
+          </div>
+          <span v-else class="text-placeholder">-</span>
+        </template>
+
+        <!-- 6. 访问来路：两行显示 + tooltip -->
         <template #referer="{ row }">
           <ElTooltip v-if="row.referer" placement="top" :content="row.referer" :show-after="300">
             <div class="cell-referer">
@@ -127,7 +181,7 @@
           <span v-else class="text-placeholder">-</span>
         </template>
 
-        <!-- 6. IP 地址（三行堆叠：IP / 国家 / 时间） -->
+        <!-- 7. IP 地址（三行堆叠：IP / 国家 / 时间） -->
         <template #ip="{ row }">
           <div class="cell-stack">
             <ElTooltip v-if="row.ip" placement="top" :content="row.ip" :show-after="300">
@@ -141,7 +195,7 @@
           </div>
         </template>
 
-        <!-- 7. IP 详情（两行：运营商名称 / 归属类型） -->
+        <!-- 8. IP 详情（两行：运营商名称 / 归属类型） -->
         <template #asn="{ row }">
           <template v-if="row.asn_org || row.asn || row.connection_type">
             <ElTooltip placement="top" :show-after="200">
@@ -168,7 +222,7 @@
           <span v-else class="text-placeholder">-</span>
         </template>
 
-        <!-- 8. 设备系统 -->
+        <!-- 9. 设备系统 -->
         <template #device_type="{ row }">
           <div class="cell-stack">
             <span class="cell-line">类型: {{ DEVICE_TYPE_LABELS[row.device_type] || row.device_type || '-' }}</span>
@@ -186,7 +240,7 @@
           </div>
         </template>
 
-        <!-- 9. 客户端信息（三行：类型 / 名称 / 版本） -->
+        <!-- 10. 客户端信息（三行：类型 / 名称 / 版本） -->
         <template #browser="{ row }">
           <ElTooltip v-if="row.user_agent" placement="top" :show-after="200">
             <template #content>
@@ -201,7 +255,7 @@
           <span v-else class="text-placeholder">-</span>
         </template>
 
-        <!-- 10. 客户端语言（两行：首选标签 / 全部偏好） -->
+        <!-- 11. 客户端语言（两行：首选标签 / 全部偏好） -->
         <template #accept_language="{ row }">
           <ElTooltip v-if="row.accept_language" placement="top" :show-after="200">
             <template #content>
@@ -247,6 +301,7 @@
   import LogDetailDrawer from './modules/log-detail-drawer.vue'
   import { DEVICE_TYPE_OPTIONS, pruneParams, recentLocalRange } from '@/constants/fangyu'
   import { MECHANISM_TAGS, DECIDED_BY_LABELS } from '@/constants/disposition'
+  import { getCrawlerDetail, getSubcategoryLabel, type CrawlerDetail } from '@/constants/crawlerDetails'
 
   defineOptions({ name: 'AccessLogs' })
 
@@ -389,7 +444,8 @@
 
   type AccessLogSearchFormParams = {
     requestId?: string; ip?: string; verdict?: string; mechanism?: string
-    decidedBy?: string; deviceType?: string; isBot?: boolean; daterange?: string[]
+    decidedBy?: string; deviceType?: string; isBot?: boolean; isCrawler?: boolean
+    crawlerCategory?: string; crawlerVendor?: string; daterange?: string[]
   }
 
   const DEVICE_TYPE_LABELS: Record<string, string> = {}
@@ -429,7 +485,8 @@
 
   const searchForm = ref<AccessLogSearchFormParams>({
     requestId: undefined, ip: undefined, verdict: undefined, mechanism: undefined,
-    decidedBy: undefined, deviceType: undefined, isBot: undefined, daterange: recentLocalRange(24)
+    decidedBy: undefined, deviceType: undefined, isBot: undefined, isCrawler: undefined,
+    crawlerCategory: undefined, crawlerVendor: undefined, daterange: recentLocalRange(24)
   })
 
   const {
@@ -441,17 +498,18 @@
       apiParams: { page: 1, pageSize: 20 },
       immediate: false,
       columnsFactory: () => [
-        { prop: 'request_id',      label: '访客编号',     minWidth: 200, useSlot: true },
-        { prop: 'path',            label: '访客访问网址', minWidth: 220, useSlot: true },
+        { prop: 'request_id',      label: '访客编号',     minWidth: 200, useSlot: true, align: 'center'  },
+        { prop: 'path',            label: '访客访问网址', minWidth: 200, useSlot: true, align: 'center'  },
         { prop: 'verdict',         label: '访问状态',     width: 160,    useSlot: true, align: 'center' },
         { prop: 'mechanism',       label: '处置机制',     width: 130,    useSlot: true, align: 'center' },
-        { prop: 'referer',         label: '访问来路',     minWidth: 150, useSlot: true },
-        { prop: 'ip',              label: 'IP 地址',      minWidth: 175, useSlot: true },
-        { prop: 'asn',             label: 'IP 详情',      width: 120,    useSlot: true },
-        { prop: 'device_type',     label: '设备系统',     width: 145,    useSlot: true },
-        { prop: 'browser',         label: '客户端信息',   width: 155,    useSlot: true },
-        { prop: 'accept_language', label: '客户端语言',   minWidth: 155, useSlot: true },
-        { prop: '_actions',        label: '操作',         width: 70,     fixed: 'right', useSlot: true }
+        { prop: 'crawler_info',    label: '爬虫识别',     width: 130,    useSlot: true, align: 'center'  },
+        { prop: 'referer',         label: '访问来路',     minWidth: 150, useSlot: true, align: 'center'  },
+        { prop: 'ip',              label: 'IP 地址',      minWidth: 130, useSlot: true , align: 'center' },
+        { prop: 'asn',             label: 'IP 详情',      width: 130,    useSlot: true, align: 'center'  },
+        { prop: 'device_type',     label: '设备系统',     width: 130,    useSlot: true, align: 'center'  },
+        { prop: 'browser',         label: '客户端信息',   width: 130,    useSlot: true, align: 'center'  },
+        { prop: 'accept_language', label: '客户端语言',   minWidth: 130, useSlot: true, align: 'center'  },
+        { prop: '_actions',        label: '操作',         width: 70,     fixed: 'right', useSlot: true, align: 'center'  }
       ]
     }
   })
@@ -476,6 +534,96 @@
     return 'score-low'
   }
 
+  /* ── 爬虫详细信息处理 ── */
+
+  function getCrawlerDetailInfo(crawlerName: string | null | undefined): CrawlerDetail | null {
+    return getCrawlerDetail(crawlerName)
+  }
+
+  /**
+   * 根据子分类返回标签类型
+   */
+  function getCrawlerCategoryType(subcategory: string): string {
+    const typeMap: Record<string, string> = {
+      web_search: 'primary',
+      image_search: 'primary',
+      video_search: 'primary',
+      news_search: 'primary',
+      mobile_search: 'primary',
+      
+      ad_quality: 'warning',
+      ad_quality_mobile: 'warning',
+      ad_indexing: 'warning',
+      contextual_ads: 'warning',
+      
+      ai_training: 'danger',
+      browsing: 'warning',
+      search_indexing: 'warning',
+      
+      link_preview: 'success',
+      
+      seo_analysis: 'info',
+      backlink_analysis: 'info',
+      seo_tool: 'info',
+      
+      web_archiving: '',
+      uptime_monitoring: 'info'
+    }
+    return typeMap[subcategory] || 'info'
+  }
+
+  function getCrawlerTypeByCategory(category?: string): string {
+    if (!category) return '未知类型'
+    const labels: Record<string, string> = {
+      search_engine: '搜索引擎',
+      social: '社交媒体',
+      ai_crawler: 'AI 抓取',
+      seo: 'SEO 工具',
+      monitoring: '监控探测',
+      security: '安全扫描',
+      library: '脚本库',
+      feed: 'RSS 订阅',
+      archive: '网页存档',
+      other: '其他爬虫'
+    }
+    return labels[category] || category
+  }
+
+  function getCrawlerCategoryColor(category?: string): 'success' | 'info' | 'warning' | 'danger' {
+    if (!category) return 'info'
+    const colors: Record<string, 'success' | 'info' | 'warning' | 'danger'> = {
+      search_engine: 'success',
+      social: 'success',
+      ai_crawler: 'warning',
+      seo: 'info',
+      monitoring: 'info',
+      security: 'danger',
+      library: 'warning',
+      feed: 'info',
+      archive: 'info',
+      other: 'info'
+    }
+    return colors[category] || 'info'
+  }
+
+  function getCrawlerCategoryLabel(category?: string): string {
+    if (!category) return '未知类型'
+    const labels: Record<string, string> = {
+      search_engine: '搜索引擎',
+      ai_crawler: 'AI爬虫',
+      social_media: '社交媒体',
+      monitoring: '监控工具',
+      seo_tool: 'SEO工具',
+      feed_reader: 'Feed订阅',
+      security_scanner: '安全扫描',
+      e_commerce: '电商平台',
+      advertising: '广告系统',
+      archiving: '存档服务',
+      accessibility: '辅助功能'
+    }
+    return labels[category] || category
+  }
+
   const buildParams = (form: AccessLogSearchFormParams) => {
     const { daterange, ...rest } = form
     return pruneParams({
@@ -493,7 +641,9 @@
     searchForm.value = {
       requestId: undefined, ip: undefined, verdict: undefined,
       mechanism: undefined, decidedBy: undefined, deviceType: undefined,
-      isBot: undefined, daterange: recentLocalRange(24)
+      isBot: undefined, isCrawler: undefined, crawlerCategory: undefined,
+      crawlerVendor: undefined,
+      daterange: recentLocalRange(24)
     }
     handleSearch(searchForm.value)
     ElMessage.success('已重置筛选条件，默认展示近 24 小时日志')
@@ -504,6 +654,26 @@
 
 <style scoped>
 .access-logs-page { padding: 0; }
+
+/* ── 快速筛选按钮组 ── */
+.quick-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #f7f8fa;
+  border-radius: 4px;
+}
+
+.quick-filter-tag {
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+}
+
+.quick-filter-tag:hover {
+  transform: translateY(-1px);
+}
 
 /* ── 顶部提示横幅 ── */
 .access-banner :deep(.el-alert__title) { font-size: 13px; line-height: 1.7; }
@@ -534,6 +704,109 @@
 }
 .text-secondary  { color: #606266; font-size: 12px; }
 .text-placeholder { color: #c9cdd4; font-size: 12px; }
+
+/* ── 爬虫识别增强样式 ── */
+.crawler-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.crawler-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.crawler-icon {
+  font-size: 20px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.crawler-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.crawler-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d2129;
+  line-height: 1.4;
+}
+
+.crawler-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #86909c;
+  line-height: 1.3;
+}
+
+.crawler-vendor {
+  color: #4e5969;
+  font-weight: 500;
+}
+
+.crawler-sep {
+  color: #c9cdd4;
+}
+
+.crawler-product {
+  color: #86909c;
+}
+
+.crawler-purpose {
+  font-size: 11px;
+  color: #86909c;
+  line-height: 1.4;
+  margin-top: 1px;
+}
+
+.crawler-subcategory-tag {
+  align-self: flex-start;
+  font-size: 11px;
+}
+
+/* 降级显示样式 */
+.crawler-basic {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.crawler-name-basic {
+  font-size: 12px;
+  color: #1d2129;
+  font-weight: 500;
+}
+
+.crawler-vendor-basic {
+  font-size: 11px;
+  color: #86909c;
+}
+
+/* 旧版兼容样式 */
+.crawler-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 0;
+}
+.crawler-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+}
+.crawler-vendor {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+}
 
 /* ── 居中列包裹器 ── */
 .cell-center {

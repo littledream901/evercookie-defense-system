@@ -45,6 +45,7 @@ class UserModel(Base, TimestampMixin):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     roles: Mapped[list["UserRoleModel"]] = relationship(back_populates="user", lazy="selectin")
+    api_keys: Mapped[list["UserApiKeyModel"]] = relationship(back_populates="user", lazy="selectin")
 
 
 class RoleModel(Base, TimestampMixin):
@@ -453,3 +454,21 @@ class AuditLogModel(Base):
     user_agent: Mapped[str] = mapped_column(String(512), default="")
     request_id: Mapped[str] = mapped_column(String(64), default="")
     detail: Mapped[dict | None] = mapped_column(MySQLJSON, nullable=True)
+
+
+class UserApiKeyModel(Base, TimestampMixin):
+    __tablename__ = "sys_user_api_key"
+    __table_args__ = (
+        Index("idx_user_api_key_user", "user_id"),
+        Index("idx_user_api_key_key_hash", "key_hash"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("sys_user.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    key_prefix: Mapped[str] = mapped_column(String(16), nullable=False)
+    key_hash: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
+
+    user: Mapped[UserModel] = relationship(back_populates="api_keys")

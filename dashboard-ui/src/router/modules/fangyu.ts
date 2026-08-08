@@ -174,6 +174,19 @@ export const accessLogsRoutes: AppRouteRecord = {
   }
 }
 
+/** 爬虫分析 */
+export const crawlerAnalyticsRoutes: AppRouteRecord = {
+  name: 'FangyuCrawlerAnalytics',
+  path: '/logs/crawler-analytics',
+  component: '/fangyu/crawler-analytics',
+  meta: {
+    title: '爬虫分析',
+    icon: 'ri:robot-line',
+    permission: 'analytics.read',
+    keepAlive: true
+  }
+}
+
 /** 审计日志 */
 export const auditLogsRoutes: AppRouteRecord = {
   name: 'FangyuAuditLogs',

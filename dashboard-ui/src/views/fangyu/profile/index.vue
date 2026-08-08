@@ -3,62 +3,74 @@
   <div class="art-full-height">
     <div class="mb-4">
       <h2 class="text-lg font-medium text-g-900">个人中心</h2>
-      <p class="mt-1 text-sm text-g-600">查看账号信息、修改密码</p>
+      <p class="mt-1 text-sm text-g-600">查看账号信息、修改密码、管理 API Key</p>
     </div>
 
-    <ElRow :gutter="16">
-      <!-- 账号信息 -->
-      <ElCol :span="10">
-        <ElCard shadow="never" header="账号信息">
-          <ElDescriptions :column="1" border>
-            <ElDescriptionsItem label="用户名">{{ user.userName }}</ElDescriptionsItem>
-            <ElDescriptionsItem label="邮箱">{{ user.email }}</ElDescriptionsItem>
-            <ElDescriptionsItem label="显示名">{{ user.displayName || '-' }}</ElDescriptionsItem>
-            <ElDescriptionsItem label="状态">
-              <ElTag :type="user.status === 'active' ? 'success' : 'warning'" size="small">
-                {{ user.status === 'active' ? '正常' : user.status }}
-              </ElTag>
-            </ElDescriptionsItem>
-            <ElDescriptionsItem label="角色">
-              <ElTag v-for="r in user.roles" :key="r" size="small" class="mr-1 mb-1">{{ r }}</ElTag>
-            </ElDescriptionsItem>
-          </ElDescriptions>
-        </ElCard>
-      </ElCol>
+    <ElTabs v-model="activeTab" type="card">
+      <!-- 账号信息 Tab -->
+      <ElTabPane label="账号信息" name="account">
+        <ElRow :gutter="16">
+          <!-- 账号信息 -->
+          <ElCol :span="10">
+            <ElCard shadow="never" header="账号信息">
+              <ElDescriptions :column="1" border>
+                <ElDescriptionsItem label="用户名">{{ user.userName }}</ElDescriptionsItem>
+                <ElDescriptionsItem label="邮箱">{{ user.email }}</ElDescriptionsItem>
+                <ElDescriptionsItem label="显示名">{{ user.displayName || '-' }}</ElDescriptionsItem>
+                <ElDescriptionsItem label="状态">
+                  <ElTag :type="user.status === 'active' ? 'success' : 'warning'" size="small">
+                    {{ user.status === 'active' ? '正常' : user.status }}
+                  </ElTag>
+                </ElDescriptionsItem>
+                <ElDescriptionsItem label="角色">
+                  <ElTag v-for="r in user.roles" :key="r" size="small" class="mr-1 mb-1">{{ r }}</ElTag>
+                </ElDescriptionsItem>
+              </ElDescriptions>
+            </ElCard>
+          </ElCol>
 
-      <!-- 修改密码 -->
-      <ElCol :span="14">
-        <ElCard shadow="never" header="修改密码">
-          <ElForm ref="pwdFormRef" :model="pwdForm" :rules="pwdRules" label-width="110px">
-            <ElFormItem label="当前密码" prop="old_password">
-              <ElInput v-model="pwdForm.old_password" type="password" show-password />
-            </ElFormItem>
-            <ElFormItem label="新密码" prop="new_password">
-              <ElInput v-model="pwdForm.new_password" type="password" show-password />
-            </ElFormItem>
-            <ElFormItem label="确认新密码" prop="confirm_password">
-              <ElInput v-model="pwdForm.confirm_password" type="password" show-password />
-            </ElFormItem>
-            <ElFormItem>
-              <ElButton type="primary" :loading="saving" @click="submitPassword">修改密码</ElButton>
-              <ElButton @click="resetPwdForm">重置</ElButton>
-            </ElFormItem>
-          </ElForm>
-        </ElCard>
-      </ElCol>
-    </ElRow>
+          <!-- 修改密码 -->
+          <ElCol :span="14">
+            <ElCard shadow="never" header="修改密码">
+              <ElForm ref="pwdFormRef" :model="pwdForm" :rules="pwdRules" label-width="110px">
+                <ElFormItem label="当前密码" prop="old_password">
+                  <ElInput v-model="pwdForm.old_password" type="password" show-password />
+                </ElFormItem>
+                <ElFormItem label="新密码" prop="new_password">
+                  <ElInput v-model="pwdForm.new_password" type="password" show-password />
+                </ElFormItem>
+                <ElFormItem label="确认新密码" prop="confirm_password">
+                  <ElInput v-model="pwdForm.confirm_password" type="password" show-password />
+                </ElFormItem>
+                <ElFormItem>
+                  <ElButton type="primary" :loading="saving" @click="submitPassword">修改密码</ElButton>
+                  <ElButton @click="resetPwdForm">重置</ElButton>
+                </ElFormItem>
+              </ElForm>
+            </ElCard>
+          </ElCol>
+        </ElRow>
+      </ElTabPane>
+
+      <!-- API Key Tab -->
+      <ElTabPane label="API Keys" name="apikeys">
+        <ApiKeyManagement />
+      </ElTabPane>
+    </ElTabs>
   </div>
 </template>
 <script setup lang="ts">
   import { useUserStore } from '@/store/modules/user'
   import { fetchChangePassword } from '@/api/auth'
   import type { FormInstance, FormRules } from 'element-plus'
+  import ApiKeyManagement from '@/components/ApiKeyManagement.vue'
 
   defineOptions({ name: 'FangyuProfile' })
 
   const userStore = useUserStore()
   const user = computed(() => userStore.getUserInfo)
 
+  const activeTab = ref('account')
   const saving = ref(false)
   const pwdFormRef = ref<FormInstance>()
   const pwdForm = reactive({ old_password: '', new_password: '', confirm_password: '' })

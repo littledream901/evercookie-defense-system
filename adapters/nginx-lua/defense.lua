@@ -1,3 +1,6 @@
+-- [DEBUG] defense.lua 开始执行
+ngx.log(ngx.ERR, "[fangyu-test] ========== defense.lua loaded ==========")
+
 --[[
   Fangyu Defense — Nginx / OpenResty adapter
   ============================================
@@ -13,15 +16,53 @@
     lua-resty-hmac    — or use resty.openssl.hmac (OpenResty 1.25+)
     lua-cjson         — bundled with OpenResty
 
-  Configuration via nginx.conf set directives (or environment / secrets manager):
+  ⚠️ 部署清单（Deployment Checklist）⚠️
+  ======================================
+  请按顺序完成以下配置，缺一不可：
+
+  ✓ 1. 在 nginx.conf 的 server 块中配置以下变量：
+
     set $fangyu_gateway_url  "https://defense.example.com";
     set $fangyu_site_id      "site_xxxxxxxx";   -- 站点 ID，同时用作 X-App-Key
+    set $fangyu_app_id       "1";               -- 数值型 App ID (必需！)
     set $fangyu_app_secret   "your_app_secret";
     set $fangyu_fail_mode    "open";            -- "open" or "closed"
     set $fangyu_sdk_inject   "on";              -- "on"(默认) 或 "off"
     set $fangyu_sdk_url      "";                -- SDK URL，空=自动用 gateway_url/sdk/fangyu-sdk.min.js
     set $fangyu_blocked_url  "/blocked";
     set $fangyu_challenge_url "/challenge";
+    set $fy_sdk_snippet      "";                -- ⚠️ 关键！SDK 注入必需！
+
+  ✓ 2. 在 location / 块中添加：
+    access_by_lua_file /www/sites/{your-domain}/lua/defense.lua;
+
+  ✓ 3. 在 location / 块或 server 块末尾添加 body_filter：
+    body_filter_by_lua_block {
+        local snippet = ngx.var.fy_sdk_snippet
+        if not snippet or snippet == "" then return end
+        local ct = ngx.header["Content-Type"] or ""
+        if not ct:find("text/html", 1, true) then return end
+        local chunk, eof = ngx.arg[1], ngx.arg[2]
+        if chunk then
+            local before = chunk
+            ngx.arg[1] = chunk:gsub("</head>", snippet .. "</head>", 1)
+            -- 验证注入是否成功
+            if ngx.arg[1] ~= before then
+                ngx.log(ngx.INFO, "[fangyu] SDK 注入成功 (找到 </head> 标签)")
+            end
+        end
+    }
+
+  ✓ 4. 验证配置：
+    nginx -t && nginx -s reload
+
+  ✓ 5. 测试 SDK 注入：
+    curl -I https://your-domain.com/
+    # 查看页面源代码，搜索 "fangyu-sdk" 或 "__fy_server_ctx"
+
+  故障排查：
+    运行诊断工具: python diagnose_sdk_injection.py
+    查看文档: docs/SDK_INJECTION_TROUBLESHOOTING.md
 
   Signing parity
   --------------
@@ -80,6 +121,66 @@ local SDK_INJECT   = cfg("sdk_inject", "on")
 local SDK_URL      = cfg("sdk_url", "")
 local BLOCKED_URL  = cfg("blocked_url", "/blocked")
 local CHALLENGE_URL = cfg("challenge_url", "/challenge")
+
+-- ── Environment Self-Check ──────────────────────────────────────────────────
+
+local function check_environment()
+  local errors = {}
+  
+  -- 检查必需的 Nginx 变量是否可访问
+  local ok, err = pcall(function()
+    local test = ngx.var.fy_sdk_snippet
+  end)
+  
+  if not ok then
+    table.insert(errors, "$fy_sdk_snippet 变量未声明")
+    ngx.log(ngx.CRIT, "[fangyu] CRITICAL: $fy_sdk_snippet 变量未声明！")
+    ngx.log(ngx.CRIT, "[fangyu] 修复方法: 在 nginx.conf 中添加: set $fy_sdk_snippet \"\";")
+  end
+  
+  -- 检查关键配置是否缺失
+  if GATEWAY_URL == "" then
+    table.insert(errors, "$fangyu_gateway_url 未配置")
+    ngx.log(ngx.ERR, "[fangyu] ERROR: $fangyu_gateway_url 未配置")
+  end
+  
+  if SITE_ID == "" then
+    table.insert(errors, "$fangyu_site_id 未配置")
+    ngx.log(ngx.ERR, "[fangyu] ERROR: $fangyu_site_id 未配置")
+  end
+  
+  if APP_ID == 0 then
+    table.insert(errors, "$fangyu_app_id 未配置或无效（需要 > 0 的整数）")
+    ngx.log(ngx.ERR, "[fangyu] ERROR: $fangyu_app_id 未配置或无效")
+  end
+  
+  if APP_SECRET == "" then
+    table.insert(errors, "$fangyu_app_secret 未配置")
+    ngx.log(ngx.ERR, "[fangyu] ERROR: $fangyu_app_secret 未配置")
+  end
+  
+  if #errors > 0 then
+    ngx.log(ngx.CRIT, "[fangyu] 环境检查失败，发现 " .. #errors .. " 个问题:")
+    for _, e in ipairs(errors) do
+      ngx.log(ngx.CRIT, "[fangyu]   - " .. e)
+    end
+    return false, errors
+  end
+  
+  return true, nil
+end
+
+-- 执行环境检查
+local env_ok, env_errors = check_environment()
+if not env_ok then
+  if FAIL_MODE == "closed" then
+    ngx.log(ngx.CRIT, "[fangyu] fail_mode=closed，拒绝请求")
+    ngx.exit(503)  -- Service Unavailable
+  else
+    ngx.log(ngx.WARN, "[fangyu] fail_mode=open，放行请求但功能受限")
+    return  -- 放行但不执行防御逻辑
+  end
+end
 
 -- ── Signing ──────────────────────────────────────────────────────────────────
 
@@ -235,6 +336,7 @@ local function decide(context)
       ["X-App-Key"]    = SITE_ID,
     },
     body = body_str,
+    ssl_verify = false,
   })
 
   if not res or res.status < 200 or res.status >= 300 then
@@ -259,12 +361,15 @@ local function execute(payload)
     return  -- allow
   elseif mech == "redirect" then
     local url = payload.targetUrl
+    ngx.log(ngx.ERR, "[fangyu-debug] redirect targetUrl: ", url or "nil")
     if url and (url:sub(1,7) == "http://" or url:sub(1,8) == "https://") then
       local status = tonumber(payload.httpStatus) or 302
       if status < 300 or status >= 400 then status = 302 end
+      ngx.log(ngx.ERR, "[fangyu-debug] Calling ngx.redirect(", url, ", ", status, ")")
       return ngx.redirect(url, status)
     end
     -- No valid URL → fall through to deny
+    ngx.log(ngx.ERR, "[fangyu-debug] No valid URL, returning 403")
     ngx.exit(403)
   elseif mech == "not_found" then
     local status = tonumber(payload.httpStatus) or 404
@@ -392,13 +497,14 @@ end
 
 -- ── Main ─────────────────────────────────────────────────────────────────────
 
+local function get_client_ip()
+  return ngx.var.remote_addr or "0.0.0.0"
+end
+
 -- Skip Nginx internal redirects.
 if ngx.req.is_internal() then return end
 
-local real_ip = ngx.var.remote_addr or "0.0.0.0"
-if ngx.var.http_cf_connecting_ip and ngx.var.http_cf_connecting_ip ~= "" then
-  real_ip = ngx.var.http_cf_connecting_ip
-end
+local real_ip = get_client_ip()
 
 local server_token = server_session_token()
 
@@ -427,54 +533,104 @@ if repeat_val and repeat_val ~= "" then
   context.repeatValue = repeat_val
 end
 
+-- DEBUG: 开始决策调用
+ngx.log(ngx.ERR, "[fangyu-debug] Starting decision call for: ", context.visitUrl)
+ngx.log(ngx.ERR, "[fangyu-debug] Gateway URL: ", GATEWAY_URL)
+ngx.log(ngx.ERR, "[fangyu-debug] Site ID: ", SITE_ID)
+
 local payload, err = decide(context)
+
+-- DEBUG: 决策结果
 if err then
+  ngx.log(ngx.ERR, "[fangyu-debug] Gateway error: ", err)
   ngx.log(ngx.WARN, "[fangyu] gateway error: ", err)
   if FAIL_MODE == "closed" then ngx.exit(403) end
   -- fail-open：继续执行，SDK 仍然注入
+else
+  ngx.log(ngx.ERR, "[fangyu-debug] Decision success, mechanism: ", payload and payload.mechanism or "nil")
+  if payload then
+    ngx.log(ngx.ERR, "[fangyu-debug] Verdict: ", payload.verdict or "unknown")
+  end
 end
 
 -- 第一层判定为拦截时直接执行（SDK 不加载）
 if payload and payload.mechanism ~= "pass" then
+  ngx.log(ngx.ERR, "[fangyu-debug] Executing mechanism: ", payload.mechanism)
+  ngx.log(ngx.ERR, "[fangyu-debug] Payload: ", require("cjson").encode(payload))
   execute(payload)
   return
 end
 
+
 -- 第一层 pass（或网关不可达）→ 注入 SDK 到响应 HTML
 -- 使用 header_filter + body_filter 阶段实现；
--- 此处设置一个共享变量，由 body_filter_by_lua_block 读取并追加 snippet。
+-- 重要：proxy_pass 会导致 ngx.ctx 在子请求中丢失，必须用 ngx.var 传递！
 if SDK_INJECT ~= "off" then
   local server_verdict = payload and payload.verdict or "unknown"
-  ngx.ctx.fy_sdk_snippet = build_sdk_snippet(server_verdict, server_token)
+  local snippet = build_sdk_snippet(server_verdict, server_token)
+  
+  -- 存储到 Nginx 变量而不是 ngx.ctx，这样在 proxy_pass 后仍然可用
+  ngx.var.fy_sdk_snippet = snippet
+  
+  -- 验证赋值是否成功
+  if ngx.var.fy_sdk_snippet == snippet then
+    ngx.log(ngx.INFO, "[fangyu] SDK snippet 已准备 (", #snippet, " 字节), verdict: ", server_verdict)
+    ngx.log(ngx.ERR, "[fangyu-debug] SDK snippet prepared, verdict: ", server_verdict)
+  else
+    ngx.log(ngx.CRIT, "[fangyu] CRITICAL: SDK snippet 赋值失败！")
+    ngx.log(ngx.CRIT, "[fangyu] 可能原因: $fy_sdk_snippet 变量未声明")
+    ngx.log(ngx.CRIT, "[fangyu] 修复方法: 在 nginx.conf 中添加: set $fy_sdk_snippet \"\";")
+  end
+else
+  ngx.log(ngx.WARN, "[fangyu] SDK 注入已禁用 (SDK_INJECT=off)")
 end
 
 --[[
 ── nginx.conf 配置示例（双层模式）───────────────────────────────────────────
 
   server {
+    # 必需的变量声明
+    set $fangyu_gateway_url  "https://gateway.example.com";
+    set $fangyu_site_id      "site_xxxxxxxx";
+    set $fangyu_app_id       "1";
+    set $fangyu_app_secret   "your_secret";
+    set $fangyu_fail_mode    "open";
+    set $fangyu_sdk_inject   "on";
+    set $fy_sdk_snippet      "";  # ⚠️ 关键！
+
     location / {
-      # 第一层：access 阶段，决策+注入 snippet 写入 ngx.ctx
-      access_by_lua_file /etc/nginx/lua/fangyu/defense.lua;
+      # 第一层：access 阶段，决策+准备 SDK snippet
+      access_by_lua_file /www/sites/your-domain/lua/defense.lua;
 
       proxy_pass http://upstream;
 
-      # 第二层：body_filter 阶段，把 snippet 追加到 </head> 之前
+      # 第二层：body_filter 阶段，把 snippet 注入到 </head> 之前
       body_filter_by_lua_block {
-        local snippet = ngx.ctx.fy_sdk_snippet
-        if not snippet then return end
+        local snippet = ngx.var.fy_sdk_snippet
+        if not snippet or snippet == "" then return end
+        
         -- 仅对 HTML 响应注入
         local ct = ngx.header["Content-Type"] or ""
         if not ct:find("text/html", 1, true) then return end
+        
         -- 把 snippet 插入到 </head> 之前
         local chunk, eof = ngx.arg[1], ngx.arg[2]
         if chunk then
+          local before = chunk
           ngx.arg[1] = chunk:gsub("</head>", snippet .. "</head>", 1)
+          
+          -- 验证注入是否成功（生产环境可注释此行以减少日志）
+          if ngx.arg[1] ~= before then
+            ngx.log(ngx.INFO, "[fangyu] SDK 注入成功")
+          end
         end
       }
     }
   }
 
-注意：body_filter 方式在流式响应或分块传输时可能只命中第一个 chunk。
-对于大多数业务场景（商品页、活动页）这已经足够。如需严格保证，
-可在 proxy_pass 前加 proxy_buffering on; 强制缓冲完整响应体。
+注意：
+1. body_filter 方式在流式响应或分块传输时可能只命中第一个 chunk。
+   对于大多数业务场景（商品页、活动页）这已经足够。
+2. 如需严格保证注入，可在 proxy_pass 前加 proxy_buffering on; 强制缓冲完整响应体。
+3. 生产环境建议调整日志级别，避免 INFO 日志过多。
 ]]

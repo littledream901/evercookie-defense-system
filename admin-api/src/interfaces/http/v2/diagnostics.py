@@ -213,6 +213,7 @@ async def integration_diagnostics(
     stats = [
         IngressStatSchema(
             ingress=str(row.get("ingress") or "unknown"),
+            host=str(row.get("host") or ""),
             total=int(row.get("total") or 0),
             derived_count=int(row.get("derived_count") or 0),
             behavior_count=int(row.get("behavior_count") or 0),

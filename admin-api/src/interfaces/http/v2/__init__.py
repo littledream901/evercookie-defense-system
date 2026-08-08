@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from .access_logs import router as access_logs_router
 from .analytics import router as analytics_router
+from .api_keys import router as api_keys_router
 from .apps import router as apps_router
 from .audit_logs import router as audit_logs_router
 from .auth import router as auth_router
@@ -29,6 +30,7 @@ v2_router = APIRouter(prefix="/v2")
 
 v2_router.include_router(auth_router)
 v2_router.include_router(users_router)
+v2_router.include_router(api_keys_router)
 v2_router.include_router(roles_router)
 v2_router.include_router(permissions_router)
 v2_router.include_router(apps_router)

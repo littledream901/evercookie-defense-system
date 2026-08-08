@@ -18,7 +18,7 @@ export function fetchCreateGlobalRule(data: Api.Fangyu.RulePayload) {
 
 /** 全量覆盖某站点绑定的规则列表，并重建该站点缓存分片 */
 export function fetchBindRulesToSite(siteId: number, ruleIds: number[]) {
-  return request.post<{ bound: number }>({
+  return request.post<Api.Fangyu.RuleBindResponse>({
     url: `/api/v2/rules/bind-to-site/${siteId}`,
     data: { rule_ids: ruleIds }
   })

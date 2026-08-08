@@ -154,19 +154,35 @@
         </template>
 
         <!-- 绑定规则列 -->
-        <template #rule_name="{ row }">
-          <span v-if="row.rule_name" class="text-[13px]">{{ row.rule_name }}</span>
+        <template #rules="{ row }">
+          <div v-if="row.rules?.length" class="flex items-center gap-1">
+            <ElTooltip
+              :disabled="row.rules.length <= 1"
+              placement="top"
+              :show-after="200"
+            >
+              <template #content>
+                <div class="rule-tooltip-list">
+                  <div
+                    v-for="(rule, idx) in row.rules"
+                    :key="idx"
+                    class="rule-tooltip-item"
+                  >
+                    <span class="rule-tooltip-name">{{ rule.name }}</span>
+                    <ElTag
+                      size="small"
+                      :type="RULE_STATUS_TAGS[rule.status] ?? 'info'"
+                      class="ml-2"
+                    >{{ RULE_STATUS_LABELS[rule.status] ?? rule.status }}</ElTag>
+                  </div>
+                </div>
+              </template>
+              <span class="text-[13px] text-primary cursor-help">
+                {{ row.rules.length }} 条规则
+              </span>
+            </ElTooltip>
+          </div>
           <span v-else class="text-g-400 text-[12px]">未绑定</span>
-        </template>
-
-        <!-- 规则状态列 -->
-        <template #rule_status="{ row }">
-          <ElTag
-            v-if="row.rule_status"
-            size="small"
-            :type="RULE_STATUS_TAGS[row.rule_status] ?? 'info'"
-          >{{ RULE_STATUS_LABELS[row.rule_status] ?? row.rule_status }}</ElTag>
-          <span v-else class="text-g-400 text-[12px]">—</span>
         </template>
 
         <!-- 接入模式列 -->
@@ -708,3 +724,45 @@
     }
   }
 </script>
+
+<style scoped lang="scss">
+.readonly-text {
+  color: var(--el-text-color-regular);
+  font-size: 14px;
+}
+
+.alt-domain-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--el-color-info);
+  background-color: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+}
+
+.rule-tooltip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 400px;
+}
+
+.rule-tooltip-item {
+  display: flex;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.rule-tooltip-name {
+  flex: 1;
+  font-size: 13px;
+  color: #fff;
+}
+</style>

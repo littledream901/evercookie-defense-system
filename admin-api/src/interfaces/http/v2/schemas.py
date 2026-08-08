@@ -99,6 +99,26 @@ class UserAssignRolesRequest(BaseSchema):
     role_ids: list[int] = Field(default_factory=list)
 
 
+# ---------- API Key ----------
+class ApiKeyCreateRequest(BaseSchema):
+    name: str = Field(min_length=1, max_length=128)
+
+
+class ApiKeySchema(BaseSchema):
+    id: int
+    user_id: int
+    name: str
+    key_prefix: str
+    last_used_at: datetime | None = None
+    status: str
+    created_at: datetime | None = None
+
+
+class ApiKeyCreatedResponse(BaseSchema):
+    key: ApiKeySchema
+    api_key: str
+
+
 # ---------- Role / Permission ----------
 class RoleSchema(BaseSchema):
     id: int
@@ -132,6 +152,12 @@ class PermissionUpsertRequest(BaseSchema):
 
 
 # ---------- Application ----------
+class RuleBrief(BaseSchema):
+    """站点规则简要信息（用于站点列表展示）"""
+    name: str
+    status: str
+
+
 class AppSchema(BaseSchema):
     id: int
     site_id: str
@@ -152,8 +178,8 @@ class AppSchema(BaseSchema):
     remark: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-    rule_name: str | None = None
-    rule_status: str | None = None
+    rules: list[RuleBrief] = []
+    """站点绑定的规则列表"""
 
 
 class AppCreateResponse(AppSchema):
@@ -162,6 +188,14 @@ class AppCreateResponse(AppSchema):
     与 AppSchema 结构一致（app_secret 已在基类中明文回显），
     保留独立类型是为了让 OpenAPI 文档区分「创建结果」与「列表项」语义。
     """
+
+
+class RuleBindResponse(BaseSchema):
+    """规则绑定响应（包含冲突检测结果）"""
+    bound: int
+    """绑定的规则数量"""
+    conflicts: dict = {}
+    """冲突检测结果：{"has_conflicts": bool, "high_severity_count": int, "conflicts": [...]}"""
 
 
 class AppListRequest(PageRequest):
@@ -230,6 +264,8 @@ class IngressStatSchema(BaseSchema):
     """单一接入来源（sdk / adapter）的实测指标。"""
 
     ingress: str
+    host: str
+    """接入网站域名，用于区分同一站点的多个域名来源。"""
     total: int = 0
     derived_count: int = 0
     """指纹由网关按 IP+UA 派生的请求数；SDK 侧出现即说明埋码未真正采集到指纹。"""

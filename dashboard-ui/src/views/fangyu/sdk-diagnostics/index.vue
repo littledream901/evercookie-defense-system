@@ -154,6 +154,7 @@
               </ElTag>
             </template>
           </ElTableColumn>
+          <ElTableColumn prop="host" label="接入网站" min-width="180" show-overflow-tooltip />
           <ElTableColumn prop="total" label="请求数" min-width="90" />
           <ElTableColumn label="派生指纹" min-width="130">
             <template #default="{ row }">

@@ -105,6 +105,8 @@ class DecisionEvent(BaseSchema):
     os_name: str | None = Field(default=None, alias="osName", max_length=32)
     browser_name: str | None = Field(default=None, alias="browserName", max_length=32)
     is_bot: bool = Field(default=False, alias="isBot")
+    crawler_name: str | None = Field(default=None, alias="crawlerName", max_length=64)
+    """爬虫名称（如 "Googlebot"、"Bingbot"）。"""
     crawler_category: str | None = Field(default=None, alias="crawlerCategory", max_length=32)
     crawler_vendor: str | None = Field(default=None, alias="crawlerVendor", max_length=64)
 

@@ -37,6 +37,9 @@ def _transform_row(row: dict) -> dict:
     for col in ("is_bot", "evercookie_restore", "is_vpn", "is_proxy"):
         if col in row and not isinstance(row[col], bool):
             row[col] = bool(row[col])
+    # 添加 is_crawler 字段（基于 crawler_name 或 crawler_category 是否存在）
+    if "is_crawler" not in row:
+        row["is_crawler"] = bool(row.get("crawler_name") or row.get("crawler_category"))
     return row
 
 
@@ -81,10 +84,13 @@ async def list_access_logs(
     decided_by: str | None = Query(default=None, alias="decidedBy"),
     country: str | None = None,
     device_type: str | None = Query(default=None, alias="deviceType"),
+    crawler_name: str | None = Query(default=None, alias="crawlerName"),
     crawler_category: str | None = Query(default=None, alias="crawlerCategory"),
+    crawler_vendor: str | None = Query(default=None, alias="crawlerVendor"),
     connection_type: str | None = Query(default=None, alias="connectionType"),
     path: str | None = None,
     is_bot: bool | None = Query(default=None, alias="isBot"),
+    is_crawler: bool | None = Query(default=None, alias="isCrawler"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500, alias="pageSize"),
     service: AccessLogQueryService = Depends(_service),
@@ -104,11 +110,14 @@ async def list_access_logs(
             "decided_by": decided_by or "",
             "country": country or "",
             "device_type": device_type or "",
+            "crawler_name": crawler_name or "",
             "crawler_category": crawler_category or "",
+            "crawler_vendor": crawler_vendor or "",
             "connection_type": connection_type or "",
             "path": path or "",
         },
         is_bot=is_bot,
+        is_crawler=is_crawler,
         page=page,
         page_size=page_size,
     )
@@ -195,5 +204,119 @@ async def pool_distribution(
     actual_start = start or actual_end - timedelta(days=1)
     rows = await service.pool_distribution(
         app_id=site_id, start=actual_start, end=actual_end, rule_id=rule_id
+    )
+    return SuccessResponse(data=rows)
+
+
+@router.get(
+    "/crawler/overview",
+    response_model=SuccessResponse[dict[str, Any]],
+    dependencies=[Depends(require_permission("analytics.read"))],
+    summary="爬虫流量概览",
+)
+async def crawler_overview(
+    site_id: int | None = Query(default=None, alias="siteId"),
+    start: datetime | None = None,
+    end: datetime | None = None,
+    service: AccessLogQueryService = Depends(_service),
+) -> SuccessResponse[dict[str, Any]]:
+    """爬虫流量概览统计。
+    
+    返回：总请求数、爬虫请求数、非爬虫请求数、唯一爬虫数、恶意爬虫请求数
+    """
+    actual_end = end or datetime.utcnow()
+    actual_start = start or actual_end - timedelta(days=1)
+    data = await service.crawler_overview(app_id=site_id, start=actual_start, end=actual_end)
+    return SuccessResponse(data=data)
+
+
+@router.get(
+    "/crawler/vendor-distribution",
+    response_model=SuccessResponse[list[dict[str, Any]]],
+    dependencies=[Depends(require_permission("analytics.read"))],
+    summary="爬虫厂商分布",
+)
+async def crawler_vendor_distribution(
+    site_id: int | None = Query(default=None, alias="siteId"),
+    start: datetime | None = None,
+    end: datetime | None = None,
+    service: AccessLogQueryService = Depends(_service),
+) -> SuccessResponse[list[dict[str, Any]]]:
+    """按爬虫厂商统计请求分布。
+    
+    返回：厂商名称、请求数、爬虫类型数、各裁决类型统计
+    """
+    actual_end = end or datetime.utcnow()
+    actual_start = start or actual_end - timedelta(days=1)
+    rows = await service.crawler_vendor_distribution(app_id=site_id, start=actual_start, end=actual_end)
+    return SuccessResponse(data=rows)
+
+
+@router.get(
+    "/crawler/category-distribution",
+    response_model=SuccessResponse[list[dict[str, Any]]],
+    dependencies=[Depends(require_permission("analytics.read"))],
+    summary="爬虫分类分布",
+)
+async def crawler_category_distribution(
+    site_id: int | None = Query(default=None, alias="siteId"),
+    start: datetime | None = None,
+    end: datetime | None = None,
+    service: AccessLogQueryService = Depends(_service),
+) -> SuccessResponse[list[dict[str, Any]]]:
+    """按爬虫分类统计请求分布。
+    
+    返回：分类名称、请求数、爬虫类型数、恶意请求数、平均处理时间
+    """
+    actual_end = end or datetime.utcnow()
+    actual_start = start or actual_end - timedelta(days=1)
+    rows = await service.crawler_category_distribution(app_id=site_id, start=actual_start, end=actual_end)
+    return SuccessResponse(data=rows)
+
+
+@router.get(
+    "/crawler/top-list",
+    response_model=SuccessResponse[list[dict[str, Any]]],
+    dependencies=[Depends(require_permission("analytics.read"))],
+    summary="爬虫访问频率Top排行",
+)
+async def crawler_top_list(
+    site_id: int | None = Query(default=None, alias="siteId"),
+    start: datetime | None = None,
+    end: datetime | None = None,
+    limit: int = Query(default=20, ge=1, le=100),
+    service: AccessLogQueryService = Depends(_service),
+) -> SuccessResponse[list[dict[str, Any]]]:
+    """爬虫访问频率Top排行。
+    
+    返回：爬虫名称、厂商、分类、请求数、唯一IP数、被拦截数、首次/最后访问时间
+    """
+    actual_end = end or datetime.utcnow()
+    actual_start = start or actual_end - timedelta(days=1)
+    rows = await service.crawler_top_list(app_id=site_id, start=actual_start, end=actual_end, limit=limit)
+    return SuccessResponse(data=rows)
+
+
+@router.get(
+    "/crawler/timeline",
+    response_model=SuccessResponse[list[dict[str, Any]]],
+    dependencies=[Depends(require_permission("analytics.read"))],
+    summary="爬虫流量时间趋势",
+)
+async def crawler_timeline(
+    site_id: int | None = Query(default=None, alias="siteId"),
+    start: datetime | None = None,
+    end: datetime | None = None,
+    granularity: str = Query(default="hour", regex="^(minute|hour|day)$"),
+    service: AccessLogQueryService = Depends(_service),
+) -> SuccessResponse[list[dict[str, Any]]]:
+    """爬虫流量时间趋势（分爬虫/非爬虫）。
+    
+    返回：时间桶、爬虫数量、非爬虫数量、总数量
+    """
+    actual_end = end or datetime.utcnow()
+    actual_start = start or actual_end - timedelta(days=1)
+    rows = await service.crawler_timeline(
+        app_id=site_id, start=actual_start, end=actual_end, granularity=granularity
     )
     return SuccessResponse(data=rows)

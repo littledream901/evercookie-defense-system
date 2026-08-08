@@ -862,6 +862,8 @@ class DecisionService:
                 challenge_threshold=scoring_cfg.challenge_threshold if scoring_cfg else None,
                 block_threshold=scoring_cfg.block_threshold if scoring_cfg else None,
                 weights=scoring_cfg.weights if scoring_cfg else None,
+                disposition_suspect=scoring_cfg.disposition_suspect if scoring_cfg else None,
+                disposition_hostile=scoring_cfg.disposition_hostile if scoring_cfg else None,
             )
         reason = ";".join(risk.reasons) if risk.reasons else None
         stages.append(
@@ -875,14 +877,8 @@ class DecisionService:
         )
 
         if risk.disposition.is_terminal:
-            # 自定义处置：当分数越线时用 admin 配置的处置覆盖 pipeline 内置的
-            final_disp = risk.disposition
-            if scoring_cfg is not None:
-                if risk.score >= (scoring_cfg.block_threshold):
-                    final_disp = scoring_cfg.disposition_hostile or risk.disposition
-                elif risk.score >= (scoring_cfg.challenge_threshold):
-                    final_disp = scoring_cfg.disposition_suspect or risk.disposition
-            resolved = DispositionResolver.from_scoring(final_disp, reason=reason)
+            # pipeline 已根据评分配置决定了处置（评分即裁决）
+            resolved = DispositionResolver.from_scoring(risk.disposition, reason=reason)
         else:
             # 评分未越线：交给默认处置链，而不是直接用评分产出的 allow。
             # 这样 app 级默认配置才有机会生效。

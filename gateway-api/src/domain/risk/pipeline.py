@@ -80,6 +80,8 @@ class RiskPipeline:
         challenge_threshold: float | None = None,
         block_threshold: float | None = None,
         weights: dict[str, float] | None = None,
+        disposition_suspect: Disposition | None = None,
+        disposition_hostile: Disposition | None = None,
     ) -> RiskDecision:
         """执行全部 scorer 并累加加权分。
 
@@ -90,6 +92,8 @@ class RiskPipeline:
             block_threshold: 同上。
             weights: ``scorer 名 → 权重`` 覆盖表，来自评分配置页。缺项的 scorer
                 沿用类上的默认权重，因此后台只配关心的维度即可。
+            disposition_suspect: 可疑流量的自定义处置，来自评分配置。
+            disposition_hostile: 敌对流量的自定义处置，来自评分配置。
         """
         overrides = weights or {}
 
@@ -113,7 +117,13 @@ class RiskPipeline:
 
         return RiskDecision(
             score=final_score,
-            disposition=self._decide(final_score, c_threshold, b_threshold),
+            disposition=self._decide(
+                final_score, 
+                c_threshold, 
+                b_threshold,
+                disposition_suspect,
+                disposition_hostile,
+            ),
             reasons=reasons,
             per_scorer=outputs,
         )
@@ -123,11 +133,24 @@ class RiskPipeline:
         score: float,
         challenge_threshold: float | None = None,
         block_threshold: float | None = None,
+        disposition_suspect: Disposition | None = None,
+        disposition_hostile: Disposition | None = None,
     ) -> Disposition:
+        """基于评分判断 Verdict，然后选择对应的 Mechanism。
+        
+        核心设计：评分即裁决
+        - score → Verdict（基于阈值判断，不可配）
+        - Verdict → Mechanism（从配置读取，可配）
+        """
         ct = challenge_threshold if challenge_threshold is not None else self._challenge_threshold
         bt = block_threshold if block_threshold is not None else self._block_threshold
+        
+        # 评分 → Verdict 判断
         if score >= bt:
-            return deny()
+            # 敌对：使用配置的处置，默认为 deny
+            return disposition_hostile or deny()
         if score >= ct:
-            return challenge(ChallengeKind.CAPTCHA)
+            # 可疑：使用配置的处置，默认为 challenge
+            return disposition_suspect or challenge(ChallengeKind.CAPTCHA)
+        # 可信：始终放行
         return allow()

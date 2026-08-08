@@ -12,6 +12,7 @@ import {
   scoringRoutes,
   sdkDiagnosticsRoutes,
   accessLogsRoutes,
+  crawlerAnalyticsRoutes,
   auditLogsRoutes,
   rbacRoutes,
   profileRoutes
@@ -34,6 +35,7 @@ export const routeModules: AppRouteRecord[] = [
   scoringRoutes,
   sdkDiagnosticsRoutes,
   accessLogsRoutes,
+  crawlerAnalyticsRoutes,
   auditLogsRoutes,
   rbacRoutes,
   profileRoutes,

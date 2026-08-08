@@ -32,22 +32,25 @@ class CrawlerSignature:
     pattern: re.Pattern[str]
     verifiable: bool = False
     """厂商是否提供反查 DNS 校验（Google/Bing 等），供后续 PTR 验证扩展使用。"""
+    name_pattern: re.Pattern[str] | None = None
+    """用于从UA中提取具体爬虫名称的正则（如"Googlebot"、"Bingbot"）"""
 
 
-def _sig(vendor: str, category: str, raw: str, *, verifiable: bool = False) -> CrawlerSignature:
+def _sig(vendor: str, category: str, raw: str, *, verifiable: bool = False, name_pattern: str | None = None) -> CrawlerSignature:
     return CrawlerSignature(
         vendor=vendor,
         category=category,
         pattern=re.compile(raw, re.IGNORECASE),
         verifiable=verifiable,
+        name_pattern=re.compile(name_pattern, re.IGNORECASE) if name_pattern else None,
     )
 
 
 _SEARCH_ENGINE: tuple[CrawlerSignature, ...] = (
-    _sig("google", "search_engine", r"\b(?:googlebot|googlebot-image|googlebot-news|googlebot-video|google-inspectiontool|googleother|storebot-google|adsbot-google|mediapartners-google|feedfetcher-google|apis-google)\b", verifiable=True),
-    _sig("bing", "search_engine", r"\b(?:bingbot|adidxbot|bingpreview|msnbot|microsoftpreview)\b", verifiable=True),
-    _sig("baidu", "search_engine", r"\b(?:baiduspider|baiduspider-render|baiduspider-image)\b", verifiable=True),
-    _sig("yandex", "search_engine", r"\b(?:yandexbot|yandeximages|yandexmobilebot|yandexaccessibilitybot|yandexrenderresourcesbot)\b", verifiable=True),
+    _sig("google", "search_engine", r"\b(?:googlebot|googlebot-image|googlebot-news|googlebot-video|google-inspectiontool|googleother|storebot-google|adsbot-google|mediapartners-google|feedfetcher-google|apis-google)\b", verifiable=True, name_pattern=r"(?:googlebot-image|googlebot-news|googlebot-video|googlebot|adsbot-google|mediapartners-google|feedfetcher-google|storebot-google|google-inspectiontool|googleother|apis-google)(?:/[\d.]+)?"),
+    _sig("bing", "search_engine", r"\b(?:bingbot|adidxbot|bingpreview|msnbot|microsoftpreview)\b", verifiable=True, name_pattern=r"(?:bingbot|adidxbot|bingpreview|msnbot|microsoftpreview)(?:/[\d.]+)?"),
+    _sig("baidu", "search_engine", r"\b(?:baiduspider|baiduspider-render|baiduspider-image)\b", verifiable=True, name_pattern=r"(?:baiduspider-render|baiduspider-image|baiduspider)(?:/[\d.]+)?"),
+    _sig("yandex", "search_engine", r"\b(?:yandexbot|yandeximages|yandexmobilebot|yandexaccessibilitybot|yandexrenderresourcesbot)\b", verifiable=True, name_pattern=r"(?:yandexrenderresourcesbot|yandexaccessibilitybot|yandexmobilebot|yandeximages|yandexbot)(?:/[\d.]+)?"),
     _sig("duckduckgo", "search_engine", r"\b(?:duckduckbot|duckduckgo-favicons-bot|duckassistbot)\b", verifiable=True),
     _sig("sogou", "search_engine", r"\bsogou\s?(?:web|inst|pic|news|video|orion)?\s?spider\b"),
     _sig("360", "search_engine", r"\b(?:360spider|haosouspider|360spider-image)\b"),
@@ -240,6 +243,27 @@ def match_crawler(user_agent: str) -> CrawlerSignature | None:
             return sig
     if _GENERIC_BOT_RE.search(user_agent):
         return CrawlerSignature(vendor="unknown", category="other", pattern=_GENERIC_BOT_RE)
+    return None
+
+
+def extract_crawler_name(user_agent: str, signature: CrawlerSignature | None) -> str | None:
+    """从UA字符串中提取具体的爬虫名称（如"Googlebot"、"Bingbot"）。"""
+    if not user_agent or not signature:
+        return None
+    
+    # 如果签名提供了name_pattern，使用它
+    if signature.name_pattern:
+        match = signature.name_pattern.search(user_agent)
+        if match:
+            return match.group(0)
+    
+    # 否则使用主pattern提取
+    match = signature.pattern.search(user_agent)
+    if match:
+        # 返回匹配到的完整词（去除非字母数字字符）
+        matched = match.group(0).strip()
+        return matched if matched else None
+    
     return None
 
 
