@@ -380,19 +380,14 @@
   const testLoading = ref(false)
   const testResult = ref<Record<string, { ok: boolean; message: string; detail: string } | undefined>>({})
 
+  // 网关地址优先级：应用配置 → 构建时环境变量 → 提示用户配置
   watch(
     () => props.app,
     (app) => {
-      if (app?.gateway_url) {
-        gatewayUrl.value = app.gateway_url
-      }
+      gatewayUrl.value = app?.gateway_url || import.meta.env.VITE_GATEWAY_URL || ''
     },
     { immediate: true },
   )
-  
-  // 网关地址优先级：应用配置 → 构建时环境变量 → 提示用户配置
-  // 只有明确的示例域名才视为占位符，避免误判用户配置的真实域名
-  const rawGatewayUrl = computed(() => props.app?.gateway_url ?? import.meta.env.VITE_GATEWAY_URL)
   
   const isGatewayMissing = computed(() => !gatewayUrl.value.trim())
 
