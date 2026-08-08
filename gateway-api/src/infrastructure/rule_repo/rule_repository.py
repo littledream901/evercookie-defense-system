@@ -46,9 +46,11 @@ class RuleRepository:
         redis: Redis,
         *,
         config: RuleRepositoryConfig | None = None,
+        prefix: str = "fangyu:rules:site:",
     ) -> None:
         self._redis = redis
         self._config = config or RuleRepositoryConfig()
+        self._prefix = prefix
         self._local: dict[int, _CacheEntry] = {}
         self._lock = asyncio.Lock()
 
@@ -71,17 +73,17 @@ class RuleRepository:
             self._trim_local()
             return rule_set
 
-    async def snapshot_version(self, app_id: int) -> str | None:
+    async def snapshot_version(self, site_id: int) -> str | None:
         """当前本地生效的快照代次，用于观测「gateway 是否已看到最新快照」。
 
         走 ``get_rule_set`` 同一条缓存，不额外打 Redis，因此也不改变 30s TTL 行为。
         """
-        await self.get_rule_set(app_id)
-        entry = self._local.get(app_id)
+        await self.get_rule_set(site_id)
+        entry = self._local.get(site_id)
         return entry.version if entry else None
 
-    async def _load_from_redis(self, app_id: int) -> tuple[RuleSet, str | None]:
-        raw_items: dict[str, Any] = await self._redis.hgetall(f"{_REDIS_PREFIX}:{app_id}")
+    async def _load_from_redis(self, site_id: int) -> tuple[RuleSet, str | None]:
+        raw_items: dict[str, Any] = await self._redis.hgetall(f"{self._prefix}{site_id}")
         decision_rules: list[DecisionRule] = []
         scoring_rules: list[ScoringRule] = []
         version: str | None = None
@@ -121,8 +123,9 @@ class RuleRepository:
         )
         return rule_set, version
 
-    async def invalidate(self, app_id: int) -> None:
-        self._local.pop(app_id, None)
+    async def invalidate(self, site_id: int) -> None:
+        """清除本地缓存，强制下次读取时重新从 Redis 加载。"""
+        self._local.pop(site_id, None)
 
     def _trim_local(self) -> None:
         if len(self._local) <= self._config.max_local_entries:

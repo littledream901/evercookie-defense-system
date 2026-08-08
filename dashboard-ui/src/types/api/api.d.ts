@@ -223,9 +223,64 @@ declare namespace Api {
       conflicts: ConflictDetectionResult
     }
 
-    /** 站点（主体对象，api_secret 仅在创建/轮换响应中出现）
+    /** 应用（V3 两层架构 - 应用层）*/
+    interface Application {
+      id: number
+      /** 应用标识，格式 app_<hex8> */
+      app_key: string
+      name: string
+      description: string
+      owner_user_id: number | null
+      is_active: boolean
+      /** 站点数量（列表接口附带） */
+      site_count?: number
+      created_at: string
+      updated_at: string
+    }
+
+    /** 应用详情响应（创建/轮换时包含密钥） */
+    interface ApplicationDetail extends Application {
+      /** 应用级密钥（仅创建/轮换时返回） */
+      app_secret?: string
+    }
+
+    /** 应用列表查询参数 */
+    interface ApplicationListParams extends Api.Common.PageParams {
+      keyword?: string
+      is_active?: boolean
+      ownerId?: number
+    }
+
+    /** 应用创建载荷 */
+    interface ApplicationCreatePayload {
+      name: string
+      description?: string
+      owner_user_id?: number
+    }
+
+    /** 应用更新载荷 */
+    interface ApplicationUpdatePayload {
+      name?: string
+      description?: string
+      is_active?: boolean
+    }
+
+    /** 站点（V3 两层架构 - 站点层）
      *
-     * site_id 同时作为 X-App-Key 请求头的值，无独立 app_id 字段。
+     * 站点是具体的业务站点，归属于某个应用。
+     * 
+     * 注意：
+     * - site_key: 站点标识字符串（格式 site_<hex8>），用于 API 认证的 X-App-Key header
+     * - id: 站点数字主键，用于数据库关联和 SDK 配置的 appId 参数
+     * - app_id: 外键，指向所属应用的 Application.id
+     * 
+     * SDK 配置示例：
+     * ```js
+     * SdSdk.guard({
+     *   apiKey: site.site_key,  // 字符串标识，用于身份验证
+     *   appId: site.id           // 数字主键，用于租户隔离（注意：不是 site.app_id）
+     * })
+     * ```
      */
     interface Site {
       id: number
@@ -233,26 +288,41 @@ declare namespace Api {
        * 站点标识，格式 site_<hex8>，同时用作 X-App-Key 请求头。
        * 适配器中对应的配置变量为 FANGYU_SITE_ID。
        */
-      site_id: string
-      /** HMAC 验签密钥，明文回显，可随时查看 */
-      app_secret: string
+      site_key: string
+      /** 所属应用 ID（外键，指向 Application.id） */
+      app_id: number
+      /** 所属应用名称（列表接口附带） */
+      app_name?: string
       name: string
       domain: string
       alt_domains: string[]
       /** adapter: Nginx-Lua / WordPress / CF Worker / 直连 API；sdk: 浏览器 SDK (embed.js) */
       access_mode: 'adapter' | 'sdk'
-      status: string
       is_active: boolean
       sdk_version: string | null
       gateway_url: string | null
       clock_stats_enabled: boolean
       log_retention_days: number
       remark: string | null
-      owner_user_id: number | null
-      created_at: string | null
-      updated_at: string | null
+      created_at: string
+      updated_at: string
       /** 绑定的规则列表（列表接口附带，可选） */
       rules?: RuleBrief[]
+    }
+
+    /** 站点详情响应（创建/轮换时包含密钥） */
+    interface SiteDetail extends Site {
+      /** 站点级密钥（仅创建/轮换时返回，可选） */
+      site_secret?: string
+    }
+
+    /** @deprecated V2 兼容：旧的 site_id 字段，新代码使用 site_key */
+    interface SiteLegacy extends Site {
+      site_id: string
+      /** HMAC 验签密钥，明文回显，可随时查看 */
+      app_secret: string
+      status: string
+      owner_user_id: number | null
     }
 
     /** 创建 / 轮换站点响应（结构与 Site 一致，app_secret 已在 Site 中） */
@@ -275,17 +345,18 @@ declare namespace Api {
     /** 站点列表查询参数 */
     interface SiteListParams extends Api.Common.PageParams {
       keyword?: string
-      status?: string
-      access_mode?: string
-      owner_id?: number
+      appId?: number
+      is_active?: boolean
+      accessMode?: string
     }
 
     /** 站点创建载荷 */
     interface SiteCreatePayload {
+      app_id: number
       name: string
       domain: string
       alt_domains?: string[]
-      access_mode: 'adapter' | 'sdk'
+      access_mode?: 'adapter' | 'sdk'
       sdk_version?: string | null
       gateway_url?: string | null
       clock_stats_enabled?: boolean
@@ -304,7 +375,6 @@ declare namespace Api {
       clock_stats_enabled?: boolean
       log_retention_days?: number
       remark?: string | null
-      status?: string
     }
 
     /** @deprecated 旧版 App 类型，待迁移完成后移除 */

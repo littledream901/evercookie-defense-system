@@ -88,7 +88,7 @@ class RuleBase(BaseSchema):
     """
 
     id: int | None = None
-    app_id: int = Field(default=0, alias="appId", ge=0)
+    site_id: int = Field(..., alias="siteId", ge=0)
     """站点分片标记。
 
     规则与站点是多对多关系（关联表 biz_rule_site），规则本身不归属某个站点。
@@ -218,7 +218,7 @@ class RuleGroup(BaseSchema):
     """
 
     id: int | None = None
-    app_id: int = Field(..., alias="appId", gt=0)
+    site_id: int = Field(..., alias="siteId", gt=0)
     name: str = Field(..., min_length=1, max_length=64)
     mode: GroupMode = GroupMode.BLOCKLIST
     priority: RulePriority = RulePriority.NORMAL
@@ -237,7 +237,7 @@ class RuleGroup(BaseSchema):
 class RuleSet(BaseSchema):
     """某个 app 的完整规则集，gateway 一次性加载。"""
 
-    app_id: int = Field(..., alias="appId", gt=0)
+    site_id: int = Field(..., alias="siteId", gt=0)
     decision_rules: list[DecisionRule] = Field(default_factory=list, alias="decisionRules")
     scoring_rules: list[ScoringRule] = Field(default_factory=list, alias="scoringRules")
     groups: list[RuleGroup] = Field(default_factory=list)

@@ -1,22 +1,21 @@
-"""app_key ↔ app_id 的 Redis 同步器。
+"""site_key ↔ site_id 的 Redis 同步器。
 
-admin-api 是 app / api_key 唯一的写入方，gateway 只读取。所以映射由
+admin-api 是站点/API Key 唯一的写入方，gateway 只读取。所以映射由
 admin 侧在下列操作时同步：
 
-- 创建应用：``bind(app.api_key, app.id, app.app_secret)``
+- 创建站点：``bind(site.site_key, site.id, site.site_secret)``
 - 轮换 API Key：先 ``unbind(旧 key)`` 再 ``bind(新 key)``
-- 删除应用：``unbind(api_key)``
+- 删除站点：``unbind(site_key)``
 
 Redis 键位：
-- 正向 ``fangyu:app_keys:{api_key}`` → ``{"app_id": 1, "app_secret": "..."}``
-- 反向 ``fangyu:app_secrets:{app_id}`` → ``app_secret``（供 challenge token 签发按
-  app_id 反查，正向键无法按 app_id 检索）
+- 正向 ``fangyu:app_keys:{site_key}`` → ``{"site_id": 1, "site_secret": "..."}``
+- 反向 ``fangyu:app_secrets:{site_id}`` → ``site_secret``（供 challenge token 签发按
+  site_id 反查，正向键无法按 site_id 检索）
 
-为什么写 JSON 而不是裸 app_id
+为什么写 JSON 而不是裸 site_id
 -----------------------------
-gateway 验签需要 app_secret，而它不连 MySQL——只能从这条映射里拿。写成 JSON
+gateway 验签需要 site_secret，而它不连 MySQL——只能从这条映射里拿。写成 JSON
 后 gateway 一次 Redis GET 同时得到身份与密钥，无需额外键或跨库查询。
-gateway 侧仍兼容裸 app_id 的旧值，滚动升级期间不会中断。
 """
 
 from __future__ import annotations
@@ -80,22 +79,28 @@ class AppKeyRedisSync:
         except Exception as exc:  # pragma: no cover
             _logger.error("app_secret_index_failed", app_id=app_id, error=str(exc))
 
-    async def unbind(self, api_key: str, app_id: int | None = None) -> None:
-        if not api_key:
+    async def unbind(self, site_key: str, site_id: int | None = None) -> None:
+        """解绑 site_key，同时清除正向与反向索引。
+
+        Args:
+            site_key: 待解绑的站点密钥
+            site_id: 站点ID，若提供则同时清除反向索引
+        """
+        if not site_key:
             return
         try:
-            await self._redis.delete(self._redis_key(api_key))
+            await self._redis.delete(self._redis_key(site_key))
         except Exception as exc:  # pragma: no cover
-            _logger.error("app_key_unbind_failed", key_prefix=api_key[:6], error=str(exc))
+            _logger.error("site_key_unbind_failed", site_key=site_key, error=str(exc))
 
         # 轮换 API Key 时不能删反向索引：secret 未变，且 rebind 紧接着会重写。
-        # 只有删除应用（显式传 app_id）才清理。
-        if app_id is None or app_id <= 0:
+        # 只有删除应用（显式传 site_id）才清理。
+        if site_id is None or site_id <= 0:
             return
         try:
-            await self._redis.delete(self._secret_key(app_id))
+            await self._redis.delete(self._secret_key(site_id))
         except Exception as exc:  # pragma: no cover
-            _logger.error("app_secret_index_unbind_failed", app_id=app_id, error=str(exc))
+            _logger.error("site_secret_index_delete_failed", site_id=site_id, error=str(exc))
 
     async def rebind(
         self,

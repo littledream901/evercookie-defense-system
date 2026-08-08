@@ -367,10 +367,10 @@ class ClockLimitsModel(Base, TimestampMixin):
     """
 
     __tablename__ = "biz_clock_limits"
-    __table_args__ = (UniqueConstraint("app_id", name="uk_clock_limits_app"),)
+    __table_args__ = (UniqueConstraint("site_id", name="uk_clock_limits_site"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    app_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    site_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     """站点 ID；``0`` 为全局配置哨兵值，故不设外键。"""
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     windows: Mapped[dict] = mapped_column(MySQLJSON, default=dict, nullable=False)
@@ -382,19 +382,30 @@ class PageResourceModel(Base, TimestampMixin):
     """页面资源：serve_alt 机制的内容来源。
 
     admin 在此维护「安全页」和「落地页」的 HTML 片段，保存后同步到
-    Redis ``fangyu:page_resources:{app_id}``，gateway serve_alt 命中时
+    Redis ``fangyu:page_resources:{site_id}``，gateway serve_alt 命中时
     按 ``target.url``（资源名）取出内容直接回传给 adapter。
+
+    设计要点：
+    1. 按站点分片存储（不同站点可用不同模板）
+    2. 资源名（``resource_name``）是 Redis hash 的 field，比如 ``blocked``、``challenge``
+    3. gateway 懒加载 + 本地缓存 30s，以 ``sync_at`` 字段版本对齐
+
+    serve_alt 触达链路：
+    - rule 命中 ``serve_alt(blocked)``
+    - gateway 查 Redis ``fangyu:page_resources:{site_id}`` hash 的 ``blocked`` field
+    - 拿到 HTML 片段直接返回给 adapter
+    - adapter 按 302/502 等状态码传给访客浏览器
     """
 
     __tablename__ = "biz_page_resource"
     __table_args__ = (
-        UniqueConstraint("app_id", "name", name="uk_page_resource_app_name"),
+        UniqueConstraint("site_id", "resource_name", name="uk_page_resource_site_name"),
         Index("ix_page_resource_app_enabled", "app_id", "enabled"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    app_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    """站点 ID；``0`` 为全局资源哨兵值，故不设外键。"""
+    site_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    """站点 ID（分片标识）。"""
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     """资源标识符，对应 serve_alt(page=...) 的 page 参数。"""
     kind: Mapped[str] = mapped_column(String(16), default="safe", nullable=False)

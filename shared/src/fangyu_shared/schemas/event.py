@@ -56,7 +56,7 @@ class DecisionEvent(BaseSchema):
     """
 
     event_id: str = Field(..., alias="eventId", max_length=64)
-    app_id: int = Field(..., alias="appId", gt=0)
+    site_id: int = Field(..., alias="siteId", gt=0)
     fingerprint: str = Field(..., max_length=128)
     ingress: str = Field(default="sdk", max_length=16)
     """接入来源：sdk / adapter。两条路径的信号丰富度不同，报表需要分开看。"""

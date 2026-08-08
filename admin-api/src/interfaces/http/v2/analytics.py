@@ -32,8 +32,17 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
 def _base(payload: AnalyticsBaseRequest) -> AnalyticsQuerySpec:
+    """构建分析查询基础参数。
+    
+    Args:
+        payload.site_id: 站点ID，对应 ClickHouse 的 app_id 列（
+    
+    Note:
+        ClickHouse 的 app_id 列实际存储的是 site_id（
+        应用级聚合查询需要在上层实现
+    """
     return AnalyticsQuerySpec(
-        app_id=payload.site_id,
+        site_id=payload.site_id,
         start=payload.start,
         end=payload.end,
         filters=dict(payload.filters),

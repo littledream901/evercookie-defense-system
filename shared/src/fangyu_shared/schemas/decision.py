@@ -48,13 +48,13 @@ class DecisionContext(BaseSchema):
 
     ``fingerprint``
         SDK 路径必填；Adapter 路径可省略，由 :meth:`_derive_fingerprint`
-        从 ip + user_agent + app_id 派生代理指纹。派生指纹的区分度远低于
+        从 ip + user_agent + site_id 派生代理指纹。派生指纹的区分度远低于
         真指纹（同一 NAT 出口下的同型设备会碰撞），所以
         ``fingerprint_is_derived`` 会显式标记，规则侧可据此调整信任度。
     """
 
-    app_id: int = Field(default=0, alias="appId", ge=0)
-    """内部数据库 PK，由 gateway 根据 API Key 覆写，适配器无需填写。"""
+    site_id: int = Field(default=0, alias="siteId", ge=0)
+    """站点ID，由 gateway 根据 API Key 覆写，适配器无需填写。"""
     ingress: IngressKind = IngressKind.SDK
     fingerprint: str = Field(default="", max_length=128)
     fingerprint_is_derived: bool = Field(default=False, alias="fingerprintIsDerived")
@@ -142,7 +142,7 @@ class DecisionContext(BaseSchema):
         带 ``adapter:`` 前缀是为了让派生指纹在存储与日志里一眼可辨，
         不会与真指纹混淆统计。
         """
-        seed = f"{self.app_id}|{self.ip}|{self.user_agent}"
+        seed = f"{self.site_id}|{self.ip}|{self.user_agent}"
         return f"adapter:{sha256_hex(seed)[:32]}"
 
 
@@ -207,5 +207,5 @@ class DecisionResponse(BaseSchema):
     """mechanism=challenge 时由 gateway 签发的 HMAC 凭据，客户端完成挑战后携带此 token 提交答案。
 
     Token 格式：base64(payload) + "." + hmac_sha256(app_secret, payload_base64)
-    Payload 包含 {appId, fingerprint, kind, exp, nonce}，防跨租户盗用、重放攻击、过期使用。
+    Payload 包含 {siteId, fingerprint, kind, exp, nonce}，防跨租户盗用、重放攻击、过期使用。
     """

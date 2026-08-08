@@ -7,16 +7,18 @@
  * Fangyu V2 gateway, and executes the returned disposition.
  *
  * Configuration via Cloudflare Worker environment variables / secrets:
- *   FANGYU_GATEWAY_URL  e.g. https://defense.example.com
- *   FANGYU_SITE_ID      站点 ID，格式 site_<hex8>，同时用作 X-App-Key 请求头
- *   FANGYU_APP_SECRET   HMAC 验签密钥（明文写在此处或用 wrangler secret 管理均可）
- *   FANGYU_FAIL_MODE    "open"（默认）或 "closed"
+ *   FANGYU_GATEWAY_URL   e.g. https://defense.example.com
+ *   FANGYU_SITE_KEY      站点密钥字符串（格式 site_<hex8>），用作 X-App-Key 请求头
+ *   FANGYU_SITE_ID       站点数字主键（Site.id），用于 SDK 配置的 appId 参数
+ *   FANGYU_SITE_SECRET   站点签名密钥，用于 HMAC 验签
+ *   FANGYU_FAIL_MODE     "open"（默认）或 "closed"
  *
  * wrangler.toml 示例：
  *   [vars]
  *   FANGYU_GATEWAY_URL = "https://defense.example.com"
- *   FANGYU_SITE_ID     = "site_xxxxxxxx"
- *   FANGYU_APP_SECRET  = "your_app_secret_here"
+ *   FANGYU_SITE_KEY    = "site_xxxxxxxx"
+ *   FANGYU_SITE_ID     = "123"
+ *   FANGYU_SITE_SECRET = "your_site_secret_here"
  *   FANGYU_FAIL_MODE   = "open"
  *
  * Signing parity
@@ -118,13 +120,13 @@ const GATEWAY_TIMEOUT_MS = 3000;
  * @returns {Promise<object|null>}
  */
 async function gatewayDecide(context, env) {
-  const gatewayUrl = (env.FANGYU_GATEWAY_URL || '').replace(/\/$/, '');
-  const siteId     = env.FANGYU_SITE_ID || '';
-  const appSecret  = env.FANGYU_APP_SECRET || '';
+  const gatewayUrl   = (env.FANGYU_GATEWAY_URL || '').replace(/\/$/, '');
+  const siteKey      = env.FANGYU_SITE_KEY || '';
+  const siteSecret   = env.FANGYU_SITE_SECRET || '';
 
-  if (!gatewayUrl || !siteId || !appSecret) return null;
+  if (!gatewayUrl || !siteKey || !siteSecret) return null;
 
-  const body = await signBody({ context, requireDetails: false }, appSecret);
+  const body = await signBody({ context, requireDetails: false }, siteSecret);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), GATEWAY_TIMEOUT_MS);
@@ -135,7 +137,7 @@ async function gatewayDecide(context, env) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
-        'X-App-Key': siteId,
+        'X-App-Key': siteKey,  // 使用站点密钥字符串
       },
       body: JSON.stringify(body),
       signal: controller.signal,
@@ -191,9 +193,8 @@ function serverSessionToken() {
  * @returns {Response}
  */
 function injectSdk(originResponse, env, serverDecision, serverToken) {
-  const siteId     = env.FANGYU_SITE_ID    || '';
-  // SDK 的 appId 必须是正整数；siteId 是字符串键，只能作 X-App-Key 用。
-  const appId      = Number.parseInt(env.FANGYU_APP_ID || '0', 10) || 0;
+  const siteKey    = env.FANGYU_SITE_KEY   || '';
+  const siteId     = Number.parseInt(env.FANGYU_SITE_ID || '0', 10) || 0;
   const gatewayUrl = (env.FANGYU_GATEWAY_URL || '').replace(/\/$/, '');
   const sdkSrc     = env.FANGYU_SDK_URL    || `${gatewayUrl}/sdk/fangyu-sdk.min.js`;
   const blockedUrl = env.FANGYU_BLOCKED_URL || '/blocked';
@@ -204,9 +205,10 @@ function injectSdk(originResponse, env, serverDecision, serverToken) {
 window.__fy_server_ctx = ${JSON.stringify({
     // 键名对齐 SdkConfig：apiBase / apiKey / appId。
     // 旧的 gatewayUrl / siteId 在 SDK 中不存在，validateConfig() 会抛错。
+    // 注意：apiKey 是站点密钥字符串（siteKey），appId 是站点数字主键（siteId）
     apiBase: gatewayUrl,
-    apiKey: siteId,
-    appId,
+    apiKey: siteKey,        // 站点密钥字符串（site_xxxxxxxx）
+    appId: siteId,          // 站点数字主键（Site.id）
     serverVerdict: serverDecision?.verdict || 'unknown',
     serverToken,
     blockedUrl,

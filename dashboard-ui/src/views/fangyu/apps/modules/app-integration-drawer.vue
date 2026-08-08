@@ -187,6 +187,15 @@
           <pre class="code-block">{{ sdkCode }}</pre>
           <ElButton size="small" class="copy-btn" @click="copy(sdkCode)">复制</ElButton>
         </div>
+        <ElAlert title="参数说明" type="info" :closable="false" style="margin-top: 16px">
+          <ul style="margin: 0; padding-left: 20px">
+            <li><code>apiBase</code>: 网关地址</li>
+            <li><code>apiKey</code>: 站点标识 (site_key)，用于 X-App-Key 请求头身份验证</li>
+            <li><code>appId</code>: 站点数字主键 (Site.id)，用于租户隔离<br/>
+              <small style="color: #999">注意：这是站点主键，而非应用主键 Application.id</small>
+            </li>
+          </ul>
+        </ElAlert>
         <!-- 注意事项 -->
         <div class="section-block">
           <div class="section-title">注意事项</div>
@@ -392,9 +401,11 @@
 
   const nginxCode = computed(() => `# nginx.conf — server 块内添加：
 set $fangyu_gateway_url  "${gw.value}";
-set $fangyu_site_id      "${siteId.value}";  # 同时作为 X-App-Key
-set $fangyu_app_secret   "${appSecret.value}";
+set $fangyu_site_key     "${siteId.value}";   # 站点密钥字符串，用作 X-App-Key 请求头
+set $fangyu_site_id      "${numericAppId.value}";  # 站点数字主键（Site.id），用于 SDK 配置的 appId 参数
+set $fangyu_site_secret  "${appSecret.value}";  # 站点签名密钥
 set $fangyu_fail_mode    "open";             # open | closed
+set $fy_sdk_snippet      "";  # SDK 注入必需
 
 access_by_lua_file /etc/nginx/lua/fangyu/defense.lua;`)
 

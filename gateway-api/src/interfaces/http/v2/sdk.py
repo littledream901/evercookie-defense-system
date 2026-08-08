@@ -65,12 +65,14 @@ class SdkBehaviorPolicy(BaseSchema):
 
 
 class SdkInitRequest(BaseSchema):
-    app_id: int = Field(default=0, alias="appId", ge=0)
+    site_id: int = Field(default=0, alias="siteId", ge=0)
+    """站点主键（Site.id）。注意：
     sdk_version: str = Field(default="", alias="sdkVersion", max_length=32)
 
 
 class SdkInitResponse(BaseSchema):
-    app_id: int = Field(..., alias="appId")
+    site_id: int = Field(..., alias="siteId")
+    """站点主键（Site.id）"""
     sdk_version: str = Field(default=SDK_VERSION, alias="sdkVersion")
     server_time_ms: int = Field(..., alias="serverTimeMs")
     config_version: str = Field(default="", alias="configVersion")
@@ -79,13 +81,15 @@ class SdkInitResponse(BaseSchema):
 
 
 class SdkStatusResponse(BaseSchema):
-    app_id: int = Field(..., alias="appId")
+    site_id: int = Field(..., alias="siteId")
+    """站点主键（Site.id）"""
     config_version: str = Field(default="", alias="configVersion")
     server_time_ms: int = Field(..., alias="serverTimeMs")
 
 
 class SdkHeartbeatRequest(BaseSchema):
-    app_id: int = Field(default=0, alias="appId", ge=0)
+    site_id: int = Field(default=0, alias="siteId", ge=0)
+    """站点主键（Site.id）"""
     fingerprint: str = Field(default="", max_length=128)
     sdk_version: str = Field(default="", alias="sdkVersion", max_length=32)
     behavior_events: list[BehaviorEvent] = Field(
@@ -112,18 +116,21 @@ def _now_ms() -> int:
 def _resolve_app_id(claimed: int, resolved: ResolvedAppKey) -> int:
     """确定 app_id，口径与 ``/v2/decide`` 的 ``_guard_app_id`` 一致。
 
-    以 API Key 派生的 app_id 为准；请求体自报的值若与之冲突直接拒绝，
+    以 API Key 派生的 site_id 为准；请求体自报的值若与之冲突直接拒绝，
     避免持有 A 站点 Key 的调用方往 B 站点写数据。
+    
+    Note:
+        返回值实际是站点主键（Site.id），函数名保持历史兼容。
     """
-    if resolved.app_id <= 0:
+    if resolved.site_id <= 0:
         # 免鉴权模式（仅本地 / debug）：必须自报 appId
         if claimed <= 0:
             raise AuthenticationException("缺少 API Key")
         return claimed
 
-    if claimed and claimed != resolved.app_id:
+    if claimed and claimed != resolved.site_id:
         raise AuthenticationException("API Key 与 appId 不匹配")
-    return resolved.app_id
+    return resolved.site_id
 
 
 def _config_version(settings: GatewaySettings, app_id: int) -> str:
@@ -158,7 +165,7 @@ async def sdk_init(
     resolved: ResolvedAppKey = Depends(require_app_key),
     settings: GatewaySettings = Depends(get_gateway_settings),
 ) -> SuccessResponse[SdkInitResponse]:
-    app_id = _resolve_app_id(payload.app_id, resolved)
+    site_id = _resolve_site_id(payload.site_id, resolved)
 
     if payload.sdk_version and payload.sdk_version != SDK_VERSION:
         # 不拒绝旧版本：站点的 SDK 更新节奏不由网关控制，硬拒会直接打断线上流量
@@ -170,10 +177,10 @@ async def sdk_init(
         )
 
     data = SdkInitResponse(
-        appId=app_id,
+        siteId=site_id,
         sdkVersion=SDK_VERSION,
         serverTimeMs=_now_ms(),
-        configVersion=_config_version(settings, app_id),
+        configVersion=_config_version(settings, site_id),
         collectBehavior=settings.clock_enabled,
         behavior=_behavior_policy(settings),
     )
@@ -192,7 +199,7 @@ async def sdk_status(
 ) -> SuccessResponse[SdkStatusResponse]:
     resolved_id = _resolve_app_id(app_id, resolved)
     data = SdkStatusResponse(
-        appId=resolved_id,
+        siteId=resolved_id,
         configVersion=_config_version(settings, resolved_id),
         serverTimeMs=_now_ms(),
     )
@@ -211,7 +218,7 @@ async def sdk_heartbeat(
     settings: GatewaySettings = Depends(get_gateway_settings),
     clock: ClockRepository | None = Depends(get_clock_repository),
 ) -> SuccessResponse[SdkHeartbeatResponse]:
-    app_id = _resolve_app_id(payload.app_id, resolved)
+    app_id = _resolve_app_id(payload.site_id, resolved)
     now_ms = _now_ms()
 
     accepted = 0
@@ -223,7 +230,7 @@ async def sdk_heartbeat(
         else:
             try:
                 accepted = await clock.store_behavior(
-                    app_id,
+                    site_id,
                     payload.fingerprint,
                     payload.behavior_events,
                     now_ms=now_ms,
@@ -231,7 +238,7 @@ async def sdk_heartbeat(
             except Exception as exc:  # pragma: no cover - Redis 异常兜底
                 # 行为入库失败不影响心跳本身：SDK 依赖心跳响应校正时钟与
                 # 探测配置版本，为了一批可丢的事件而让心跳整体失败不划算。
-                _logger.error("behavior_store_failed", app_id=app_id, error=str(exc))
+                _logger.error("behavior_store_failed", site_id=site_id, error=str(exc))
 
     data = SdkHeartbeatResponse(
         accepted=accepted,

@@ -8,7 +8,7 @@ from typing import Any
 from fangyu_shared.clickhouse_manager import ClickHouseClient
 
 _SELECT_COLUMNS = """
-    event_id, app_id, fingerprint, device_id, ip, ip_type, user_agent,
+    event_id, site_id, fingerprint, device_id, ip, ip_type, user_agent,
     host, path, referer, method,
     verdict, mechanism, target_kind, target_url, http_status,
     decided_by, decided_stage, decided_rule_id,
@@ -84,16 +84,16 @@ class AccessLogQueryService:
         )
         return rows, int((total_row or {}).get("total", 0))
 
-    async def get_by_request_id(self, *, app_id: int | None, request_id: str) -> dict[str, Any] | None:
-        app_clause = "app_id = {app_id} AND " if app_id is not None else ""
+    async def get_by_request_id(self, *, site_id: int | None, request_id: str) -> dict[str, Any] | None:
+        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
         params: dict[str, Any] = {"request_id": request_id}
         if app_id is not None:
-            params["app_id"] = app_id
+            params["site_id"] = site_id
         rows = await self._client.fetch(
             f"""
             SELECT {_SELECT_COLUMNS}
             FROM {self._db}.decision_events
-            WHERE {app_clause}request_id = {{request_id}}
+            WHERE {site_clause}request_id = {{request_id}}
             ORDER BY occurred_at DESC
             LIMIT 1
             """,
@@ -101,34 +101,34 @@ class AccessLogQueryService:
         )
         return rows[0] if rows else None
 
-    async def get_traces(self, *, app_id: int | None, request_id: str) -> list[dict[str, Any]]:
+    async def get_traces(self, *, site_id: int | None, request_id: str) -> list[dict[str, Any]]:
         """取某次请求的规则条件命中明细（冷表，TTL 7 天，可能已过期）。"""
-        app_clause = "app_id = {app_id} AND " if app_id is not None else ""
+        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
         params: dict[str, Any] = {"request_id": request_id}
         if app_id is not None:
-            params["app_id"] = app_id
+            params["site_id"] = site_id
         return await self._client.fetch(
             f"""
             SELECT rule_id, rule_name, field, op, expected, actual, matched
             FROM {self._db}.decision_traces
-            WHERE {app_clause}request_id = {{request_id}}
+            WHERE {site_clause}request_id = {{request_id}}
             ORDER BY rule_id
             """,
             params,
         )
 
-    async def stats(self, *, app_id: int | None, start: datetime, end: datetime) -> list[dict[str, Any]]:
-        app_clause = "app_id = {app_id} AND " if app_id is not None else ""
+    async def stats(self, *, site_id: int | None, start: datetime, end: datetime) -> list[dict[str, Any]]:
+        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
         params: dict[str, Any] = {"start": self._format_dt(start), "end": self._format_dt(end)}
         if app_id is not None:
-            params["app_id"] = app_id
+            params["site_id"] = site_id
         return await self._client.fetch(
             f"""
             SELECT verdict, mechanism, decided_by,
                    count(*) AS count, avg(score) AS avg_score,
                    avg(decision_cost_ms) AS avg_cost_ms
             FROM {self._db}.decision_events
-            WHERE {app_clause}occurred_at >= {{start}}
+            WHERE {site_clause}occurred_at >= {{start}}
               AND occurred_at < {{end}}
             GROUP BY verdict, mechanism, decided_by
             ORDER BY count DESC
@@ -137,7 +137,7 @@ class AccessLogQueryService:
         )
 
     async def device_breakdown(
-        self, *, app_id: int, start: datetime, end: datetime
+        self, *, site_id: int, start: datetime, end: datetime
     ) -> list[dict[str, Any]]:
         """设备维度分布。依赖落库的 UA 解析结果，存原文时无法实现此查询。"""
         return await self._client.fetch(
@@ -146,7 +146,7 @@ class AccessLogQueryService:
                    count(*) AS count,
                    countIf(verdict = 'hostile') AS hostile_count
             FROM {self._db}.decision_events
-            WHERE app_id = {{app_id}}
+            WHERE site_id = {{app_id}}
               AND occurred_at >= {{start}}
               AND occurred_at < {{end}}
             GROUP BY device_type, os_name, browser_name, is_bot
@@ -157,7 +157,7 @@ class AccessLogQueryService:
         )
 
     async def pool_distribution(
-        self, *, app_id: int, start: datetime, end: datetime, rule_id: int | None = None
+        self, *, site_id: int, start: datetime, end: datetime, rule_id: int | None = None
     ) -> list[dict[str, Any]]:
         """轮询地址池命中分布：验证权重/策略是否按预期生效。
 
@@ -168,7 +168,7 @@ class AccessLogQueryService:
         前端应当带上 rule_id。
         """
         clauses = [
-            "app_id = {app_id}",
+            "site_id = {site_id}",
             "occurred_at >= {start}",
             "occurred_at < {end}",
             "target_kind = 'url_pool'",
@@ -199,7 +199,7 @@ class AccessLogQueryService:
         )
 
     async def ingress_diagnostics(
-        self, *, app_id: int, start: datetime, end: datetime
+        self, *, site_id: int, start: datetime, end: datetime
     ) -> list[dict[str, Any]]:
         """按接入来源聚合站点接入健康度，用于「SDK / adapter 接了没接上」诊断。
 
@@ -233,7 +233,7 @@ class AccessLogQueryService:
                    min(occurred_at)                            AS first_seen_at,
                    max(occurred_at)                            AS last_seen_at
             FROM {self._db}.decision_events
-            WHERE app_id = {{app_id}}
+            WHERE site_id = {{app_id}}
               AND occurred_at >= {{start}}
               AND occurred_at < {{end}}
             GROUP BY ingress
@@ -243,20 +243,20 @@ class AccessLogQueryService:
         )
 
     async def shadow_impact(
-        self, *, app_id: int | None, start: datetime, end: datetime
+        self, *, site_id: int | None, start: datetime, end: datetime
     ) -> list[dict[str, Any]]:
         """影子规则影响面：发布前测算「这条草稿规则会多拦多少流量」。"""
-        app_clause = "app_id = {app_id} AND " if app_id is not None else ""
+        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
         params: dict[str, Any] = {"start": self._format_dt(start), "end": self._format_dt(end)}
         if app_id is not None:
-            params["app_id"] = app_id
+            params["site_id"] = site_id
         return await self._client.fetch(
             f"""
             SELECT arrayJoin(shadow_rule_ids) AS shadow_rule_id,
                    count(*) AS would_hit_count,
                    countIf(mechanism = 'pass') AS currently_passed_count
             FROM {self._db}.decision_events
-            WHERE {app_clause}occurred_at >= {{start}}
+            WHERE {site_clause}occurred_at >= {{start}}
               AND occurred_at < {{end}}
               AND notEmpty(shadow_rule_ids)
             GROUP BY shadow_rule_id
@@ -266,13 +266,13 @@ class AccessLogQueryService:
         )
 
     async def crawler_overview(
-        self, *, app_id: int | None, start: datetime, end: datetime
+        self, *, site_id: int | None, start: datetime, end: datetime
     ) -> dict[str, Any]:
         """爬虫流量概览统计。"""
-        app_clause = "app_id = {app_id} AND " if app_id is not None else ""
+        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
         params: dict[str, Any] = {"start": self._format_dt(start), "end": self._format_dt(end)}
         if app_id is not None:
-            params["app_id"] = app_id
+            params["site_id"] = site_id
         
         # 总体统计
         overview = await self._client.fetch_one(
@@ -283,7 +283,7 @@ class AccessLogQueryService:
                    uniqExactIf(crawler_name, notEmpty(crawler_name)) AS unique_crawlers,
                    countIf(verdict = 'hostile' AND (notEmpty(crawler_name) OR notEmpty(crawler_category))) AS hostile_crawler_requests
             FROM {self._db}.decision_events
-            WHERE {app_clause}occurred_at >= {{start}}
+            WHERE {site_clause}occurred_at >= {{start}}
               AND occurred_at < {{end}}
             """,
             params,
@@ -291,13 +291,13 @@ class AccessLogQueryService:
         return overview or {}
 
     async def crawler_vendor_distribution(
-        self, *, app_id: int | None, start: datetime, end: datetime
+        self, *, site_id: int | None, start: datetime, end: datetime
     ) -> list[dict[str, Any]]:
         """按爬虫厂商统计分布。"""
-        app_clause = "app_id = {app_id} AND " if app_id is not None else ""
+        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
         params: dict[str, Any] = {"start": self._format_dt(start), "end": self._format_dt(end)}
         if app_id is not None:
-            params["app_id"] = app_id
+            params["site_id"] = site_id
         
         return await self._client.fetch(
             f"""
@@ -308,7 +308,7 @@ class AccessLogQueryService:
                    countIf(verdict = 'suspicious') AS suspicious_count,
                    countIf(verdict = 'clean') AS clean_count
             FROM {self._db}.decision_events
-            WHERE {app_clause}occurred_at >= {{start}}
+            WHERE {site_clause}occurred_at >= {{start}}
               AND occurred_at < {{end}}
               AND notEmpty(crawler_vendor)
             GROUP BY crawler_vendor
@@ -319,13 +319,13 @@ class AccessLogQueryService:
         )
 
     async def crawler_category_distribution(
-        self, *, app_id: int | None, start: datetime, end: datetime
+        self, *, site_id: int | None, start: datetime, end: datetime
     ) -> list[dict[str, Any]]:
         """按爬虫分类统计分布。"""
-        app_clause = "app_id = {app_id} AND " if app_id is not None else ""
+        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
         params: dict[str, Any] = {"start": self._format_dt(start), "end": self._format_dt(end)}
         if app_id is not None:
-            params["app_id"] = app_id
+            params["site_id"] = site_id
         
         return await self._client.fetch(
             f"""
@@ -335,7 +335,7 @@ class AccessLogQueryService:
                    countIf(verdict = 'hostile') AS hostile_count,
                    avg(decision_cost_ms) AS avg_cost_ms
             FROM {self._db}.decision_events
-            WHERE {app_clause}occurred_at >= {{start}}
+            WHERE {site_clause}occurred_at >= {{start}}
               AND occurred_at < {{end}}
               AND notEmpty(crawler_category)
             GROUP BY crawler_category
@@ -345,17 +345,17 @@ class AccessLogQueryService:
         )
 
     async def crawler_top_list(
-        self, *, app_id: int | None, start: datetime, end: datetime, limit: int = 20
+        self, *, site_id: int | None, start: datetime, end: datetime, limit: int = 20
     ) -> list[dict[str, Any]]:
         """爬虫访问频率 Top 排行。"""
-        app_clause = "app_id = {app_id} AND " if app_id is not None else ""
+        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
         params: dict[str, Any] = {
             "start": self._format_dt(start),
             "end": self._format_dt(end),
             "limit": limit
         }
         if app_id is not None:
-            params["app_id"] = app_id
+            params["site_id"] = site_id
         
         return await self._client.fetch(
             f"""
@@ -368,7 +368,7 @@ class AccessLogQueryService:
                    min(occurred_at) AS first_seen_at,
                    max(occurred_at) AS last_seen_at
             FROM {self._db}.decision_events
-            WHERE {app_clause}occurred_at >= {{start}}
+            WHERE {site_clause}occurred_at >= {{start}}
               AND occurred_at < {{end}}
               AND notEmpty(crawler_name)
             GROUP BY crawler_name, crawler_vendor, crawler_category
@@ -379,13 +379,13 @@ class AccessLogQueryService:
         )
 
     async def crawler_timeline(
-        self, *, app_id: int | None, start: datetime, end: datetime, granularity: str = "hour"
+        self, *, site_id: int | None, start: datetime, end: datetime, granularity: str = "hour"
     ) -> list[dict[str, Any]]:
         """爬虫流量时间趋势（分爬虫/非爬虫）。"""
-        app_clause = "app_id = {app_id} AND " if app_id is not None else ""
+        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
         params: dict[str, Any] = {"start": self._format_dt(start), "end": self._format_dt(end)}
         if app_id is not None:
-            params["app_id"] = app_id
+            params["site_id"] = site_id
         
         # 时间粒度映射
         interval_map = {
@@ -402,7 +402,7 @@ class AccessLogQueryService:
                    countIf(empty(crawler_name) AND empty(crawler_category)) AS non_crawler_count,
                    count(*) AS total_count
             FROM {self._db}.decision_events
-            WHERE {app_clause}occurred_at >= {{start}}
+            WHERE {site_clause}occurred_at >= {{start}}
               AND occurred_at < {{end}}
             GROUP BY time_bucket
             ORDER BY time_bucket ASC
@@ -430,8 +430,8 @@ class AccessLogQueryService:
         }
         # app_id=None 时查全部站点，不加过滤
         if app_id is not None:
-            clauses.insert(0, "app_id = {app_id}")
-            params["app_id"] = app_id
+            clauses.insert(0, "site_id = {site_id}")
+            params["site_id"] = site_id
         for name, value in (filters or {}).items():
             if name not in _FILTERABLE or not value:
                 continue

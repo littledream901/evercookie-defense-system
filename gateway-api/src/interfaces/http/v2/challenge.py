@@ -43,9 +43,14 @@ _logger = get_logger("gateway.challenge")
 
 
 class ChallengeVerifyRequest(BaseModel):
-    """挑战答案提交请求。"""
+    """挑战答案提交请求。
+    
+    Note:
+        app_id 字段实际是站点主键（Site.id），这是
+    """
 
-    app_id: int = Field(..., alias="appId", ge=1)
+    site_id: int = Field(..., alias="siteId", ge=1)
+    """站点主键（Site.id）"""
     fingerprint: str = Field(..., min_length=1, max_length=256)
     challenge_token: str = Field(..., alias="challengeToken", min_length=1)
     answer: str = Field(..., min_length=1, max_length=4096)
@@ -77,22 +82,25 @@ async def verify_challenge(
     1. 校验 token：签名、过期、app_id、fingerprint 一致性
     2. nonce 一次性：同一 token 只能提交一次
     3. 答案校验：captcha 调第三方 API，js_challenge 验算哈希
-    4. 签发通行凭据：写 Redis `fy:challenge_pass:{app_id}:{fingerprint}` = "trusted"
+    4. 签发通行凭据：写 Redis `fy:challenge_pass:{site_id}:{fingerprint}` = "trusted"
 
     失败原因统一返回 success=False + message，不区分「token 错」「答案错」，
     避免暴露校验细节给探测方。
+    
+    Note:
+        payload.site_id 和 resolved.site_id 实际都是站点主键（Site.id），这是
     """
-    # 1. app_id 一致性：防客户端伪造调用其他租户
-    if payload.app_id != resolved.app_id:
-        raise AuthenticationException("API Key 与 appId 不匹配")
+    # 1. site_id 一致性：防客户端伪造调用其他租户
+    if payload.site_id != resolved.site_id:
+        raise AuthenticationException("API Key 与 siteId 不匹配")
 
     # 2. 获取 app_secret 用于验签
     resolver = get_app_key_resolver()
-    secret = await resolver.get_secret_by_app_id(payload.app_id)
+    secret = await resolver.get_secret_by_app_id(payload.site_id)
     if not secret:
         _logger.warning(
             "challenge_verify_no_secret",
-            app_id=payload.app_id,
+            site_id=payload.site_id,
             fingerprint=payload.fingerprint[:8],
         )
         return SuccessResponse(
@@ -106,13 +114,13 @@ async def verify_challenge(
     result = verify_challenge_token(
         payload.challenge_token,
         secret=secret,
-        app_id=payload.app_id,
+        site_id=payload.site_id,
         fingerprint=payload.fingerprint,
     )
     if not result.valid or result.payload is None:
         _logger.warning(
             "challenge_token_invalid",
-            app_id=payload.app_id,
+            site_id=payload.site_id,
             fingerprint=payload.fingerprint[:8],
             reason=result.reason,
         )
@@ -124,10 +132,10 @@ async def verify_challenge(
         )
 
     # 4. nonce 一次性：防重放
-    if not await nonce_store.claim(payload.app_id, result.payload.nonce):
+    if not await nonce_store.claim(payload.site_id, result.payload.nonce):
         _logger.warning(
             "challenge_token_replayed",
-            app_id=payload.app_id,
+            site_id=payload.site_id,
             fingerprint=payload.fingerprint[:8],
             nonce=result.payload.nonce[:8],
         )
@@ -145,7 +153,7 @@ async def verify_challenge(
         if not _verify_pow(payload.challenge_token, payload.answer, difficulty=4):
             _logger.warning(
                 "challenge_pow_failed",
-                app_id=payload.app_id,
+                site_id=payload.site_id,
                 fingerprint=payload.fingerprint[:8],
             )
             return SuccessResponse(
@@ -160,7 +168,7 @@ async def verify_challenge(
         if not payload.answer or len(payload.answer) < 1:
             _logger.warning(
                 "challenge_answer_empty",
-                app_id=payload.app_id,
+                site_id=payload.site_id,
                 fingerprint=payload.fingerprint[:8],
             )
             return SuccessResponse(
@@ -172,7 +180,7 @@ async def verify_challenge(
     else:
         _logger.warning(
             "challenge_unknown_kind",
-            app_id=payload.app_id,
+            site_id=payload.site_id,
             kind=kind,
         )
         return SuccessResponse(
@@ -192,11 +200,11 @@ async def verify_challenge(
     import time
 
     remaining = max(result.payload.exp - int(time.time()), 60)
-    await pass_store.grant(payload.app_id, payload.fingerprint, remaining)
+    await pass_store.grant(payload.site_id, payload.fingerprint, remaining)
 
     _logger.info(
         "challenge_passed",
-        app_id=payload.app_id,
+        site_id=payload.site_id,
         fingerprint=payload.fingerprint[:8],
         kind=result.payload.kind,
         pass_ttl=remaining,

@@ -74,10 +74,10 @@ class RuleHitRateSpec:
 
     读 ``mv_rule_hits_daily``（按天预聚合），因此时间范围以**日期**为粒度，
     而非主表查询的秒级 ``start``/``end``——用日粒度去读日聚合表才用得上它的
-    主键前缀 ``(log_date, app_id, rule_id)``。
+    主键前缀 ``(log_date, site_id, rule_id)``。
     """
 
-    app_id: int | None
+    site_id: int | None
     start: datetime
     end: datetime
     limit: int = 50

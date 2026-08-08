@@ -44,7 +44,7 @@ class ClockLimits(BaseSchema):
     关心的那一档。
     """
 
-    app_id: int = Field(..., alias="appId", ge=0)
+    site_id: int = Field(..., alias="siteId", ge=0)
     """站点 ID。``0`` 表示全局阈值（不绑定具体站点）。"""
     enabled: bool = True
     windows: dict[str, int] = Field(default_factory=dict)
@@ -70,6 +70,6 @@ class ClockLimits(BaseSchema):
         return self.windows.get(window.name, DEFAULT_LIMITS.get(window.name, 0))
 
 
-def default_limits(app_id: int) -> ClockLimits:
+def default_limits(site_id: int) -> ClockLimits:
     """未配置站点阈值时使用的默认值。"""
-    return ClockLimits(appId=app_id)
+    return ClockLimits(siteId=site_id)

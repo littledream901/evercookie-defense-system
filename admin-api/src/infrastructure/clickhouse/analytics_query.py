@@ -24,7 +24,18 @@ class AnalyticsQueryService:
     def __init__(self, client: ClickHouseClient) -> None:
         self._client = client
 
-    def _build_where(self, app_id: int | None, start: datetime, end: datetime, filters: dict[str, str]) -> tuple[str, dict[str, Any]]:
+    def _build_where(
+        self, site_id: int | None, start: datetime, end: datetime, filters: dict[str, str]
+    ) -> tuple[str, dict[str, Any]]:
+        """构建 WHERE 子句。
+        
+        Args:
+            site_id: 站点ID，对应 ClickHouse 的 app_id 列（
+            
+        Note:
+            ClickHouse 的 app_id 列实际存储的是 site_id（
+            应用级聚合查询需要在上层实现（先查询应用下的站点列表）
+        """
         clauses = [
             "occurred_at >= toDateTime({start})",
             "occurred_at < toDateTime({end})",
@@ -33,9 +44,9 @@ class AnalyticsQueryService:
             "start": self._format_dt(start),
             "end": self._format_dt(end),
         }
-        if app_id is not None:
-            clauses.insert(0, "app_id = {app_id}")
-            params["app_id"] = app_id
+        if site_id is not None:
+            clauses.insert(0, "site_id = {site_id}")  # 列名保持 app_id（
+            params["site_id"] = site_id
         if filters.get("verdict"):
             clauses.append("verdict = {verdict}")
             params["verdict"] = filters["verdict"]
@@ -71,10 +82,10 @@ class AnalyticsQueryService:
         """
         interval = self._interval_for(spec.granularity)
         where_sql, params = self._build_where(
-            spec.base.app_id,
-            spec.base.start,
-            spec.base.end,
-            spec.base.filters,
+            site_id=spec.base.site_id,
+            start=spec.base.start,
+            end=spec.base.end,
+            filters=spec.base.filters,
         )
         group_columns = self._timeline_group_columns(spec.dimension)
         projection = ",\n            ".join(group_columns)
@@ -93,10 +104,10 @@ class AnalyticsQueryService:
 
     async def query_disposition_breakdown(self, spec: DispositionBreakdownSpec) -> list[dict[str, Any]]:
         where_sql, params = self._build_where(
-            spec.base.app_id,
-            spec.base.start,
-            spec.base.end,
-            spec.base.filters,
+            site_id=spec.base.site_id,
+            start=spec.base.start,
+            end=spec.base.end,
+            filters=spec.base.filters,
         )
         # 处置已拆为 verdict（裁决）+ mechanism（机制）两个维度，
         # 拼接成 "verdict/mechanism" 供图表展示单一标签
@@ -164,9 +175,9 @@ class AnalyticsQueryService:
             "end": self._format_dt(spec.end),
             "limit": spec.limit,
         }
-        if spec.app_id is not None:
-            clauses.insert(0, "app_id = {app_id}")
-            params["app_id"] = spec.app_id
+        if spec.site_id is not None:
+            clauses.insert(0, "site_id = {site_id}")
+            params["app_id"] = spec.site_id
         sql = f"""
         SELECT
             rule_id,

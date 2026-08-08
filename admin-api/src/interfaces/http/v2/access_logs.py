@@ -62,9 +62,24 @@ async def access_log_stats(
     end: datetime | None = None,
     service: AccessLogQueryService = Depends(_service),
 ) -> SuccessResponse[list[dict[str, Any]]]:
+    """访问日志统计摘要。
+    
+    Args:
+        site_id: 站点ID，对应 ClickHouse 的 app_id 列（
+    
+    Note:
+        ClickHouse 的 app_id 列实际存储的是 site_id（
+        应用级聚合查询需要在上层实现
+    """
     actual_end = end or datetime.utcnow()
     actual_start = start or actual_end - timedelta(days=1)
-    return SuccessResponse(data=await service.stats(app_id=site_id, start=actual_start, end=actual_end))
+    return SuccessResponse(
+        data=await service.stats(
+            site_id=site_id,
+            start=actual_start,
+            end=actual_end
+        )
+    )
 
 
 @router.get(
@@ -95,10 +110,19 @@ async def list_access_logs(
     page_size: int = Query(default=50, ge=1, le=500, alias="pageSize"),
     service: AccessLogQueryService = Depends(_service),
 ) -> SuccessResponse[PageResponse[dict[str, Any]]]:
+    """访问日志列表（分页）。
+    
+    Args:
+        site_id: 站点ID，对应 ClickHouse 的 app_id 列（
+    
+    Note:
+        ClickHouse 的 app_id 列实际存储的是 site_id（
+        应用级聚合查询需要在上层实现（先查询应用下的站点列表，然后分别查询）
+    """
     actual_end = end or datetime.utcnow()
     actual_start = start or actual_end - timedelta(days=1)
     rows, total = await service.list_paged(
-        app_id=site_id,
+        site_id=site_id,
         start=actual_start,
         end=actual_end,
         filters={

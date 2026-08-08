@@ -38,46 +38,66 @@ class Fangyu_Config {
 	}
 
 	/**
-	 * 读取站点 ID（同时用作 X-App-Key 请求头）。
+	 * 读取站点密钥字符串（用作 X-App-Key 请求头）。
 	 *
 	 * 格式 site_<hex8>，从 Fangyu 管理后台「站点管理」页面复制。
 	 *
 	 * @return string 未配置时返回空串。
 	 */
-	public static function site_id() {
-		return (string) get_option( self::PREFIX . 'site_id', '' );
+	public static function site_key() {
+		return (string) get_option( self::PREFIX . 'site_key', '' );
 	}
 
 	/**
-	 * @deprecated 使用 site_id() 替代
-	 * @return string
-	 */
-	public static function api_key() {
-		// 兼容旧选项；新安装写的是 site_id，升级时两者可能都存在。
-		$legacy = (string) get_option( self::PREFIX . 'api_key', '' );
-		return $legacy ?: self::site_id();
-	}
-
-	/**
-	 * 读取应用 ID。
+	 * 读取站点数字主键（用于 SDK 配置的 appId 参数）。
 	 *
 	 * 格式为整数（例如 1001），从 Fangyu 管理后台「站点管理」页面获取。
 	 *
 	 * @return int 未配置时返回 0。
 	 */
-	public static function app_id() {
-		return (int) get_option( self::PREFIX . 'app_id', 0 );
+	public static function site_id() {
+		return (int) get_option( self::PREFIX . 'site_id', 0 );
 	}
 
 	/**
-	 * 读取签名密钥（`app_secret`）。
+	 * @deprecated 使用 site_key() 替代
+	 * @return string
+	 */
+	public static function api_key() {
+		// 兼容旧选项；新安装写的是 site_key，升级时两者可能都存在。
+		$legacy = (string) get_option( self::PREFIX . 'api_key', '' );
+		return $legacy ?: self::site_key();
+	}
+
+	/**
+	 * @deprecated 使用 site_id() 替代
+	 * @return int
+	 */
+	public static function app_id() {
+		// 兼容旧选项
+		$legacy = (int) get_option( self::PREFIX . 'app_id', 0 );
+		return $legacy ?: self::site_id();
+	}
+
+	/**
+	 * 读取签名密钥（`site_secret`）。
 	 *
 	 * 只在本地用于计算 HMAC，**不通过网络发送**。
 	 *
 	 * @return string 未配置时返回空串。
 	 */
+	public static function site_secret() {
+		return (string) get_option( self::PREFIX . 'site_secret', '' );
+	}
+
+	/**
+	 * @deprecated 使用 site_secret() 替代
+	 * @return string
+	 */
 	public static function app_secret() {
-		return (string) get_option( self::PREFIX . 'app_secret', '' );
+		// 兼容旧选项
+		$legacy = (string) get_option( self::PREFIX . 'app_secret', '' );
+		return $legacy ?: self::site_secret();
 	}
 
 	/**

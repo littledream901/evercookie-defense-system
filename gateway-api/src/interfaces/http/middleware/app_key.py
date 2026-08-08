@@ -1,13 +1,14 @@
 """App Key 校验与解析。
 
-Gateway 通过 HTTP header 中的 API Key 反查 Redis 得到 app_id：
+Gateway 通过 HTTP header 中的 API Key 反查 Redis 得到 site_id：
 - 主凭据 header：``X-App-Key``
 - 兜底：``Authorization: Bearer <key>``
 
-Redis 键位：``fangyu:app_keys:{api_key}`` → ``{"app_id": 1, "app_secret": "..."}``
-兼容旧格式 ``str(app_id)``（此时无密钥，无法验签）。
+Redis 键位：``fangyu:app_keys:{site_key}`` → ``{"app_id": <site_id>, "app_secret": "..."}``
+注意：Redis 中的 app_id 字段实际存储的是站点主键（Site.id），这是
+兼容旧格式 ``str(site_id)``（此时无密钥，无法验签）。
 
-由 admin-api 负责在应用创建 / 轮换 Key / 删除应用时维护映射。
+由 admin-api 负责在站点创建 / 轮换 Key / 删除站点时维护映射。
 Gateway 侧只读，并配合本地进程内缓存降低 Redis 压力。
 
 安全设计：
@@ -59,23 +60,31 @@ _logger = get_logger("gateway.app_key")
 
 @dataclass(slots=True)
 class AppCredential:
-    """Redis 中一条 app_key 映射的完整内容。"""
+    """Redis 中一条 site_key 映射的完整内容。"""
 
-    app_id: int
-    app_secret: str | None = None
+    site_id: int
+    """站点主键（Site.id）"""
+    site_secret: str | None = None
 
 
 @dataclass(slots=True)
 class ResolvedAppKey:
-    """API Key 校验成功后的解析结果。"""
+    """API Key 校验成功后的解析结果。
+    
+    Note:
+        site_id 字段实际存储的是站点主键（Site.id），而非应用主键（Application.id）。
+        Redis 键 fangyu:app_keys:{site_key} 中存储的 app_id 字段也是站点主键。
+        这是
+    """
 
-    app_id: int
+    site_id: int
+    """站点主键（Site.id），用于租户隔离和规则加载。注意：不是应用主键（Application.id）"""
     api_key: str
     signature_verified: bool = False
 
 
 class AppKeyResolver:
-    """API Key → app_id 解析器，带本地 TTL 缓存。"""
+    """API Key → site_id 解析器，带本地 TTL 缓存。"""
 
     def __init__(
         self,
@@ -114,9 +123,9 @@ class AppKeyResolver:
         return credential
 
     async def resolve(self, api_key: str) -> int | None:
-        """兼容旧签名：只要 app_id。"""
+        """兼容旧签名：只要 site_id。"""
         credential = await self.resolve_credential(api_key)
-        return credential.app_id if credential else None
+        return credential.site_id if credential else None
 
     async def get_secret_by_app_id(self, app_id: int) -> str | None:
         """反向查询：从 app_id 拿 app_secret，用于 challenge token 签发与校验。
@@ -132,9 +141,9 @@ class AppKeyResolver:
         fail-open：Redis 异常返回 None，由外层降级（签发失败不阻断决策）。
         """
         now = time.monotonic()
-        for credential, expire_at in self._cache.values():
-            if expire_at > now and credential.app_id == app_id and credential.app_secret:
-                return credential.app_secret
+        for api_key, (credential, expire_at) in self._cache.items():
+            if expire_at > now and credential.site_id == site_id and credential.site_secret:
+                return credential.site_secret
 
         if app_id <= 0:
             return None
@@ -156,7 +165,7 @@ class AppKeyResolver:
             raw = raw.decode("utf-8", errors="replace")
         text = str(raw).strip()
 
-        app_id_raw: Any = text
+        site_id_raw: Any = text
         secret: str | None = None
         if text.startswith("{"):
             try:
@@ -166,19 +175,25 @@ class AppKeyResolver:
                 return None
             if not isinstance(payload, dict):
                 return None
-            app_id_raw = payload.get("app_id")
-            raw_secret = payload.get("app_secret")
-            secret = str(raw_secret) if raw_secret else None
+            site_id_raw = payload.get("site_id") or payload.get("app_id")  # 兼容旧键名
+            if not site_id_raw:
+                return None
 
-        try:
-            app_id = int(app_id_raw)
-        except (TypeError, ValueError):
-            _logger.warning("app_key_mapping_invalid", api_key_prefix=api_key[:6], value=text)
-            return None
+            secret = payload.get("site_secret") or payload.get("app_secret")  # 兼容旧键名
+            try:
+                site_id = int(site_id_raw)
+            except (ValueError, TypeError):
+                return None
+        else:
+            try:
+                site_id = int(site_id_raw)
+            except (TypeError, ValueError):
+                _logger.warning("app_key_mapping_invalid", api_key_prefix=api_key[:6], value=text)
+                return None
 
-        if app_id <= 0:
+        if site_id <= 0:
             return None
-        return AppCredential(app_id=app_id, app_secret=secret)
+        return AppCredential(site_id=site_id, site_secret=secret)
 
     def invalidate(self, api_key: str) -> None:
         """在测试或 admin 侧回调时可主动清缓存。"""
@@ -324,7 +339,7 @@ class AppKeyEnforcementMiddleware(BaseHTTPMiddleware):
 
         if not settings.app_key_required:
             raw_key = extract_api_key(request, header_name=settings.app_key_header) or ""
-            request.state.resolved_app_key = ResolvedAppKey(app_id=0, api_key=raw_key)
+            request.state.resolved_app_key = ResolvedAppKey(site_id=0, api_key=raw_key)
             return await call_next(request)
 
         api_key = extract_api_key(request, header_name=settings.app_key_header)
@@ -361,7 +376,7 @@ class AppKeyEnforcementMiddleware(BaseHTTPMiddleware):
             verified = True
 
         request.state.resolved_app_key = ResolvedAppKey(
-            app_id=credential.app_id,
+            site_id=credential.app_id,  # credential.app_id 实际是站点主键
             api_key=api_key,
             signature_verified=verified,
         )
@@ -406,7 +421,7 @@ async def require_app_key(request: Request) -> ResolvedAppKey:
 
     if not settings.app_key_required:
         raw_key = extract_api_key(request, header_name=settings.app_key_header) or ""
-        return ResolvedAppKey(app_id=0, api_key=raw_key)
+        return ResolvedAppKey(site_id=0, api_key=raw_key)
 
     api_key = extract_api_key(request, header_name=settings.app_key_header)
     if not api_key:
@@ -435,7 +450,7 @@ async def require_app_key(request: Request) -> ResolvedAppKey:
             raise AuthenticationException("API Key 无效或已失效")
 
     return ResolvedAppKey(
-        app_id=credential.app_id,
+        site_id=credential.app_id,  # credential.app_id 实际是站点主键
         api_key=api_key,
         signature_verified=bool(getattr(settings, "signature_required", False)),
     )

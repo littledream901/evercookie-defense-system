@@ -1,8 +1,8 @@
 """规则缓存同步（admin → Redis，供 gateway 读取）。
 
 规则与站点是多对多关系：一条规则可绑定多个站点。Redis 仍按站点分片存储
-（``fangyu:rules:{site_id}``），因此同一条规则会被写入其所有绑定站点的分片，
-每份的 ``appId`` 字段置为该分片对应的 site_id，gateway 侧读取逻辑无需改动。
+（``fangyu:rules:site:{site_id}``），因此同一条规则会被写入其所有绑定站点的分片，
+每份的 ``siteId`` 字段置为该分片对应的 site_id，gateway 侧读取逻辑无需改动。
 
 全量重写走 staging key + RENAME 原子换页（见 ``replace_site``）：gateway 的
 HGETALL 只会看到旧快照或新快照，不会看到中间的空/半量状态。这一点对风控系统
@@ -20,7 +20,7 @@ from src.domain.rule.state_machine import SYNCABLE_STATUSES
 
 AnyRule = DecisionRule | ScoringRule
 
-_KEY_PREFIX = "fangyu:rules:"
+_KEY_PREFIX = "fangyu:rules:site:"
 
 # 快照代次字段，与规则同存一个 Hash，从而随 RENAME 一起原子换页。
 # 规则 id 是数字串（``str(rule.id)``），双下划线包裹的名字不可能与之相撞，
@@ -48,6 +48,7 @@ class _RedisLike(Protocol):
     ) -> int: ...
     async def hdel(self, name: str, *keys: str) -> int: ...
     async def delete(self, *names: str) -> int: ...
+    async def rename(self, src: str, dst: str) -> bool: ...
     async def rename(self, src: str, dst: str) -> bool: ...
 
 
@@ -109,5 +110,17 @@ class RuleCache:
 
     @staticmethod
     def _payload(site_id: int, rule: AnyRule) -> str:
-        # appId 按目标分片改写：gateway 读到的每条规则都自带正确的站点归属
-        return rule.model_copy(update={"app_id": site_id}).model_dump_json(by_alias=True)
+        """序列化规则为 JSON，并强制改写 site_id 字段为目标站点 ID。
+        
+        规则在 PostgreSQL 中的 site_id 可能是站点 ID（V3）或 NULL（全局规则）。
+        写入 Redis 分片时，强制改写 site_id = 目标站点ID，确保 Gateway 读取时
+        规则携带正确的站点归属标识。
+        
+        Args:
+            site_id: 目标站点 ID（Redis 分片标识）
+            rule: 规则对象（从 PostgreSQL 查询得到）
+            
+        Returns:
+            JSON 字符串，其中 siteId 字段已改写为 site_id
+        """
+        return rule.model_copy(update={"site_id": site_id}).model_dump_json(by_alias=True)

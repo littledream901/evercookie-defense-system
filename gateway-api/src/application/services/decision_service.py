@@ -205,7 +205,7 @@ class DecisionService:
             raise ValueError("decide() 收到未解析 IP 的上下文：接入层必须先填充 context.ip")
         request_id = uuid.uuid4().hex
         started = time.perf_counter()
-        decision_requests_total.labels(app_id=str(ctx.app_id), verdict="pending").inc()
+        decision_requests_total.labels(app_id=str(ctx.site_id), verdict="pending").inc()
 
         # Stage: whitelist（最前，误封兜底通道）
         wl_outcome = await self._run_whitelist(ctx)
@@ -229,7 +229,7 @@ class DecisionService:
             )
             self._schedule_event(ctx, response, wl_outcome, None, cost_ms)
             decision_requests_total.labels(
-                app_id=str(ctx.app_id),
+                app_id=str(ctx.site_id),
                 verdict=wl_outcome.disposition.verdict.value,
             ).inc()
             return response
@@ -252,7 +252,7 @@ class DecisionService:
             )
             self._schedule_event(ctx, response, pass_outcome, None, cost_ms)
             decision_requests_total.labels(
-                app_id=str(ctx.app_id),
+                app_id=str(ctx.site_id),
                 verdict=pass_outcome.disposition.verdict.value,
             ).inc()
             return response
@@ -275,7 +275,7 @@ class DecisionService:
             )
             self._schedule_event(ctx, response, clock_outcome, None, cost_ms)
             decision_requests_total.labels(
-                app_id=str(ctx.app_id),
+                app_id=str(ctx.site_id),
                 verdict=clock_outcome.disposition.verdict.value,
             ).inc()
             return response
@@ -302,14 +302,14 @@ class DecisionService:
             )
             self._schedule_event(ctx, response, hybrid_outcome, None, cost_ms)
             decision_requests_total.labels(
-                app_id=str(ctx.app_id),
+                app_id=str(ctx.site_id),
                 verdict=hybrid_outcome.disposition.verdict.value,
             ).inc()
             return response
 
         cached = await self._try_cache(ctx)
         if cached is not None:
-            decision_cache_hits_total.labels(app_id=str(ctx.app_id), layer="decision").inc()
+            decision_cache_hits_total.labels(app_id=str(ctx.site_id), layer="decision").inc()
             cached_outcome = self._outcome_from_cache(cached)
             cached_resp = await self._respond(
                 disposition=cached.disposition,
@@ -343,7 +343,7 @@ class DecisionService:
 
         if outcome.is_cacheable:
             await self._deps.decision_cache.set(
-                ctx.app_id,
+                ctx.site_id,
                 ctx.fingerprint,
                 str(ctx.ip),
                 CachedDecision(
@@ -388,7 +388,7 @@ class DecisionService:
         self._schedule_event(ctx, response, outcome, snapshot, cost_ms)
 
         decision_requests_total.labels(
-            app_id=str(ctx.app_id), verdict=outcome.disposition.verdict.value
+            app_id=str(ctx.site_id), verdict=outcome.disposition.verdict.value
         ).inc()
         return response
 
@@ -510,10 +510,10 @@ class DecisionService:
             return None
 
         with decision_latency_seconds.labels(
-            app_id=str(ctx.app_id), stage="whitelist"
+            app_id=str(ctx.site_id), stage="whitelist"
         ).time():
             hit = await reader.check(
-                ctx.app_id, ip=str(ctx.ip), fingerprint=ctx.fingerprint
+                ctx.site_id, ip=str(ctx.ip), fingerprint=ctx.fingerprint
             )
         if not hit.matched:
             return None
@@ -545,9 +545,9 @@ class DecisionService:
             return None
 
         with decision_latency_seconds.labels(
-            app_id=str(ctx.app_id), stage="challenge_pass"
+            app_id=str(ctx.site_id), stage="challenge_pass"
         ).time():
-            has_pass = await store.check(ctx.app_id, ctx.fingerprint)
+            has_pass = await store.check(ctx.site_id, ctx.fingerprint)
         if not has_pass:
             return None
 
@@ -581,10 +581,10 @@ class DecisionService:
         now_ms = utcnow_ms()
         ip_hash = sha256_hex(str(ctx.ip))[:32]
 
-        with decision_latency_seconds.labels(app_id=str(ctx.app_id), stage="clock").time():
-            limits = await repo.get_limits(ctx.app_id)
+        with decision_latency_seconds.labels(app_id=str(ctx.site_id), stage="clock").time():
+            limits = await repo.get_limits(ctx.site_id)
             reading = await repo.touch_and_read(
-                ctx.app_id,
+                ctx.site_id,
                 ip_hash=ip_hash,
                 fingerprint=ctx.fingerprint,
                 now_ms=now_ms,
@@ -592,7 +592,7 @@ class DecisionService:
             # 行为时序落库与频控判定无关，失败不影响决策。
             if ctx.behavior_events:
                 await repo.store_behavior(
-                    ctx.app_id, ctx.fingerprint, ctx.behavior_events, now_ms=now_ms
+                    ctx.site_id, ctx.fingerprint, ctx.behavior_events, now_ms=now_ms
                 )
             verdict = guard.evaluate(reading, limits)
 
@@ -604,7 +604,7 @@ class DecisionService:
         # 不必每次都重算计数。
         if verdict.is_over_limit and limits.ban_enabled and verdict.breach is not None:
             await repo.ban(
-                ctx.app_id,
+                ctx.site_id,
                 verdict.breach.dimension,
                 ip_hash
                 if verdict.breach.dimension == ClockDimension.IP
@@ -660,8 +660,8 @@ class DecisionService:
         )
 
     async def _try_cache(self, ctx: DecisionContext) -> CachedDecision | None:
-        with decision_latency_seconds.labels(app_id=str(ctx.app_id), stage="cache").time():
-            return await self._deps.decision_cache.get(ctx.app_id, ctx.fingerprint, str(ctx.ip))
+        with decision_latency_seconds.labels(app_id=str(ctx.site_id), stage="cache").time():
+            return await self._deps.decision_cache.get(ctx.site_id, ctx.fingerprint, str(ctx.ip))
 
     @staticmethod
     def _outcome_from_cache(cached: CachedDecision) -> DecisionOutcome:
@@ -702,12 +702,12 @@ class DecisionService:
         )
 
     async def _build_snapshot(self, ctx: DecisionContext) -> ProfileSnapshot:
-        with decision_latency_seconds.labels(app_id=str(ctx.app_id), stage="profile").time():
-            device = await self._deps.profile_cache.get_device(ctx.app_id, ctx.fingerprint)
+        with decision_latency_seconds.labels(app_id=str(ctx.site_id), stage="profile").time():
+            device = await self._deps.profile_cache.get_device(ctx.site_id, ctx.fingerprint)
             # IP 画像按 app_id 分键：声誉分是「本站点观测到的拦截率」的结论，
             # 不是 IP 的客观属性。读侧必须与回流任务的写侧同键，否则查不到数据
             # 且不会报错——IpReputationScorer 只会一直走 no_reputation_data。
-            ip_profile = await self._deps.profile_cache.get_ip(ctx.app_id, str(ctx.ip))
+            ip_profile = await self._deps.profile_cache.get_ip(ctx.site_id, str(ctx.ip))
             ip_lookup = self._deps.mmdb_reader.lookup(str(ctx.ip))
             intel = None
             if self._deps.intel_reader is not None:
@@ -732,8 +732,8 @@ class DecisionService:
         eval_ctx = snapshot.to_evaluation_context()
 
         # Stage: decision rule
-        with decision_latency_seconds.labels(app_id=str(ctx.app_id), stage="rule").time():
-            rule_set = await self._deps.rule_repository.get_rule_set(ctx.app_id)
+        with decision_latency_seconds.labels(app_id=str(ctx.site_id), stage="rule").time():
+            rule_set = await self._deps.rule_repository.get_rule_set(ctx.site_id)
             match = self._deps.rule_matcher.match(
                 rule_set.decision_rules, eval_ctx, groups=rule_set.groups
             )
@@ -801,7 +801,7 @@ class DecisionService:
                 return self._finalize(resolved, stages, shadow_hits=shadow_hits)
 
         # Stage: threat intel
-        with decision_latency_seconds.labels(app_id=str(ctx.app_id), stage="threat_intel").time():
+        with decision_latency_seconds.labels(app_id=str(ctx.site_id), stage="threat_intel").time():
             ti = await ThreatIntelReader.check(str(ctx.ip))
         if ti.is_threat:
             reason = f"threat_intel:{','.join(ti.categories)}" if ti.categories else "threat_intel"
@@ -820,7 +820,7 @@ class DecisionService:
             )
 
         # Stage: security
-        with decision_latency_seconds.labels(app_id=str(ctx.app_id), stage="security").time():
+        with decision_latency_seconds.labels(app_id=str(ctx.site_id), stage="security").time():
             sec = self._deps.security_checker.check(snapshot)
         if sec.triggered and sec.disposition is not None:
             resolved = DispositionResolver.from_security(
@@ -841,7 +841,7 @@ class DecisionService:
         # 评分开关与阈值来自 ScoringConfigCache（admin 保存后 30s 内生效）。
         scoring_cfg = None
         if self._deps.scoring_config_cache is not None:
-            scoring_cfg = await self._deps.scoring_config_cache.get(ctx.app_id)
+            scoring_cfg = await self._deps.scoring_config_cache.get(ctx.site_id)
 
         if scoring_cfg is not None and not scoring_cfg.enabled:
             # 评分已关闭：跳过此阶段，直接交给默认处置链
@@ -856,7 +856,7 @@ class DecisionService:
             resolved = DispositionResolver.fallback(rule_set.default_disposition)
             return self._finalize(resolved, stages, shadow_hits=shadow_hits)
 
-        with decision_latency_seconds.labels(app_id=str(ctx.app_id), stage="risk").time():
+        with decision_latency_seconds.labels(app_id=str(ctx.site_id), stage="risk").time():
             risk = self._deps.risk_pipeline.run(
                 snapshot,
                 challenge_threshold=scoring_cfg.challenge_threshold if scoring_cfg else None,
@@ -946,7 +946,7 @@ class DecisionService:
             return outcome
 
         try:
-            rule_set = await self._deps.rule_repository.get_rule_set(ctx.app_id)
+            rule_set = await self._deps.rule_repository.get_rule_set(ctx.site_id)
             # 只对参与过求值的规则重算：匹配器跳过非 active/shadow 的规则，
             # 且不提前 break（影子规则要完整评估），因此这个筛选与它实际算过的
             # 集合一致。给没参与决策的规则留痕只会放大写入量。
@@ -993,9 +993,9 @@ class DecisionService:
         rendered_url = render_pool(
             pool_order if pool_order is not None else disposition.target.url_pool,
             # request_id 每请求唯一，轮询因此按请求分摊而非按访客分片。
-            seed=request_id or f"{ctx.app_id}:{ctx.fingerprint}",
+            seed=request_id or f"{ctx.site_id}:{ctx.fingerprint}",
             visit_url=ctx.visit_url or ctx.path,
-            app_id=ctx.app_id,
+            app_id=ctx.site_id,
             request_id=request_id,
             ip=str(ctx.ip) if ctx.ip else "",
             fingerprint=ctx.fingerprint or "",
@@ -1098,7 +1098,7 @@ class DecisionService:
         )
         # 轮询选址成功后消费配额
         await self._consume_pool_quota(disposition, ctx, response.target_url)
-        response = await self._enrich_serve_alt(response, disposition, ctx.app_id)
+        response = await self._enrich_serve_alt(response, disposition, ctx.site_id)
         # 挑战凭据必须在此签发：客户端拿不到 token 就无法调 /challenge/verify，
         # ChallengePassStore 永远不会 grant，整条挑战链路会静默失效。
         return await self._sign_challenge_token(response, disposition, ctx)
@@ -1128,14 +1128,14 @@ class DecisionService:
         # failover 策略依赖健康检查，注册地址池到探测任务
         if strategy == "failover" and self._deps.health_prober is not None:
             urls = [e.url for e in rotation.entries]
-            self._deps.health_prober.register_pool(ctx.app_id, urls)
+            self._deps.health_prober.register_pool(ctx.site_id, urls)
 
         counter: int | None = None
         if strategy == "round_robin" and self._deps.rotation_counter is not None:
             # 每条规则一个计数器；无规则 id（默认处置等）时退化为 app 级
             rule_id = rule_ids[0] if rule_ids else 0
             try:
-                counter = await self._deps.rotation_counter.next(ctx.app_id, rule_id)
+                counter = await self._deps.rotation_counter.next(ctx.site_id, rule_id)
             except Exception:  # noqa: BLE001 - 计数器不可用不该让决策失败
                 _logger.warning("rotation_counter unavailable, fallback to hash")
                 counter = None
@@ -1147,7 +1147,7 @@ class DecisionService:
             health_map: dict[str, bool] = {}
             for url, _, _ in entries:
                 try:
-                    health_map[url] = await store.is_healthy(ctx.app_id, url)
+                    health_map[url] = await store.is_healthy(ctx.site_id, url)
                 except Exception:  # noqa: BLE001 - 探测数据缺失时乐观放行
                     health_map[url] = True
             healthy_fn = lambda u: health_map.get(u, True)  # noqa: E731
@@ -1165,11 +1165,11 @@ class DecisionService:
                 try:
                     if entry.daily_quota is not None and entry.daily_quota > 0:
                         daily_exhausted = await quota_store.is_exhausted(
-                            ctx.app_id, url, entry.daily_quota, "daily"
+                            ctx.site_id, url, entry.daily_quota, "daily"
                         )
                     if entry.hourly_quota is not None and entry.hourly_quota > 0:
                         hourly_exhausted = await quota_store.is_exhausted(
-                            ctx.app_id, url, entry.hourly_quota, "hourly"
+                            ctx.site_id, url, entry.hourly_quota, "hourly"
                         )
                 except Exception:  # noqa: BLE001 - 配额查询失败不该让决策失败
                     _logger.warning("pool_quota_store unavailable for %s", url)
@@ -1179,7 +1179,7 @@ class DecisionService:
         return resolve_rotation_order(
             entries,
             strategy=strategy,
-            request_seed=request_id or f"{ctx.app_id}:{ctx.fingerprint}",
+            request_seed=request_id or f"{ctx.site_id}:{ctx.fingerprint}",
             visitor_seed=ctx.fingerprint or "",
             counter=counter,
             healthy=healthy_fn,
@@ -1214,9 +1214,9 @@ class DecisionService:
         # 消费各维度配额（任一超限时 consume 返回 False，但不影响本次响应）
         try:
             if entry.daily_quota is not None and entry.daily_quota > 0:
-                await quota_store.consume(ctx.app_id, selected_url, entry.daily_quota, "daily")
+                await quota_store.consume(ctx.site_id, selected_url, entry.daily_quota, "daily")
             if entry.hourly_quota is not None and entry.hourly_quota > 0:
-                await quota_store.consume(ctx.app_id, selected_url, entry.hourly_quota, "hourly")
+                await quota_store.consume(ctx.site_id, selected_url, entry.hourly_quota, "hourly")
         except Exception:  # noqa: BLE001 - 配额消费失败不该让响应失败
             _logger.warning("pool_quota_store consume failed for %s", selected_url)
 
@@ -1279,7 +1279,7 @@ class DecisionService:
         if disposition.challenge_kind is None:
             _logger.warning(
                 "challenge_without_kind",
-                app_id=ctx.app_id,
+                app_id=ctx.site_id,
                 request_id=response.request_id,
                 reason="challengeKind is None, cannot issue token",
             )
@@ -1289,25 +1289,25 @@ class DecisionService:
         if resolver is None:
             _logger.warning(
                 "challenge_token_no_resolver",
-                app_id=ctx.app_id,
+                app_id=ctx.site_id,
                 request_id=response.request_id,
             )
             return response
 
         try:
-            secret = await resolver.get_secret_by_app_id(ctx.app_id)
+            secret = await resolver.get_secret_by_app_id(ctx.site_id)
             if not secret:
                 # 站点未配置 app_secret（或凭据缓存已过期）：无法签发，只能降级。
                 # 客户端见 mechanism=challenge 但 challengeToken 为空时应按拦截处理。
                 _logger.warning(
                     "challenge_token_no_secret",
-                    app_id=ctx.app_id,
+                    app_id=ctx.site_id,
                     request_id=response.request_id,
                 )
                 return response
 
             token = issue_challenge_token(
-                app_id=ctx.app_id,
+                app_id=ctx.site_id,
                 fingerprint=ctx.fingerprint or "",
                 kind=disposition.challenge_kind.value,
                 secret=secret,
@@ -1318,7 +1318,7 @@ class DecisionService:
         except Exception as exc:
             _logger.error(
                 "challenge_token_sign_error",
-                app_id=ctx.app_id,
+                app_id=ctx.site_id,
                 request_id=response.request_id,
                 error=str(exc),
             )
@@ -1397,7 +1397,7 @@ class DecisionService:
             ua = snapshot.ua if snapshot else None
             event = DecisionEvent(
                 eventId=uuid.uuid4().hex,
-                appId=ctx.app_id,
+                appId=ctx.site_id,
                 fingerprint=ctx.fingerprint,
                 deviceId=ctx.device_id,
                 ip=str(ctx.ip),

@@ -23,9 +23,9 @@ ngx.log(ngx.ERR, "[fangyu-test] ========== defense.lua loaded ==========")
   ✓ 1. 在 nginx.conf 的 server 块中配置以下变量：
 
     set $fangyu_gateway_url  "https://defense.example.com";
-    set $fangyu_site_id      "site_xxxxxxxx";   -- 站点 ID，同时用作 X-App-Key
-    set $fangyu_app_id       "1";               -- 数值型 App ID (必需！)
-    set $fangyu_app_secret   "your_app_secret";
+    set $fangyu_site_key     "site_xxxxxxxx";   -- 站点密钥字符串，用作 X-App-Key 请求头
+    set $fangyu_site_id      "1";               -- 站点数字主键（Site.id），用于 SDK 配置的 appId 参数
+    set $fangyu_site_secret  "your_site_secret"; -- 站点签名密钥
     set $fangyu_fail_mode    "open";            -- "open" or "closed"
     set $fangyu_sdk_inject   "on";              -- "on"(默认) 或 "off"
     set $fangyu_sdk_url      "";                -- SDK URL，空=自动用 gateway_url/sdk/fangyu-sdk.min.js
@@ -111,11 +111,12 @@ local function cfg(key, default)
 end
 
 local GATEWAY_URL  = cfg("gateway_url", "")
-local SITE_ID      = cfg("site_id", "")
+local SITE_KEY     = cfg("site_key", "")
 -- 浏览器 SDK 需要数值型 appId（SdkConfig.appId 校验 `Number.isInteger && > 0`）。
--- SITE_ID 是字符串键，只能作 X-App-Key，不能充当 appId。
-local APP_ID       = tonumber(cfg("app_id", "0")) or 0
-local APP_SECRET   = cfg("app_secret", "")
+-- 注意：此处的 SITE_ID 是站点数字主键（Site.id），用于 SDK 配置的 appId 参数。
+-- SITE_KEY 是字符串键（site_xxxxxxxx），用作 X-App-Key 请求头。
+local SITE_ID      = tonumber(cfg("site_id", "0")) or 0
+local SITE_SECRET  = cfg("site_secret", "")
 local FAIL_MODE    = cfg("fail_mode", "open")
 local SDK_INJECT   = cfg("sdk_inject", "on")
 local SDK_URL      = cfg("sdk_url", "")
@@ -144,19 +145,19 @@ local function check_environment()
     ngx.log(ngx.ERR, "[fangyu] ERROR: $fangyu_gateway_url 未配置")
   end
   
-  if SITE_ID == "" then
-    table.insert(errors, "$fangyu_site_id 未配置")
-    ngx.log(ngx.ERR, "[fangyu] ERROR: $fangyu_site_id 未配置")
+  if SITE_KEY == "" then
+    table.insert(errors, "$fangyu_site_key 未配置")
+    ngx.log(ngx.ERR, "[fangyu] ERROR: $fangyu_site_key 未配置（用作 X-App-Key）")
   end
   
-  if APP_ID == 0 then
-    table.insert(errors, "$fangyu_app_id 未配置或无效（需要 > 0 的整数）")
-    ngx.log(ngx.ERR, "[fangyu] ERROR: $fangyu_app_id 未配置或无效")
+  if SITE_ID == 0 then
+    table.insert(errors, "$fangyu_site_id 未配置或无效（需要 > 0 的整数）")
+    ngx.log(ngx.ERR, "[fangyu] ERROR: $fangyu_site_id 未配置或无效（用于 SDK appId）")
   end
   
-  if APP_SECRET == "" then
-    table.insert(errors, "$fangyu_app_secret 未配置")
-    ngx.log(ngx.ERR, "[fangyu] ERROR: $fangyu_app_secret 未配置")
+  if SITE_SECRET == "" then
+    table.insert(errors, "$fangyu_site_secret 未配置")
+    ngx.log(ngx.ERR, "[fangyu] ERROR: $fangyu_site_secret 未配置")
   end
   
   if #errors > 0 then
@@ -311,7 +312,7 @@ end
 -- ── Gateway call ─────────────────────────────────────────────────────────────
 
 local function decide(context)
-  if GATEWAY_URL == "" or SITE_ID == "" or APP_SECRET == "" then
+  if GATEWAY_URL == "" or SITE_KEY == "" or SITE_SECRET == "" then
     return nil, "not_configured"
   end
 
@@ -319,7 +320,7 @@ local function decide(context)
     context        = context,
     requireDetails = false,
   }
-  sign_body(body_tbl, APP_SECRET)
+  sign_body(body_tbl, SITE_SECRET)
 
   local body_str, encode_err = cjson.encode(body_tbl)
   if not body_str then
@@ -333,7 +334,7 @@ local function decide(context)
     method  = "POST",
     headers = {
       ["Content-Type"] = "application/json; charset=utf-8",
-      ["X-App-Key"]    = SITE_ID,
+      ["X-App-Key"]    = SITE_KEY,  -- 使用站点密钥字符串
     },
     body = body_str,
     ssl_verify = false,
@@ -421,10 +422,11 @@ local function build_sdk_snippet(server_verdict, server_token)
 
   -- 键名必须与 SdkConfig 对齐：apiBase / apiKey / appId。
   -- 旧的 gatewayUrl / siteId 在 SDK 里不存在，validateConfig() 会直接抛错。
+  -- 注意：apiKey 是站点密钥字符串（SITE_KEY），appId 是站点数字主键（SITE_ID）
   local ctx_json = cjson.encode({
     apiBase       = GATEWAY_URL,
-    apiKey        = SITE_ID,
-    appId         = APP_ID,
+    apiKey        = SITE_KEY,      -- 站点密钥字符串（site_xxxxxxxx）
+    appId         = SITE_ID,        -- 站点数字主键（Site.id）
     serverVerdict = server_verdict or "unknown",
     serverToken   = server_token,
     blockedUrl    = BLOCKED_URL,
@@ -509,7 +511,7 @@ local real_ip = get_client_ip()
 local server_token = server_session_token()
 
 local context = {
-  siteId    = SITE_ID,
+  siteId    = SITE_ID,  -- 站点数字主键（Site.id），用于 Gateway 租户隔离
   ingress   = "adapter",
   ip        = real_ip,
   visitUrl  = ngx.var.scheme .. "://" .. ngx.var.host .. ngx.var.request_uri,
@@ -536,7 +538,8 @@ end
 -- DEBUG: 开始决策调用
 ngx.log(ngx.ERR, "[fangyu-debug] Starting decision call for: ", context.visitUrl)
 ngx.log(ngx.ERR, "[fangyu-debug] Gateway URL: ", GATEWAY_URL)
-ngx.log(ngx.ERR, "[fangyu-debug] Site ID: ", SITE_ID)
+ngx.log(ngx.ERR, "[fangyu-debug] Site Key: ", SITE_KEY)
+ngx.log(ngx.ERR, "[fangyu-debug] Site ID (appId): ", SITE_ID)
 
 local payload, err = decide(context)
 

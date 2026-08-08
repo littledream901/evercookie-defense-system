@@ -87,23 +87,26 @@ def _resolve_client_language(payload: DecisionRequest, request: Request) -> Deci
 
 
 def _guard_app_id(payload: DecisionRequest, resolved: ResolvedAppKey) -> DecisionRequest:
-    """比对 payload.appId 与 API Key 解析出的 app_id，冲突即拒绝。
+    """比对 payload.appId 与 API Key 解析出的 site_id，冲突即拒绝。
 
     适配器无需在 context 中填写 appId；gateway 统一以 X-App-Key 派生的
-    app_id 为准，并回填到 context 中，以便下游使用。
+    site_id 为准，并回填到 context 中，以便下游使用。
+    
+    Note:
+        context.site_id 字段实际存储站点主键（Site.id），这是
     """
-    if resolved.app_id <= 0:
+    if resolved.site_id <= 0:
         # 免鉴权模式（仅本地/debug）：payload 必须自带 appId。
-        if payload.context.app_id <= 0:
+        if payload.context.site_id <= 0:
             raise AuthenticationException("缺少 API Key")
         return payload
 
-    if payload.context.app_id > 0 and payload.context.app_id != resolved.app_id:
+    if payload.context.site_id > 0 and payload.context.site_id != resolved.site_id:
         raise AuthenticationException("API Key 与 appId 不匹配")
 
-    # 统一以 API Key 派生的 app_id 回填，适配器可省略 appId 字段。
+    # 统一以 API Key 派生的 site_id 回填，适配器可省略 appId 字段。
     return payload.model_copy(
-        update={"context": payload.context.model_copy(update={"app_id": resolved.app_id})}
+        update={"context": payload.context.model_copy(update={"site_id": resolved.site_id})}
     )
 
 

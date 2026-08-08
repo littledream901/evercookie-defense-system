@@ -71,8 +71,13 @@ async def list_rules_debug(
     resolved: ResolvedAppKey = Depends(require_app_key),
     svc=Depends(get_decision_service),
 ) -> SuccessResponse[dict]:
+    """读取指定站点的决策规则缓存。
+    
+    Note:
+        resolved.site_id 是站点主键（Site.id），
+    """
     repo: RuleRepository = svc._deps.rule_repository
-    rule_set = await repo.get_rule_set(resolved.app_id)
+    rule_set = await repo.get_rule_set(resolved.site_id)
     rules = []
     for r in rule_set.decision_rules:
         rules.append({
@@ -86,4 +91,4 @@ async def list_rules_debug(
                 "mechanism": r.effective_match_disposition.mechanism.value,
             },
         })
-    return SuccessResponse(data={"appId": resolved.app_id, "total": len(rules), "rules": rules})
+    return SuccessResponse(data={"appId": resolved.site_id, "total": len(rules), "rules": rules})

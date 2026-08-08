@@ -88,10 +88,15 @@ class RuleAdminRepository:
         status: RuleStatus | None = None,
         keyword: str | None = None,
         site_id: int | None = None,
+        app_id: int | None = None,
         offset: int = 0,
         limit: int = 50,
     ) -> tuple[list[AnyRule], int]:
-        """规则列表。site_id 不为空时只返回绑定了该站点的规则。"""
+        """规则列表。
+        
+        - site_id: 不为空时只返回绑定了该站点的规则
+        - app_id: 不为空时返回应用级规则（V3）
+        """
         base = select(RuleModel)
         if site_id is not None:
             base = base.where(
@@ -99,6 +104,8 @@ class RuleAdminRepository:
                     select(RuleSiteModel.rule_id).where(RuleSiteModel.site_id == site_id)
                 )
             )
+        if app_id is not None:
+            base = base.where(RuleModel.app_id == app_id)
         if status is not None:
             base = base.where(RuleModel.status == status.value)
         if keyword:
@@ -206,7 +213,7 @@ class RuleAdminRepository:
             counts[site_id] = int(count)
         return counts
 
-    async def create(self, rule: AnyRule) -> AnyRule:
+    async def create(self, rule: AnyRule, app_id: int | None = None) -> AnyRule:
         model = RuleModel(
             name=rule.name,
             description=rule.description or "",
@@ -221,6 +228,8 @@ class RuleAdminRepository:
             rule_group=rule.group,
             tags=list(rule.tags),
             version=rule.version,
+            app_id=app_id,
+            inherit_from_app=getattr(rule, "inherit_from_app", False),
         )
         self._session.add(model)
         await self._session.flush()

@@ -1,7 +1,7 @@
 """决策 API 限流中间件。
 
 防止 SDK 被滥刷，对 POST /v2/decide 及其子路径（含 /v2/decide/fast）限流。
-- 限流主体优先取 app_id，退化顺序见 ``_limit_subject``
+- 限流主体优先取 site_id，退化顺序见 ``_limit_subject``
 - 60 秒内最多 100 次
 - 超限返回 429 + Retry-After header
 
@@ -69,14 +69,14 @@ class DecisionRateLimitMiddleware(BaseHTTPMiddleware):
 
         优先用 AppKeyEnforcementMiddleware 写入的 ``resolved_app_key``；
         它在本中间件之前执行，所以此处一定拿得到。
-        当站点关闭强校验（app_key_required=False）时 app_id 为 0，
+        当站点关闭强校验（app_key_required=False）时 site_id 为 0，
         退化成按原始 key 限流；连 key 都没有则按客户端 IP 兜底，
         避免匿名流量完全不受约束。
         """
         resolved = getattr(request.state, "resolved_app_key", None)
         if resolved is not None:
-            if getattr(resolved, "app_id", 0):
-                return f"app:{resolved.app_id}"
+            if getattr(resolved, "site_id", 0):
+                return f"site:{resolved.site_id}"
             raw = getattr(resolved, "api_key", "") or ""
             if raw:
                 return f"key:{raw}"
