@@ -7,3 +7,17 @@ export function fetchGetIntegrationDiagnostics(siteId: number, hours = 24) {
     params: { hours }
   })
 }
+
+/** 测试站点网关连通性 */
+export function testSiteConnection(siteId: number) {
+  return request.post<{
+    ok: boolean
+    message?: string
+    error?: string
+    detail?: string
+    status_code?: number
+    response?: any
+  }>({
+    url: `/api/v2/sites/${siteId}/test-connection`
+  })
+}

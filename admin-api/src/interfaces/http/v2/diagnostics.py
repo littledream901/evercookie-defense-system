@@ -15,8 +15,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import time
 from datetime import datetime, timedelta
+from typing import Optional
 
+import httpx
 from fastapi import APIRouter, Depends, Query
 
 from fangyu_shared.clickhouse_manager import ClickHouseClient, get_clickhouse
@@ -88,9 +92,10 @@ def _analyze(
                 f"近 {hours} 小时无任何决策记录",
                 "该站点没有产生任何决策事件。可能是埋码未生效，也可能是请求在网关"
                 "鉴权阶段就被拒绝——验签失败的请求不会落库，因此这里无法区分。",
-                "依次核对：① 埋码/适配器是否已部署上线；② X-App-Key 是否为该站点的 site_id；"
-                "③ App Secret 是否与站点一致；④ 服务器时钟是否与网关相差超过 5 分钟；"
-                "⑤ 网关地址是否可达。可查看网关日志中的 request_signature_rejected 记录定位具体原因。",
+                "依次核对：① 埋码/适配器是否已部署上线；② X-App-Key 是否为该站点的 site_key"
+                "（站点密钥字符串，格式如 site_abc123xyz）；③ App Secret 是否与站点一致；"
+                "④ 服务器时钟是否与网关相差超过 5 分钟；⑤ 网关地址是否可达。"
+                "可查看网关日志中的 request_signature_rejected 记录定位具体原因。",
             )
         )
         return "no_data", findings
@@ -272,4 +277,140 @@ def _analyze_adapter(stat: IngressStatSchema, findings: list[IntegrationFindingS
                 "检查适配器取 IP 的逻辑是否正确读取 X-Forwarded-For / X-Real-IP，"
                 "并确认上游代理确实写入了这些头。",
             )
+        )
+
+
+@router.post(
+    "/{site_id}/test-connection",
+    response_model=SuccessResponse[dict],
+    dependencies=[Depends(require_permission("app.read"))],
+    summary="测试站点网关连通性",
+)
+async def test_site_connection(
+    site_id: int,
+    site_service: SiteService = Depends(get_site_service),
+) -> SuccessResponse[dict]:
+    """测试站点与网关的连通性，模拟 SDK/Adapter 决策请求。
+    
+    验证项：
+    1. 网关 URL 是否可访问
+    2. site_key 是否有效
+    3. 网关是否正常返回决策结果
+    
+    注意：此测试会产生真实的决策事件（ingress="test"），但不消耗用户 quota。
+    """
+    site = await site_service.get(site_id)
+    
+    if not site.gateway_url:
+        return SuccessResponse(
+            data={
+                "ok": False,
+                "error": "站点未配置网关地址",
+                "detail": "请在站点设置中配置 gateway_url",
+            }
+        )
+    
+    gateway_url = site.gateway_url.rstrip("/")
+    decide_url = f"{gateway_url}/v2/decide"
+    
+    # 构造测试请求
+    timestamp = int(time.time())
+    nonce = f"test_{site_id}_{timestamp}"
+    
+    payload = {
+        "context": {
+            "siteId": site.id,
+            "ingress": "test",  # 标记为测试流量
+            "fingerprint": f"test_fp_{timestamp}",
+            "userAgent": "Fangyu-ConnectionTest/1.0",
+            "visitUrl": f"https://{site.domain or 'test.example.com'}/connection-test",
+            "path": "/connection-test",
+            "method": "GET",
+            "clientLanguage": "zh-CN",
+        },
+        "timestamp": timestamp,
+        "nonce": nonce,
+    }
+    
+    # 如果有 site_secret，生成签名
+    if site.site_secret:
+        # 签名逻辑：HMAC-SHA256(site_secret, timestamp + nonce + context_json)
+        sign_data = f"{timestamp}{nonce}{str(payload['context'])}"
+        signature = hashlib.sha256(
+            f"{site.site_secret}{sign_data}".encode()
+        ).hexdigest()
+        payload["sign"] = signature
+    
+    headers = {
+        "Content-Type": "application/json",
+        "X-App-Key": site.site_key,
+        "User-Agent": "Fangyu-ConnectionTest/1.0",
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(decide_url, json=payload, headers=headers)
+            
+            if response.status_code == 200:
+                result = response.json()
+                return SuccessResponse(
+                    data={
+                        "ok": True,
+                        "message": "✅ 连通性测试通过",
+                        "detail": f"网关正常响应，判定结果: {result.get('verdict', 'unknown')}",
+                        "response": result,
+                    }
+                )
+            elif response.status_code == 401:
+                return SuccessResponse(
+                    data={
+                        "ok": False,
+                        "error": "身份验证失败",
+                        "detail": "site_key 错误或签名验证失败，请检查站点密钥配置",
+                        "status_code": 401,
+                    }
+                )
+            elif response.status_code == 400:
+                error_detail = response.json().get("detail", "未知错误")
+                return SuccessResponse(
+                    data={
+                        "ok": False,
+                        "error": "请求参数错误",
+                        "detail": error_detail,
+                        "status_code": 400,
+                    }
+                )
+            else:
+                return SuccessResponse(
+                    data={
+                        "ok": False,
+                        "error": f"网关返回异常状态码: {response.status_code}",
+                        "detail": response.text[:200],
+                        "status_code": response.status_code,
+                    }
+                )
+    
+    except httpx.ConnectError:
+        return SuccessResponse(
+            data={
+                "ok": False,
+                "error": "无法连接到网关",
+                "detail": f"网关地址 {gateway_url} 无法访问，请检查网络连接或网关是否正常运行",
+            }
+        )
+    except httpx.TimeoutException:
+        return SuccessResponse(
+            data={
+                "ok": False,
+                "error": "网关响应超时",
+                "detail": f"网关地址 {gateway_url} 响应超时（>10s），请检查网关性能",
+            }
+        )
+    except Exception as e:
+        return SuccessResponse(
+            data={
+                "ok": False,
+                "error": "测试失败",
+                "detail": f"未知错误: {str(e)}",
+            }
         )

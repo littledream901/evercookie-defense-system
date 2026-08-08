@@ -28,7 +28,28 @@
         placeholder="https://gateway.yourdomain.com"
         :class="{ 'border-warning': isGatewayMissing }"
       />
+      <ElButton 
+        type="primary" 
+        size="small" 
+        :loading="testLoading"
+        @click="handleTestConnection"
+      >
+        测试连通性
+      </ElButton>
     </div>
+
+    <!-- 测试结果提示 -->
+    <ElAlert 
+      v-if="testResult[activeTab]"
+      :type="testResult[activeTab]?.ok ? 'success' : 'error'"
+      :closable="true"
+      class="mb-4"
+      show-icon
+      @close="testResult[activeTab] = undefined"
+    >
+      <template #title>{{ testResult[activeTab]?.message }}</template>
+      <div class="text-sm">{{ testResult[activeTab]?.detail }}</div>
+    </ElAlert>
 
     <ElTabs v-model="activeTab">
 
@@ -326,46 +347,61 @@
 </template>
 
 <script setup lang="ts">
+  import { computed, ref, watch } from 'vue'
   import { ElMessage } from 'element-plus'
   import { CircleCheckFilled } from '@element-plus/icons-vue'
+  import { useClipboard } from '@vueuse/core'
+  import { testSiteConnection } from '@/api/diagnostics'
+
+  interface SiteSchema {
+    id?: number
+    name?: string
+    site_key?: string
+    gateway_url?: string | null
+    domain?: string
+    [key: string]: any
+  }
 
   interface Props {
     visible: boolean
-    /** 站点行数据；列表接口不返回 site_secret，故用 Partial 接收 */
-    app?: Partial<Api.Fangyu.Site> | null
-  }
-  interface Emits {
-    (e: 'update:visible', value: boolean): void
+    app?: SiteSchema | null
   }
 
-  const props = defineProps<Props>()
-  const emit = defineEmits<Emits>()
+  const props = withDefaults(defineProps<Props>(), { visible: false })
+  const emit = defineEmits<{ 'update:visible': [value: boolean] }>()
 
   const drawerVisible = computed({
     get: () => props.visible,
-    set: (v) => emit('update:visible', v),
+    set: (val) => emit('update:visible', val),
   })
 
   const activeTab = ref('nginx')
+  const gatewayUrl = ref('')
+  const testLoading = ref(false)
+  const testResult = ref<Record<string, { ok: boolean; message: string; detail: string } | undefined>>({})
+
+  watch(
+    () => props.app,
+    (app) => {
+      if (app?.gateway_url) {
+        gatewayUrl.value = app.gateway_url
+      }
+    },
+    { immediate: true },
+  )
   
   // 网关地址优先级：应用配置 → 构建时环境变量 → 提示用户配置
   // 只有明确的示例域名才视为占位符，避免误判用户配置的真实域名
-  const rawGatewayUrl = props.app?.gateway_url ?? import.meta.env.VITE_GATEWAY_URL
-  const isPlaceholder = !rawGatewayUrl || 
-    /^https?:\/\/(gateway|defense)\.example\.com/.test(rawGatewayUrl) ||
-    rawGatewayUrl.includes('yourdomain.com')
+  const rawGatewayUrl = computed(() => props.app?.gateway_url ?? import.meta.env.VITE_GATEWAY_URL)
   
-  const gatewayUrl = ref(
-    isPlaceholder ? '' : rawGatewayUrl,
-  )
+  const isGatewayMissing = computed(() => !gatewayUrl.value.trim())
 
-  const siteId = computed(() => props.app?.site_key ?? 'YOUR_SITE_KEY')
+  const siteKey = computed(() => props.app?.site_key ?? 'YOUR_SITE_KEY')
+  const numericSiteId = computed(() => props.app?.id ?? 0)
   // Site Secret 仅在创建/轮换时一次性返回，列表接口不含该字段，
   // 因此接入示例里始终用占位符，提示用户从创建弹窗或轮换结果中获取。
   const appSecret = computed(() => 'YOUR_SITE_SECRET')
   const gw = computed(() => gatewayUrl.value.replace(/\/$/, ''))
-  const isGatewayMissing = computed(() => !gatewayUrl.value.trim())
-  const numericAppId = computed(() => props.app?.id ?? 0)
 
   // Liquid 的双花括号会被 Vue 模板编译器当成插值解析，必须拆开拼接后再输出
   const LB = '{{'
@@ -401,8 +437,8 @@
 
   const nginxCode = computed(() => `# nginx.conf — server 块内添加：
 set $fangyu_gateway_url  "${gw.value}";
-set $fangyu_site_key     "${siteId.value}";   # 站点密钥字符串，用作 X-App-Key 请求头
-set $fangyu_site_id      "${numericAppId.value}";  # 站点数字主键（Site.id），用于 SDK 配置的 siteId 参数
+set $fangyu_site_key     "${siteKey.value}";   # 站点密钥字符串，用作 X-App-Key 请求头
+set $fangyu_site_id      "${numericSiteId.value}";  # 站点数字主键（Site.id），用于 SDK 配置的 siteId 参数
 set $fangyu_site_secret  "${appSecret.value}";  # 站点签名密钥
 set $fangyu_fail_mode    "open";             # open | closed
 set $fy_sdk_snippet      "";  # ⚠️ 关键！SDK 注入必需！
@@ -412,8 +448,8 @@ access_by_lua_file /etc/nginx/lua/fangyu/defense.lua;`)
   const cfTomlCode = computed(() => `# wrangler.toml
 [vars]
 FANGYU_GATEWAY_URL = "${gw.value}"
-FANGYU_SITE_KEY    = "${siteId.value}"
-FANGYU_SITE_ID     = "${numericAppId.value}"
+FANGYU_SITE_KEY    = "${siteKey.value}"
+FANGYU_SITE_ID     = "${numericSiteId.value}"
 FANGYU_FAIL_MODE   = "open"
 
 # 注意：FANGYU_SITE_SECRET 不在此文件设置，通过 wrangler secret 管理`)
@@ -426,8 +462,8 @@ FANGYU_FAIL_MODE   = "open"
 // wp-config.php（或插件设置页）
 // 添加在 "/* That's all, stop editing! */" 之前
 define('FANGYU_GATEWAY_URL', '${gw.value}');
-define('FANGYU_SITE_KEY',    '${siteId.value}');  // 站点密钥，用作 X-App-Key
-define('FANGYU_SITE_ID',     ${numericAppId.value});  // 站点数字主键
+define('FANGYU_SITE_KEY',    '${siteKey.value}');  // 站点密钥，用作 X-App-Key
+define('FANGYU_SITE_ID',     ${numericSiteId.value});  // 站点数字主键
 define('FANGYU_SITE_SECRET', '${appSecret.value}');`)
 
   // SDK 不读任何全局配置变量，必须显式调用 SdSdk.guard()。
@@ -449,8 +485,8 @@ define('FANGYU_SITE_SECRET', '${appSecret.value}');`)
 <script>
   SdSdk.guard({
     apiBase: '${gw.value}',
-    apiKey:  '${siteId.value}',
-    siteId:   ${numericAppId.value}
+    apiKey:  '${siteKey.value}',
+    siteId:   ${numericSiteId.value}
     // 高价值页面可加：hideUntilDecided: true —— 判定完成前隐藏内容，
     // 防止 Bot 在跳转生效前抓到正文（默认关闭，不影响正常访客渲染）
   });
@@ -482,8 +518,8 @@ define('FANGYU_SITE_SECRET', '${appSecret.value}');`)
     try{
       xhr.open("POST","${gw.value}/v2/decide",false);
       xhr.setRequestHeader("Content-Type","application/json");
-      xhr.setRequestHeader("X-App-Key","${siteId.value}");
-      xhr.send(JSON.stringify({context:{siteId:${numericAppId.value},ingress:"sdk",fingerprint:fp,userAgent:navigator.userAgent,visitUrl:location.href,path:location.pathname,method:"GET",clientLanguage:navigator.language||null,repeatKey:"_sd_0000",repeatValue:fp}}));
+      xhr.setRequestHeader("X-App-Key","${siteKey.value}");
+      xhr.send(JSON.stringify({context:{siteId:${numericSiteId.value},ingress:"sdk",fingerprint:fp,userAgent:navigator.userAgent,visitUrl:location.href,path:location.pathname,method:"GET",clientLanguage:navigator.language||null,repeatKey:"_sd_0000",repeatValue:fp}}));
 
       if(xhr.status===200){
         var data;
@@ -515,7 +551,7 @@ define('FANGYU_SITE_SECRET', '${appSecret.value}');`)
 
   const curlCode = computed(() => `curl -X POST ${gw.value}/v2/decide \\
   -H "Content-Type" application/json" \\
-  -H "X-App-Key: ${siteId.value}" \\
+  -H "X-App-Key: ${siteKey.value}" \\
   -d '{
     "context": {
       "ingress":   "adapter",
@@ -528,12 +564,52 @@ define('FANGYU_SITE_SECRET', '${appSecret.value}');`)
     "sign":      "<HMAC-SHA256>"
   }'`)
 
-  const copy = async (text: string) => {
+  // 测试连通性
+  const handleTestConnection = async () => {
+    if (!props.app?.id) {
+      ElMessage.warning('站点信息不存在')
+      return
+    }
+
+    if (!gatewayUrl.value.trim()) {
+      ElMessage.warning('请先配置网关地址')
+      return
+    }
+
+    testLoading.value = true
+    testResult.value = {}
+
     try {
-      await navigator.clipboard.writeText(text)
-      ElMessage.success('已复制')
-    } catch {
-      ElMessage.warning('请手动选中复制')
+      const res = await testSiteConnection(props.app.id)
+
+      testResult.value[activeTab.value] = {
+        ok: res.ok,
+        message: res.ok ? (res.message || '连通性测试通过') : (res.error || '测试失败'),
+        detail: res.detail || '',
+      }
+
+      if (res.ok) {
+        ElMessage.success('✅ 连通性测试通过')
+      } else {
+        ElMessage.error(`❌ ${res.error}`)
+      }
+    } catch (error: any) {
+      testResult.value[activeTab.value] = {
+        ok: false,
+        message: '测试失败',
+        detail: error.message || '未知错误',
+      }
+      ElMessage.error('测试失败，请检查网络连接')
+    } finally {
+      testLoading.value = false
+    }
+  }
+
+  const copy = (text: string) => {
+    const { copy: copyToClipboard, copied } = useClipboard({ source: text })
+    copyToClipboard()
+    if (copied) {
+      ElMessage.success('已复制到剪贴板')
     }
   }
 </script>

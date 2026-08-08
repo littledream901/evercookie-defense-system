@@ -187,7 +187,7 @@ def upgrade() -> None:
         sa.Column("rule_id", sa.BigInteger(), nullable=False),
         sa.Column("version", sa.Integer(), nullable=False),
         sa.Column("author_id", sa.BigInteger(), nullable=True),
-        sa.Column("change_summary", sa.Text(), server_default="", nullable=False),
+        sa.Column("change_summary", sa.Text(), nullable=True),
         sa.Column("snapshot", mysql.JSON(), nullable=False, comment="规则快照"),
         sa.Column("published_at", sa.DateTime(), nullable=True),
         sa.Column("created_at", sa.DateTime(), server_default=sa.text("NOW()"), nullable=False),
