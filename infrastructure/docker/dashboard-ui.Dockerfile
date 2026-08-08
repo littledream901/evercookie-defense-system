@@ -22,10 +22,12 @@ RUN if [ -f pnpm-lock.yaml ]; then \
       npm ci; \
     fi
 
-# 复制项目根目录的 .env.production（Vite 会从父目录读取）
-COPY .env.production* /
-
 COPY dashboard-ui .
+
+# 复制项目根目录的 .env.production 到构建目录
+# Vite 会从 envDir（dashboard-ui 目录）读取环境变量
+COPY .env.production* .env.production* ./
+
 RUN if [ -f pnpm-lock.yaml ]; then pnpm build; else npm run build; fi
 
 FROM nginx:${NGINX_VERSION}-alpine AS runtime
