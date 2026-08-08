@@ -311,8 +311,8 @@ function getPriorityLabel(priority: string): string {
   return map[priority] || priority
 }
 
-function getPriorityColor(priority: string): string {
-  const map: Record<string, string> = {
+function getPriorityColor(priority: string): 'primary' | 'success' | 'warning' | 'info' | 'danger' {
+  const map: Record<string, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
     critical: 'danger',
     high: 'warning',
     normal: 'info',

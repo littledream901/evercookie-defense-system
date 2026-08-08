@@ -168,8 +168,8 @@ const fieldGroups = computed(() => {
   return groups.map(g => ({
     ...g,
     fields: getFieldsByCategory(g.category)
-      .filter(key => !props.excludeFields.includes(key))
-      .map(key => ({ key, ...ALL_FIELDS[key] }))
+      .filter(item => !props.excludeFields.includes(item.key))
+      .map(item => ({ key: item.key, ...item.metadata }))
   })).filter(g => g.fields.length > 0)
 })
 
