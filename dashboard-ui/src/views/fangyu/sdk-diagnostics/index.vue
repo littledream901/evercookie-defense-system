@@ -1,38 +1,50 @@
 <!-- SDK 接入诊断：核对站点埋码是否真正生效，以及实测接入方式与配置是否一致 -->
 <template>
   <div class="art-full-height" style="overflow-y: auto; padding: 4px">
-    <div class="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-2">
-      <div>
-        <h2 class="text-lg font-medium text-g-900">SDK 接入诊断</h2>
-        <p class="mt-1 text-sm text-g-600">
-          核对站点 SDK / 适配器埋码是否真正生效，实测接入方式与站点配置是否一致
-        </p>
+    <div class="mb-3 flex shrink-0 flex-col gap-3">
+      <div class="flex items-start justify-between gap-2">
+        <div class="flex-1">
+          <h2 class="text-lg font-medium text-g-900">SDK 接入诊断</h2>
+          <p class="mt-1 text-sm text-g-600">
+            核对站点 SDK / 适配器埋码是否真正生效，实测接入方式与站点配置是否一致
+          </p>
+        </div>
+        <div class="flex flex-shrink-0 items-center gap-2">
+          <ElSelect
+            v-model="selectedAppId"
+            placeholder="全部应用"
+            clearable
+            style="width: 180px"
+            :loading="appLoading"
+            @change="onAppChange"
+          >
+            <ElOption v-for="o in appGroupOptions" :key="o.value" :label="o.label" :value="o.value" />
+          </ElSelect>
+          <ElSelect
+            v-model="siteId"
+            placeholder="选择站点"
+            style="width: 200px"
+            :loading="appLoading"
+            @change="onSiteChange"
+          >
+            <ElOption v-for="o in filteredSiteOptions" :key="o.value" :label="o.label" :value="o.value" />
+          </ElSelect>
+          <ElSelect v-model="hours" style="width: 120px" @change="load">
+            <ElOption v-for="o in HOUR_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+          </ElSelect>
+          <ElButton :loading="loading" :disabled="!siteId" @click="load">
+            <ElIcon class="mr-1"><Refresh /></ElIcon>
+            重新诊断
+          </ElButton>
+        </div>
       </div>
-      <div class="flex items-center gap-2">
-        <ElSelect
-          v-model="siteId"
-          placeholder="选择站点"
-          style="width: 180px"
-          :loading="appLoading"
-          @change="onSiteChange"
-        >
-          <ElOption v-for="o in appOptions" :key="o.value" :label="o.label" :value="o.value" />
-        </ElSelect>
-        <ElSelect v-model="hours" style="width: 120px" @change="load">
-          <ElOption v-for="o in HOUR_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
-        </ElSelect>
-        <ElButton :loading="loading" :disabled="!siteId" @click="load">
-          <ElIcon class="mr-1"><Refresh /></ElIcon>
-          重新诊断
-        </ElButton>
-      </div>
-    </div>
 
-    <ElAlert v-if="loadError" type="error" :closable="false" class="mb-3" :title="loadError">
-      <template #default>
-        <ElButton link type="primary" :loading="loading" @click="load">重新加载</ElButton>
-      </template>
-    </ElAlert>
+      <ElAlert v-if="loadError" type="error" :closable="false" :title="loadError">
+        <template #default>
+          <ElButton link type="primary" :loading="loading" @click="load">重新加载</ElButton>
+        </template>
+      </ElAlert>
+    </div>
 
     <ElEmpty
       v-if="!siteId && !appLoading"
@@ -259,12 +271,20 @@
   }
 
   const siteId = ref<number>()
+  const selectedAppId = ref<number>()
   const hours = ref(24)
-  const appOptions = ref<{ label: string; value: number }[]>([])
+  const allSites = ref<{ label: string; value: number; app_id: number; app_name: string }[]>([])
+  const appGroupOptions = ref<{ label: string; value: number }[]>([])
   const appLoading = ref(false)
   const loading = ref(false)
   const loadError = ref('')
   const data = ref<Api.Fangyu.IntegrationDiagnostics | null>(null)
+
+  // 根据应用筛选站点
+  const filteredSiteOptions = computed(() => {
+    if (!selectedAppId.value) return allSites.value
+    return allSites.value.filter((s) => s.app_id === selectedAppId.value)
+  })
 
   const fmt = (v: string | null) => {
     if (!v) return '—'
@@ -320,14 +340,46 @@
 
   const onSiteChange = () => load()
 
+  const onAppChange = () => {
+    // 切换应用时，如果当前选中的站点不属于新应用，清空站点选择
+    if (siteId.value && selectedAppId.value) {
+      const currentSite = allSites.value.find((s) => s.value === siteId.value)
+      if (currentSite && currentSite.app_id !== selectedAppId.value) {
+        siteId.value = undefined
+        data.value = null
+      }
+    }
+  }
+
   const loadApps = async () => {
     appLoading.value = true
     try {
       const res = await fetchGetSiteList({ page: 1, pageSize: 100 })
-      appOptions.value = (res.items || []).map((i) => ({ label: i.name, value: i.id }))
+      const items = res.items || []
+      
+      // 构建站点列表（包含应用信息）
+      allSites.value = items.map((i) => ({
+        label: `${i.name}${i.app_name ? ` (${i.app_name})` : ''}`,
+        value: i.id,
+        app_id: i.app_id || 0,
+        app_name: i.app_name || '未分组'
+      }))
+
+      // 构建应用分组选项（去重）
+      const appMap = new Map<number, string>()
+      items.forEach((i) => {
+        if (i.app_id && !appMap.has(i.app_id)) {
+          appMap.set(i.app_id, i.app_name || `应用 ${i.app_id}`)
+        }
+      })
+      appGroupOptions.value = Array.from(appMap.entries()).map(([id, name]) => ({
+        label: name,
+        value: id
+      }))
+
       // 默认选中第一个站点，避免页面初始为空让人以为功能没生效
-      if (!siteId.value && appOptions.value.length) {
-        siteId.value = appOptions.value[0].value
+      if (!siteId.value && allSites.value.length) {
+        siteId.value = allSites.value[0].value
         await load()
       }
     } catch (err) {
