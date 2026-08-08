@@ -28,13 +28,9 @@ class AnalyticsQueryService:
         self, site_id: int | None, start: datetime, end: datetime, filters: dict[str, str]
     ) -> tuple[str, dict[str, Any]]:
         """构建 WHERE 子句。
-        
+
         Args:
-            site_id: 站点ID，对应 ClickHouse 的 app_id 列（
-            
-        Note:
-            ClickHouse 的 app_id 列实际存储的是 site_id（
-            应用级聚合查询需要在上层实现（先查询应用下的站点列表）
+            site_id: 站点 ID，对应 ClickHouse decision_events 表的站点维度列。
         """
         clauses = [
             "occurred_at >= toDateTime({start})",
@@ -45,7 +41,7 @@ class AnalyticsQueryService:
             "end": self._format_dt(end),
         }
         if site_id is not None:
-            clauses.insert(0, "site_id = {site_id}")  # 列名保持 app_id（
+            clauses.insert(0, "site_id = {site_id}")  # 见上方 TODO：依赖 DDL 同批改名
             params["site_id"] = site_id
         if filters.get("verdict"):
             clauses.append("verdict = {verdict}")
@@ -127,7 +123,7 @@ class AnalyticsQueryService:
     async def query_top_entities(self, spec: TopEntitySpec) -> list[dict[str, Any]]:
         field = self._field_for_dimension(spec.dimension)
         where_sql, params = self._build_where(
-            spec.base.app_id,
+            spec.base.site_id,
             spec.base.start,
             spec.base.end,
             spec.base.filters,
@@ -169,35 +165,41 @@ class AnalyticsQueryService:
         走 ``/v2/rules`` 批量取——规则总数是运营配置量级（几十到几百），
         前端一次性拉全量再本地映射比后端逐条查更省。
         """
-        clauses = ["log_date >= toDate({start})", "log_date <= toDate({end})"]
+        clauses = ["m.log_date >= toDate({start})", "m.log_date <= toDate({end})"]
         params: dict[str, Any] = {
             "start": self._format_dt(spec.start),
             "end": self._format_dt(spec.end),
             "limit": spec.limit,
         }
         if spec.site_id is not None:
-            clauses.insert(0, "site_id = {site_id}")
-            params["app_id"] = spec.site_id
+            clauses.insert(0, "m.site_id = {site_id}")
+            params["site_id"] = spec.site_id
         sql = f"""
         SELECT
-            rule_id,
-            sum(hit_count)       AS hit_count,
-            sum(hostile_count)   AS hostile_count,
-            sum(challenge_count) AS challenge_count,
-            sum(pass_count)      AS pass_count,
-            if(
-                sum(hit_count) > 0,
-                round(sum(avg_score * hit_count) / sum(hit_count), 2),
-                0
+            m.rule_id,
+            sum(m.hit_count)       AS hit_count,
+            sum(m.hostile_count)   AS hostile_count,
+            sum(m.challenge_count) AS challenge_count,
+            sum(m.pass_count)      AS pass_count,
+            round(
+                if(
+                    sum(m.hit_count) > 0,
+                    sum(m.avg_score * m.hit_count) / sum(m.hit_count),
+                    0
+                ),
+                2
             ) AS avg_score,
-            if(
-                sum(hit_count) > 0,
-                round(sum(hostile_count) / sum(hit_count), 4),
-                0
+            round(
+                if(
+                    sum(m.hit_count) > 0,
+                    sum(m.hostile_count) / sum(m.hit_count),
+                    0
+                ),
+                4
             ) AS hostile_rate
-        FROM fangyu.mv_rule_hits_daily
+        FROM fangyu.mv_rule_hits_daily AS m
         WHERE {" AND ".join(clauses)}
-        GROUP BY rule_id
+        GROUP BY m.rule_id
         HAVING hit_count > 0
         ORDER BY hit_count DESC
         LIMIT {{limit}}

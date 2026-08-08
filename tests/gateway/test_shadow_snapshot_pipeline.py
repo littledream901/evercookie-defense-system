@@ -47,7 +47,7 @@ from src.infrastructure.threat_intel.reader import ThreatIntelReader, ThreatInte
 
 _IP = "203.0.113.7"
 _FP = "fp_shadow"
-_APP_ID = 1
+_SITE_ID = 1
 
 
 @pytest.fixture(autouse=True)
@@ -70,7 +70,7 @@ def _rule(
 ) -> DecisionRule:
     return DecisionRule(
         id=rid,
-        appId=_APP_ID,
+        siteId=_SITE_ID,
         name=name,
         status=status,
         kind=RuleKind.DECISION,
@@ -96,7 +96,7 @@ class _SnapshotRedis:
         self._rules["__version__"] = "1700000000000"
 
     async def hgetall(self, key: str) -> dict[str, str]:
-        if key == f"fangyu:rules:{_APP_ID}":
+        if key == f"fangyu:rules:site:{_SITE_ID}":
             return dict(self._rules)
         return {}
 
@@ -105,18 +105,18 @@ class _StubDecisionCache:
     def __init__(self) -> None:
         self.set_calls: list = []
 
-    async def get(self, app_id, fingerprint, ip):
+    async def get(self, site_id, fingerprint, ip):
         return None
 
-    async def set(self, app_id, fingerprint, ip, cached) -> None:
+    async def set(self, site_id, fingerprint, ip, cached) -> None:
         self.set_calls.append(cached)
 
 
 class _StubProfileCache:
-    async def get_device(self, app_id, fingerprint):
+    async def get_device(self, site_id, fingerprint):
         return None
 
-    async def get_ip(self, app_id, ip):
+    async def get_ip(self, site_id, ip):
         return None
 
 
@@ -165,7 +165,7 @@ def _build_service(rules: list[DecisionRule]) -> tuple[DecisionService, _StubDec
 def _request() -> DecisionRequest:
     return DecisionRequest(
         context=DecisionContext(
-            appId=_APP_ID,
+            siteId=_SITE_ID,
             fingerprint=_FP,
             ip=_IP,
             userAgent="Mozilla/5.0",
@@ -182,7 +182,7 @@ async def test_snapshot_roundtrip_preserves_shadow_status() -> None:
     repo = RuleRepository(
         _SnapshotRedis([_rule(rid=1, status=RuleStatus.SHADOW, mechanism=Mechanism.DENY)])
     )
-    rule_set = await repo.get_rule_set(_APP_ID)
+    rule_set = await repo.get_rule_set(_SITE_ID)
 
     assert len(rule_set.decision_rules) == 1
     loaded = rule_set.decision_rules[0]

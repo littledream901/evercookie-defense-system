@@ -16,7 +16,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.services.analytics_service import AnalyticsService
-from src.application.services.app_service import AppService
+from src.application.services.application_service import ApplicationService
 from src.application.services.audit_service import AuditService
 from src.application.services.auth_service import AuthService
 from src.application.services.clock_service import ClockService
@@ -24,7 +24,9 @@ from src.application.services.page_resource_service import PageResourceService
 from src.application.services.reputation_sync_service import ReputationSyncService
 from src.application.services.role_service import RoleService
 from src.application.services.rule_service import RuleService
+from src.application.services.rule_group_service import RuleGroupService
 from src.application.services.scoring_service import ScoringService
+from src.application.services.site_service import SiteService
 from src.application.services.intel_service import IntelService
 from src.application.services.threat_intel_service import ThreatIntelService
 from src.application.services.user_service import UserService
@@ -37,15 +39,18 @@ from src.infrastructure.cache.app_key_sync import AppKeyRedisSync
 from src.infrastructure.cache.page_resource_cache import PageResourceCache
 from src.infrastructure.cache.permission_cache import PermissionCache
 from src.infrastructure.cache.rule_cache import RuleCache
+from src.infrastructure.cache.rule_group_cache import RuleGroupCache
 from src.infrastructure.clickhouse.analytics_query import AnalyticsQueryService
 from src.infrastructure.clock_sync import ClockSync
 from src.infrastructure.database import Database
-from src.infrastructure.repositories.app_repository import AppRepository
+from src.infrastructure.repositories.application_repository import ApplicationRepository
 from src.infrastructure.repositories.audit_repository import AuditLogRepository
 from src.infrastructure.repositories.page_resource_repository import PageResourceRepository
 from src.infrastructure.repositories.rbac_repository import RbacRepository
 from src.infrastructure.repositories.rule_repository import RuleAdminRepository
+from src.infrastructure.repositories.rule_group_repository import RuleGroupRepository
 from src.infrastructure.repositories.scoring_repository import ScoringRepository
+from src.infrastructure.repositories.site_repository import SiteRepository
 from src.infrastructure.repositories.user_repository import UserRepository
 from src.infrastructure.reputation_intel_feedback import ReputationIntelFeedback
 from src.infrastructure.scoring_sync import ScoringSync
@@ -78,6 +83,10 @@ def get_rule_cache(redis: Redis = Depends(get_redis)) -> RuleCache:
     return RuleCache(redis)
 
 
+def get_rule_group_cache(redis: Redis = Depends(get_redis)) -> RuleGroupCache:
+    return RuleGroupCache(redis)
+
+
 def get_app_key_sync(
     redis: Redis = Depends(get_redis),
     settings: AdminSettings = Depends(get_settings_dep),
@@ -98,12 +107,22 @@ def get_rbac_repo(session: AsyncSession = Depends(get_db_session)) -> RbacReposi
     return RbacRepository(session)
 
 
-def get_app_repo(session: AsyncSession = Depends(get_db_session)) -> AppRepository:
-    return AppRepository(session)
+def get_application_repo(
+    session: AsyncSession = Depends(get_db_session),
+) -> ApplicationRepository:
+    return ApplicationRepository(session)
+
+
+def get_site_repo(session: AsyncSession = Depends(get_db_session)) -> SiteRepository:
+    return SiteRepository(session)
 
 
 def get_rule_repo(session: AsyncSession = Depends(get_db_session)) -> RuleAdminRepository:
     return RuleAdminRepository(session)
+
+
+def get_rule_group_repo(session: AsyncSession = Depends(get_db_session)) -> RuleGroupRepository:
+    return RuleGroupRepository(session)
 
 
 def get_password_service() -> PasswordService:
@@ -154,11 +173,17 @@ def get_role_service(
     return RoleService(rbac_repo=rbac_repo, permission_cache=perm_cache)
 
 
-def get_app_service(
-    app_repo: AppRepository = Depends(get_app_repo),
+def get_application_service(
+    app_repo: ApplicationRepository = Depends(get_application_repo),
+) -> ApplicationService:
+    return ApplicationService(app_repo)
+
+
+def get_site_service(
+    site_repo: SiteRepository = Depends(get_site_repo),
     app_key_sync: AppKeyRedisSync = Depends(get_app_key_sync),
-) -> AppService:
-    return AppService(app_repo, app_key_sync=app_key_sync)
+) -> SiteService:
+    return SiteService(site_repo, app_key_sync=app_key_sync)
 
 
 def get_audit_repo(session: AsyncSession = Depends(get_db_session)) -> AuditLogRepository:
@@ -176,6 +201,13 @@ def get_rule_service(
     rule_cache: RuleCache = Depends(get_rule_cache),
 ) -> RuleService:
     return RuleService(rule_repo=rule_repo, rule_cache=rule_cache)
+
+
+def get_rule_group_service(
+    repo: RuleGroupRepository = Depends(get_rule_group_repo),
+    cache: RuleGroupCache = Depends(get_rule_group_cache),
+) -> RuleGroupService:
+    return RuleGroupService(repo=repo, cache=cache)
 
 
 def get_analytics_service(

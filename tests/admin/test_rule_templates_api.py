@@ -22,7 +22,7 @@ from src.interfaces.http.v2.rule_templates import (
 def _rule(**overrides) -> DecisionRule:
     payload = {
         "id": 1,
-        "appId": 1,
+        "siteId": 1,
         "name": "cn-block",
         "description": "",
         "status": RuleStatus.DRAFT,

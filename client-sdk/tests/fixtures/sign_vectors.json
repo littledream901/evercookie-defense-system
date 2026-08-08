@@ -121,7 +121,7 @@
       "note": "真实 /v2/decide 顶层签名参数形状",
       "params": {
         "context": {
-          "appId": 1,
+          "siteId": 1,
           "ingress": "sdk",
           "fingerprint": "abc123",
           "userAgent": "Mozilla/5.0",
@@ -143,8 +143,8 @@
         "timestamp": 1700000000,
         "nonce": "0123456789abcdef0123456789abcdef"
       },
-      "payload": "context=%7B%22appId%22%3A1%2C%22behaviorEvents%22%3A%5B%7B%22clientTsMs%22%3A1700000000000%2C%22data%22%3A%7B%22x%22%3A10%2C%22y%22%3A20%7D%2C%22kind%22%3A%22click%22%7D%5D%2C%22evercookieRestored%22%3Atrue%2C%22fingerprint%22%3A%22abc123%22%2C%22ingress%22%3A%22sdk%22%2C%22repeatKey%22%3A%22_sd_0000%22%2C%22userAgent%22%3A%22Mozilla%2F5.0%22%2C%22visitUrl%22%3A%22https%3A%2F%2Fshop.example.com%2Fcheckout%22%7D&nonce=0123456789abcdef0123456789abcdef&requireDetails=false&timestamp=1700000000",
-      "sign": "430bd6b5a0571e8b8d58cdef4b823a2b3bdcbc3c3697ebbee3308f53dbf2dce1"
+      "payload": "context=%7B%22behaviorEvents%22%3A%5B%7B%22clientTsMs%22%3A1700000000000%2C%22data%22%3A%7B%22x%22%3A10%2C%22y%22%3A20%7D%2C%22kind%22%3A%22click%22%7D%5D%2C%22evercookieRestored%22%3Atrue%2C%22fingerprint%22%3A%22abc123%22%2C%22ingress%22%3A%22sdk%22%2C%22repeatKey%22%3A%22_sd_0000%22%2C%22siteId%22%3A1%2C%22userAgent%22%3A%22Mozilla%2F5.0%22%2C%22visitUrl%22%3A%22https%3A%2F%2Fshop.example.com%2Fcheckout%22%7D&nonce=0123456789abcdef0123456789abcdef&requireDetails=false&timestamp=1700000000",
+      "sign": "847ee21a95dc7f97dc8fc3dc3f20f05fdb71f4c99fc335cda39713d32e6683a2"
     }
   ]
 }

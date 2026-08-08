@@ -5,8 +5,7 @@
 而且日志里看不出是 admin 写错了格式。所以这里一律复用
 :mod:`fangyu_shared.clock.windows` 的键构造函数，不手写字符串拼接。
 
-V1 的教训：admin 侧写 ``clock:ban:{ip}``，gateway 侧读
-``fangyu:clock:ban:{app_id}:{dim}:{value}``——前缀不同且缺 app_id 维度，
+V1 的教训：admin 侧写的键前缀不同且缺 site_id 维度，
 封禁写了但网关永远读不到。
 """
 
@@ -47,15 +46,15 @@ class ClockSync:
         放宽——这与 threat_intel 的 24h TTL 策略不同，那边有定时全量重建兜底。
         """
         payload = orjson.dumps(limits.model_dump(by_alias=True))
-        await self._redis.set(limits_key(limits.app_id), payload)
+        await self._redis.set(limits_key(limits.site_id), payload)
 
-    async def delete_limits(self, app_id: int) -> None:
+    async def delete_limits(self, site_id: int) -> None:
         """删除站点阈值，gateway 随即回退到默认值。"""
-        await self._redis.delete(limits_key(app_id))
+        await self._redis.delete(limits_key(site_id))
 
     async def ban(
         self,
-        app_id: int,
+        site_id: int,
         dimension: ClockDimension,
         value: str,
         *,
@@ -67,19 +66,19 @@ class ClockSync:
             return
         payload = orjson.dumps({"reason": reason, "dimension": dimension.value})
         await self._redis.set(
-            ban_key(app_id, dimension, value), payload, ex=seconds
+            ban_key(site_id, dimension, value), payload, ex=seconds
         )
 
-    async def unban(self, app_id: int, dimension: ClockDimension, value: str) -> bool:
+    async def unban(self, site_id: int, dimension: ClockDimension, value: str) -> bool:
         """解封。返回是否确实删掉了一条（用于区分 404）。"""
-        removed = await self._redis.delete(ban_key(app_id, dimension, value))
+        removed = await self._redis.delete(ban_key(site_id, dimension, value))
         return bool(removed)
 
     async def get_ban(
-        self, app_id: int, dimension: ClockDimension, value: str
+        self, site_id: int, dimension: ClockDimension, value: str
     ) -> dict | None:
         """查询封禁状态与剩余时长。"""
-        key = ban_key(app_id, dimension, value)
+        key = ban_key(site_id, dimension, value)
         async with self._redis.pipeline(transaction=False) as pipe:
             pipe.get(key)
             pipe.ttl(key)
@@ -99,13 +98,13 @@ class ClockSync:
 
     async def scan_bans(
         self,
-        app_id: int,
+        site_id: int,
         *,
         dimension: ClockDimension | None = None,
         cursor: int = 0,
         count: int = 200,
     ) -> tuple[int, list[dict[str, Any]]]:
-        """游标扫描某 app 的封禁键，返回 ``(下一游标, 条目)``。
+        """游标扫描某站点的封禁键，返回 ``(下一游标, 条目)``。
 
         用 ``SCAN`` 而不是 ``KEYS``：封禁键数量随攻击流量增长，可能到十万级，
         ``KEYS`` 会阻塞整个 Redis——网关的频控读写全都排在后面，等于把一次
@@ -117,7 +116,7 @@ class ClockSync:
 
         逐条 ``TTL`` 会带来 N 次往返，因此对本批键用 pipeline 一次取回。
         """
-        pattern = ban_scan_pattern(app_id, dimension)
+        pattern = ban_scan_pattern(site_id, dimension)
         next_cursor, keys = await self._redis.scan(
             cursor=cursor, match=pattern, count=count
         )
@@ -161,7 +160,7 @@ class ClockSync:
         return int(next_cursor), entries
 
     async def unban_many(
-        self, app_id: int, items: list[tuple[ClockDimension, str]]
+        self, site_id: int, items: list[tuple[ClockDimension, str]]
     ) -> int:
         """批量解封，返回实际删除条数。
 
@@ -170,7 +169,7 @@ class ClockSync:
         """
         if not items:
             return 0
-        keys = [ban_key(app_id, dim, value) for dim, value in items]
+        keys = [ban_key(site_id, dim, value) for dim, value in items]
         removed = await self._redis.delete(*keys)
         return int(removed or 0)
 

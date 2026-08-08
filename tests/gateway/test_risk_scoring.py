@@ -567,7 +567,7 @@ def test_behavior_events_reach_snapshot_from_context():
     from src.domain.profile.builder import ProfileBuilder
 
     ctx = DecisionContext(
-        appId=1,
+        siteId=1,
         fingerprint="fp-behavior",
         ip="203.0.113.30",
         userAgent="Mozilla/5.0",
@@ -593,7 +593,7 @@ def test_client_cannot_forge_behavior_events_via_extra():
     from src.domain.profile.builder import ProfileBuilder
 
     ctx = DecisionContext(
-        appId=1,
+        siteId=1,
         fingerprint="fp-forge",
         ip="203.0.113.31",
         userAgent="Mozilla/5.0",

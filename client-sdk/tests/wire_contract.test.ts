@@ -23,7 +23,7 @@ import type {
 
 /** Python 侧 DecisionContext 的 camelCase alias 全集。 */
 const CONTEXT_ALIASES = new Set([
-  'appId',
+  'siteId',
   'ingress',
   'fingerprint',
   'fingerprintIsDerived',
@@ -45,7 +45,7 @@ const CONTEXT_ALIASES = new Set([
 
 function sampleContext(): DecisionContext {
   return {
-    appId: 1,
+    siteId: 1,
     ingress: 'sdk',
     fingerprint: 'fp_abc',
     userAgent: 'Mozilla/5.0',
@@ -173,6 +173,7 @@ describe('DecisionResponse 字段名', () => {
       details: [],
       shadow: [],
       pageContent: '<html></html>',
+      powDifficulty: 4,
     };
     for (const key of Object.keys(response)) {
       expect(key, `${key} 含下划线`).not.toMatch(/_/);

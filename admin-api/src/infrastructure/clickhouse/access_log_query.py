@@ -54,7 +54,7 @@ class AccessLogQueryService:
     async def list_paged(
         self,
         *,
-        app_id: int | None,
+        site_id: int | None,
         start: datetime,
         end: datetime,
         filters: dict[str, str] | None = None,
@@ -64,7 +64,7 @@ class AccessLogQueryService:
         page_size: int = 50,
     ) -> tuple[list[dict[str, Any]], int]:
         where_sql, params = self._where(
-            app_id=app_id, start=start, end=end, filters=filters, is_bot=is_bot, is_crawler=is_crawler
+            site_id=site_id, start=start, end=end, filters=filters, is_bot=is_bot, is_crawler=is_crawler
         )
         params["limit"] = page_size
         params["offset"] = max(0, (page - 1) * page_size)
@@ -85,9 +85,9 @@ class AccessLogQueryService:
         return rows, int((total_row or {}).get("total", 0))
 
     async def get_by_request_id(self, *, site_id: int | None, request_id: str) -> dict[str, Any] | None:
-        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
+        site_clause = "site_id = {site_id} AND " if site_id is not None else ""
         params: dict[str, Any] = {"request_id": request_id}
-        if app_id is not None:
+        if site_id is not None:
             params["site_id"] = site_id
         rows = await self._client.fetch(
             f"""
@@ -103,9 +103,9 @@ class AccessLogQueryService:
 
     async def get_traces(self, *, site_id: int | None, request_id: str) -> list[dict[str, Any]]:
         """取某次请求的规则条件命中明细（冷表，TTL 7 天，可能已过期）。"""
-        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
+        site_clause = "site_id = {site_id} AND " if site_id is not None else ""
         params: dict[str, Any] = {"request_id": request_id}
-        if app_id is not None:
+        if site_id is not None:
             params["site_id"] = site_id
         return await self._client.fetch(
             f"""
@@ -118,9 +118,9 @@ class AccessLogQueryService:
         )
 
     async def stats(self, *, site_id: int | None, start: datetime, end: datetime) -> list[dict[str, Any]]:
-        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
+        site_clause = "site_id = {site_id} AND " if site_id is not None else ""
         params: dict[str, Any] = {"start": self._format_dt(start), "end": self._format_dt(end)}
-        if app_id is not None:
+        if site_id is not None:
             params["site_id"] = site_id
         return await self._client.fetch(
             f"""
@@ -146,14 +146,14 @@ class AccessLogQueryService:
                    count(*) AS count,
                    countIf(verdict = 'hostile') AS hostile_count
             FROM {self._db}.decision_events
-            WHERE site_id = {{app_id}}
+            WHERE site_id = {{site_id}}
               AND occurred_at >= {{start}}
               AND occurred_at < {{end}}
             GROUP BY device_type, os_name, browser_name, is_bot
             ORDER BY count DESC
             LIMIT 100
             """,
-            {"app_id": app_id, "start": self._format_dt(start), "end": self._format_dt(end)},
+            {"site_id": site_id, "start": self._format_dt(start), "end": self._format_dt(end)},
         )
 
     async def pool_distribution(
@@ -164,7 +164,7 @@ class AccessLogQueryService:
         只统计 target_kind='url_pool' 的记录——单地址跳转（kind='url'）混进来
         会让分布图出现一个占绝对多数的「地址」，把真正的池内比例压成噪音。
 
-        rule_id 可选：不传时按 app 汇总。多条规则各有地址池时汇总没有意义，
+        rule_id 可选：不传时按站点汇总。多条规则各有地址池时汇总没有意义，
         前端应当带上 rule_id。
         """
         clauses = [
@@ -175,7 +175,7 @@ class AccessLogQueryService:
             "notEmpty(target_url)",
         ]
         params: dict[str, Any] = {
-            "app_id": app_id,
+            "site_id": site_id,
             "start": self._format_dt(start),
             "end": self._format_dt(end),
         }
@@ -233,22 +233,22 @@ class AccessLogQueryService:
                    min(occurred_at)                            AS first_seen_at,
                    max(occurred_at)                            AS last_seen_at
             FROM {self._db}.decision_events
-            WHERE site_id = {{app_id}}
+            WHERE site_id = {{site_id}}
               AND occurred_at >= {{start}}
               AND occurred_at < {{end}}
             GROUP BY ingress
             ORDER BY total DESC
             """,
-            {"app_id": app_id, "start": self._format_dt(start), "end": self._format_dt(end)},
+            {"site_id": site_id, "start": self._format_dt(start), "end": self._format_dt(end)},
         )
 
     async def shadow_impact(
         self, *, site_id: int | None, start: datetime, end: datetime
     ) -> list[dict[str, Any]]:
         """影子规则影响面：发布前测算「这条草稿规则会多拦多少流量」。"""
-        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
+        site_clause = "site_id = {site_id} AND " if site_id is not None else ""
         params: dict[str, Any] = {"start": self._format_dt(start), "end": self._format_dt(end)}
-        if app_id is not None:
+        if site_id is not None:
             params["site_id"] = site_id
         return await self._client.fetch(
             f"""
@@ -269,9 +269,9 @@ class AccessLogQueryService:
         self, *, site_id: int | None, start: datetime, end: datetime
     ) -> dict[str, Any]:
         """爬虫流量概览统计。"""
-        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
+        site_clause = "site_id = {site_id} AND " if site_id is not None else ""
         params: dict[str, Any] = {"start": self._format_dt(start), "end": self._format_dt(end)}
-        if app_id is not None:
+        if site_id is not None:
             params["site_id"] = site_id
         
         # 总体统计
@@ -294,9 +294,9 @@ class AccessLogQueryService:
         self, *, site_id: int | None, start: datetime, end: datetime
     ) -> list[dict[str, Any]]:
         """按爬虫厂商统计分布。"""
-        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
+        site_clause = "site_id = {site_id} AND " if site_id is not None else ""
         params: dict[str, Any] = {"start": self._format_dt(start), "end": self._format_dt(end)}
-        if app_id is not None:
+        if site_id is not None:
             params["site_id"] = site_id
         
         return await self._client.fetch(
@@ -322,9 +322,9 @@ class AccessLogQueryService:
         self, *, site_id: int | None, start: datetime, end: datetime
     ) -> list[dict[str, Any]]:
         """按爬虫分类统计分布。"""
-        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
+        site_clause = "site_id = {site_id} AND " if site_id is not None else ""
         params: dict[str, Any] = {"start": self._format_dt(start), "end": self._format_dt(end)}
-        if app_id is not None:
+        if site_id is not None:
             params["site_id"] = site_id
         
         return await self._client.fetch(
@@ -348,13 +348,13 @@ class AccessLogQueryService:
         self, *, site_id: int | None, start: datetime, end: datetime, limit: int = 20
     ) -> list[dict[str, Any]]:
         """爬虫访问频率 Top 排行。"""
-        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
+        site_clause = "site_id = {site_id} AND " if site_id is not None else ""
         params: dict[str, Any] = {
             "start": self._format_dt(start),
             "end": self._format_dt(end),
             "limit": limit
         }
-        if app_id is not None:
+        if site_id is not None:
             params["site_id"] = site_id
         
         return await self._client.fetch(
@@ -382,9 +382,9 @@ class AccessLogQueryService:
         self, *, site_id: int | None, start: datetime, end: datetime, granularity: str = "hour"
     ) -> list[dict[str, Any]]:
         """爬虫流量时间趋势（分爬虫/非爬虫）。"""
-        app_clause = "site_id = {site_id} AND " if app_id is not None else ""
+        site_clause = "site_id = {site_id} AND " if site_id is not None else ""
         params: dict[str, Any] = {"start": self._format_dt(start), "end": self._format_dt(end)}
-        if app_id is not None:
+        if site_id is not None:
             params["site_id"] = site_id
         
         # 时间粒度映射
@@ -413,7 +413,7 @@ class AccessLogQueryService:
     @staticmethod
     def _where(
         *,
-        app_id: int | None,
+        site_id: int | None,
         start: datetime,
         end: datetime,
         filters: dict[str, str] | None,
@@ -428,8 +428,8 @@ class AccessLogQueryService:
             "start": AccessLogQueryService._format_dt(start),
             "end": AccessLogQueryService._format_dt(end),
         }
-        # app_id=None 时查全部站点，不加过滤
-        if app_id is not None:
+        # site_id=None 时查全部站点，不加过滤
+        if site_id is not None:
             clauses.insert(0, "site_id = {site_id}")
             params["site_id"] = site_id
         for name, value in (filters or {}).items():

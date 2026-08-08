@@ -1,7 +1,7 @@
 """挑战通行凭据存储。
 
 客户端完成 challenge（captcha / js_challenge）后，gateway 签发通行凭据并写入此存储：
-    key = fy:challenge_pass:{app_id}:{fingerprint}
+    key = fy:challenge_pass:{site_id}:{fingerprint}
     value = "trusted"
     TTL = challenge token 的剩余有效期（通常 5 分钟）
 
@@ -10,7 +10,7 @@
 
 与 DecisionCache 的区别：
 - DecisionCache 键位包含 path / visit_url，是**请求级**缓存
-- ChallengePassStore 只绑定 app_id + fingerprint，是**访客级**缓存
+- ChallengePassStore 只绑定 site_id + fingerprint，是**访客级**缓存
 - 挑战通行是跨路径生效的，不能按请求维度缓存
 
 Fail-open 策略：
@@ -36,10 +36,10 @@ class ChallengePassStore:
         self._redis = redis
 
     @staticmethod
-    def make_key(app_id: int, fingerprint: str) -> str:
-        return f"{_KEY_PREFIX}:{app_id}:{fingerprint}"
+    def make_key(site_id: int, fingerprint: str) -> str:
+        return f"{_KEY_PREFIX}:{site_id}:{fingerprint}"
 
-    async def check(self, app_id: int, fingerprint: str) -> bool:
+    async def check(self, site_id: int, fingerprint: str) -> bool:
         """检查访客是否持有通行凭据。
 
         Returns:
@@ -48,23 +48,23 @@ class ChallengePassStore:
         if not fingerprint:
             return False
         try:
-            val = await self._redis.get(self.make_key(app_id, fingerprint))
+            val = await self._redis.get(self.make_key(site_id, fingerprint))
             return val == b"trusted"
         except RedisError as exc:
             _logger.warning(
                 "challenge_pass_check_error",
-                app_id=app_id,
+                site_id=site_id,
                 fingerprint=fingerprint[:8],
                 error=str(exc),
             )
             # Fail-open：缓存故障时视为未通行，交由后续流水线
             return False
 
-    async def grant(self, app_id: int, fingerprint: str, ttl: int) -> None:
+    async def grant(self, site_id: int, fingerprint: str, ttl: int) -> None:
         """签发通行凭据。
 
         Args:
-            app_id: 应用 ID
+            site_id: 站点 ID
             fingerprint: 访客指纹
             ttl: 有效期（秒），通常取 challenge token 的剩余有效期
         """
@@ -72,25 +72,25 @@ class ChallengePassStore:
             return
         try:
             await self._redis.set(
-                self.make_key(app_id, fingerprint),
+                self.make_key(site_id, fingerprint),
                 b"trusted",
                 ex=ttl,
             )
         except RedisError as exc:
             _logger.error(
                 "challenge_pass_grant_error",
-                app_id=app_id,
+                site_id=site_id,
                 fingerprint=fingerprint[:8],
                 ttl=ttl,
                 error=str(exc),
             )
             # 静默失败：签发失败不应阻断挑战校验响应
 
-    async def revoke(self, app_id: int, fingerprint: str) -> None:
+    async def revoke(self, site_id: int, fingerprint: str) -> None:
         """撤销通行凭据（供管理接口使用）。"""
         if not fingerprint:
             return
         try:
-            await self._redis.delete(self.make_key(app_id, fingerprint))
+            await self._redis.delete(self.make_key(site_id, fingerprint))
         except RedisError:
             pass

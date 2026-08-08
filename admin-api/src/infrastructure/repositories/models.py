@@ -97,24 +97,41 @@ class RolePermissionModel(Base, TimestampMixin):
 
 
 class ApplicationModel(Base, TimestampMixin):
+    """应用表（业务分组）- V3 两层架构。"""
     __tablename__ = "biz_application"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    site_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
-    """站点唯一标识，格式 site_<hex8>，同时作为 X-App-Key（API Key）。"""
+    app_key: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    """应用唯一标识，格式 app_<hex8>。"""
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str] = mapped_column(String(512), default="", nullable=False)
+    owner_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    app_secret: Mapped[str] = mapped_column(String(128), nullable=False)
+    """应用级密钥，HMAC 验签用。"""
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class SiteModel(Base, TimestampMixin):
+    """站点表（具体站点）- V3 两层架构。"""
+    __tablename__ = "biz_site"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    site_key: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    """站点唯一标识，格式 site_<hex8>。"""
+    app_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("biz_application.id", ondelete="CASCADE"), nullable=False)
+    """所属应用。"""
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     domain: Mapped[str] = mapped_column(String(512), nullable=False)
     """主域名，创建后不可修改，用作站点业务标识。"""
     alt_domains: Mapped[list[str]] = mapped_column(MySQLJSON, default=list, nullable=False)
     access_mode: Mapped[str] = mapped_column(String(16), default="adapter", nullable=False)
-    """接入模式：cloud（云端转发）/ sdk（SDK接入）。"""
-    app_secret: Mapped[str] = mapped_column(String(128), default="", nullable=False)
-    """HMAC 验签密钥，仅创建/轮换时返回一次。"""
+    """接入模式：adapter / sdk。"""
+    site_secret: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    """站点级密钥。"""
     sdk_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
     gateway_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    """站点专属网关地址；留空则用部署级默认网关（前端从环境变量读取）。"""
+    """站点专属网关地址；留空则用部署级默认网关。"""
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    owner_user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("sys_user.id"), nullable=True)
     clock_stats_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     log_retention_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -138,7 +155,7 @@ class RuleSiteModel(Base):
         BigInteger, ForeignKey("biz_rule.id", ondelete="CASCADE"), nullable=False
     )
     site_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("biz_application.id", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("biz_site.id", ondelete="CASCADE"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
@@ -178,7 +195,7 @@ class RuleGroupModel(Base, TimestampMixin):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    site_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("biz_application.id"), nullable=False)
+    site_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("biz_site.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     mode: Mapped[str] = mapped_column(String(16), default="blocklist", nullable=False)
     priority: Mapped[str] = mapped_column(String(16), default="normal", nullable=False)
@@ -399,8 +416,8 @@ class PageResourceModel(Base, TimestampMixin):
 
     __tablename__ = "biz_page_resource"
     __table_args__ = (
-        UniqueConstraint("site_id", "resource_name", name="uk_page_resource_site_name"),
-        Index("ix_page_resource_app_enabled", "app_id", "enabled"),
+        UniqueConstraint("site_id", "name", name="uk_page_resource_site_name"),
+        Index("ix_page_resource_site_enabled", "site_id", "enabled"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -426,11 +443,11 @@ class ScoringConfigModel(Base, TimestampMixin):
 
     __tablename__ = "biz_scoring_config"
     __table_args__ = (
-        UniqueConstraint("app_id", name="uk_scoring_config_app"),
+        UniqueConstraint("site_id", name="uk_scoring_config_app"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    app_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    site_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     """站点 ID；``0`` 为全局配置哨兵值，故不设外键。"""
     name: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

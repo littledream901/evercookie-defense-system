@@ -135,7 +135,7 @@ async def _sync_rule_cache() -> None:
         cache = RuleCache(redis)
         async with Database.session() as session:
             repo = RuleAdminRepository(session)
-            site_ids = await repo.list_app_ids_with_published_rules()
+            site_ids = await repo.list_site_ids_with_published_rules()
         for site_id in site_ids:
             async with Database.session() as session:
                 repo = RuleAdminRepository(session)

@@ -205,7 +205,7 @@
 
 <script setup lang="ts">
   import { QuestionFilled, Refresh } from '@element-plus/icons-vue'
-  import { fetchGetAppList } from '@/api/apps'
+  import { fetchGetSiteList } from '@/api/apps'
   import { fetchGetIntegrationDiagnostics } from '@/api/diagnostics'
 
   defineOptions({ name: 'FangyuSdkDiagnostics' })
@@ -323,7 +323,7 @@
   const loadApps = async () => {
     appLoading.value = true
     try {
-      const res = await fetchGetAppList({ page: 1, pageSize: 100 })
+      const res = await fetchGetSiteList({ page: 1, pageSize: 100 })
       appOptions.value = (res.items || []).map((i) => ({ label: i.name, value: i.id }))
       // 默认选中第一个站点，避免页面初始为空让人以为功能没生效
       if (!siteId.value && appOptions.value.length) {

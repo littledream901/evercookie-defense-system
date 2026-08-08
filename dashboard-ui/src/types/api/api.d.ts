@@ -306,27 +306,32 @@ declare namespace Api {
       remark: string | null
       created_at: string
       updated_at: string
-      /** 绑定的规则列表（列表接口附带，可选） */
+      /** 绑定的规则数量 */
+      rule_count?: number
+      /** 绑定的规则列表（列表接口附带） */
       rules?: RuleBrief[]
     }
 
-    /** 站点详情响应（创建/轮换时包含密钥） */
+    /** 站点详情响应（创建/轮换时包含密钥明文，仅此一次可见） */
     interface SiteDetail extends Site {
-      /** 站点级密钥（仅创建/轮换时返回，可选） */
       site_secret?: string
     }
 
-    /** @deprecated V2 兼容：旧的 site_id 字段，新代码使用 site_key */
-    interface SiteLegacy extends Site {
-      site_id: string
-      /** HMAC 验签密钥，明文回显，可随时查看 */
-      app_secret: string
-      status: string
-      owner_user_id: number | null
+    /** 轮换站点密钥响应 */
+    interface SiteSecretRotateResult {
+      site_id: number
+      site_key: string
+      site_secret: string
+      message: string
     }
 
-    /** 创建 / 轮换站点响应（结构与 Site 一致，app_secret 已在 Site 中） */
-    interface SiteCreateResponse extends Site {}
+    /** 轮换应用密钥响应 */
+    interface AppSecretRotateResult {
+      app_id: number
+      app_key: string
+      app_secret: string
+      message: string
+    }
 
     /** 批量操作结果；逐条执行，失败项不影响其他项 */
     interface SiteBatchResult {
@@ -376,24 +381,6 @@ declare namespace Api {
       log_retention_days?: number
       remark?: string | null
     }
-
-    /** @deprecated 旧版 App 类型，待迁移完成后移除 */
-    interface App extends Site {
-      api_key: string
-      description: string | null
-      domains: string[]
-    }
-
-    /** @deprecated 旧版 AppPayload */
-    interface AppPayload {
-      name?: string
-      description?: string | null
-      domains?: string[]
-      status?: string
-    }
-
-    /** 站点列表查询参数（旧版别名） */
-    interface AppListParams extends SiteListParams {}
 
     /** 平台用户 */
     interface User {
@@ -797,7 +784,9 @@ declare namespace Api {
     /** 页面资源（serve_alt 机制的内容来源） */
     interface PageResource {
       id: number
-      appId: number
+      siteId: number
+      /** @deprecated 使用 siteId 替代。注意：此字段实际存储的是站点ID，不是应用ID */
+      appId?: number
       name: string
       kind: PageResourceKind
       content: string

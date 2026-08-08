@@ -16,7 +16,7 @@ def _msg(payload: dict, mid: str = "1-0") -> StreamMessage:
 def _base_payload(**overrides):
     payload = {
         "eventId": "evt-1",
-        "appId": 42,
+        "siteId": 42,
         "fingerprint": "fp-abc",
         "ip": "1.2.3.4",
         "action": "allow",
@@ -36,7 +36,7 @@ def test_transform_produces_versioned_row():
     assert len(result.rows) == 1
     row = result.rows[0]
     assert row["event_id"] == "evt-1"
-    assert row["app_id"] == 42
+    assert row["site_id"] == 42
     assert row["schema_version"] == DECISION_EVENT_SCHEMA_VERSION
     # 未显式给 event_version 时用 occurred_at 毫秒填充，必须为正整数
     assert isinstance(row["event_version"], int)
@@ -60,11 +60,11 @@ def test_transform_drops_message_without_event_id():
     assert "missing event_id" in reason
 
 
-def test_transform_drops_message_with_invalid_app_id():
+def test_transform_drops_message_with_invalid_site_id():
     transformer = EventTransformer()
-    result = transformer.transform([_msg(_base_payload(appId=0))])
+    result = transformer.transform([_msg(_base_payload(siteId=0))])
     assert result.rows == []
-    assert result.invalid and "invalid app_id" in result.invalid[0][2]
+    assert result.invalid and "invalid site_id" in result.invalid[0][2]
 
 
 def test_transform_falls_back_to_now_when_no_timestamp():
@@ -82,7 +82,7 @@ def test_transform_handles_snake_case_aliases():
     transformer = EventTransformer()
     payload = {
         "event_id": "evt-snake",
-        "app_id": 7,
+        "site_id": 7,
         "fingerprint": "fp",
         "ip": "10.0.0.1",
         "user_agent": "UA/1.0",
@@ -105,7 +105,7 @@ def test_transform_handles_snake_case_aliases():
 def test_transform_partial_batch_reports_invalid_per_message():
     transformer = EventTransformer()
     ok = _msg(_base_payload(), mid="1-0")
-    bad = _msg({"eventId": "", "appId": 42}, mid="1-1")
+    bad = _msg({"eventId": "", "siteId": 42}, mid="1-1")
     result = transformer.transform([ok, bad])
     assert len(result.rows) == 1
     assert result.row_message_ids == ["1-0"]

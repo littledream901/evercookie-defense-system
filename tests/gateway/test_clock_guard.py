@@ -48,7 +48,7 @@ def _reading(
 
 
 def _limits(**kwargs: int) -> ClockLimits:
-    return ClockLimits(appId=1, windows=dict(kwargs) or {"burst": 10})
+    return ClockLimits(siteId=1, windows=dict(kwargs) or {"burst": 10})
 
 
 # ---------- 窗口语义 ----------
@@ -131,7 +131,7 @@ def test_fingerprint_dimension_also_enforced() -> None:
 
 
 def test_disabled_limits_skip_all_checks() -> None:
-    limits = ClockLimits(appId=1, enabled=False, windows={"burst": 1})
+    limits = ClockLimits(siteId=1, enabled=False, windows={"burst": 1})
     verdict = ClockGuard().evaluate(
         _reading(ip=_counts(ClockDimension.IP, burst=9999)), limits
     )
@@ -166,17 +166,17 @@ def test_ip_ban_reported_before_fingerprint_ban() -> None:
 def test_unknown_window_name_rejected() -> None:
     """阈值键必须是已声明的窗口名，防止配错了却静默不生效。"""
     with pytest.raises(ValueError, match="未知的频控窗口"):
-        ClockLimits(appId=1, windows={"minute": 100})
+        ClockLimits(siteId=1, windows={"minute": 100})
 
 
 def test_negative_limit_rejected() -> None:
     with pytest.raises(ValueError, match="频控阈值不能为负"):
-        ClockLimits(appId=1, windows={"burst": -1})
+        ClockLimits(siteId=1, windows={"burst": -1})
 
 
 def test_missing_window_falls_back_to_default() -> None:
     from fangyu_shared.clock import DEFAULT_LIMITS
 
-    limits = ClockLimits(appId=1, windows={"burst": 5})
+    limits = ClockLimits(siteId=1, windows={"burst": 5})
     assert limits.limit_for(WINDOW_BURST) == 5
     assert limits.limit_for(WINDOW_SHORT) == DEFAULT_LIMITS["short"]

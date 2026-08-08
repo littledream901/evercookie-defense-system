@@ -41,58 +41,67 @@ DEFAULT_TTL = 300
 class ChallengeTokenPayload:
     """挑战凭据载荷。"""
 
-    app_id: int
+    site_id: int
     fingerprint: str
     kind: ChallengeKind
     exp: int  # Unix timestamp (秒)
     nonce: str
+    difficulty: int = 4
+    """js_challenge 的 PoW 难度（哈希前导零位数）。客户端必须据此计算，服务端用此值验证。"""
 
     def to_dict(self) -> dict:
         return {
-            "appId": self.app_id,
+            "siteId": self.site_id,
             "fingerprint": self.fingerprint,
             "kind": self.kind,
             "exp": self.exp,
             "nonce": self.nonce,
+            "difficulty": self.difficulty,
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> ChallengeTokenPayload:
+        # 兼容改名前签发的在途 token（TTL 5 分钟，滚动发布期间会同时存在两种键名）
+        raw_site_id = d["siteId"] if "siteId" in d else d["appId"]
         return cls(
-            app_id=int(d["appId"]),
+            site_id=int(raw_site_id),
             fingerprint=str(d["fingerprint"]),
             kind=str(d["kind"]),  # type: ignore
             exp=int(d["exp"]),
             nonce=str(d["nonce"]),
+            difficulty=int(d.get("difficulty", 4)),  # 兼容旧 token
         )
 
 
 def issue_challenge_token(
     *,
-    app_id: int,
+    site_id: int,
     fingerprint: str,
     kind: ChallengeKind,
     secret: str,
     ttl: int = DEFAULT_TTL,
+    difficulty: int = 4,
 ) -> str:
     """签发挑战凭据。
 
     Args:
-        app_id: 应用 ID
+        site_id: 站点 ID（Site.id）
         fingerprint: 访客指纹，防跨访客盗用
         kind: 挑战类型
-        secret: 站点密钥（app_secret）
+        secret: 站点密钥（site_secret）
         ttl: 有效期（秒）
+        difficulty: js_challenge 的 PoW 难度（哈希前导零位数）
 
     Returns:
         base64(payload) + "." + hmac_sha256(secret, base64_payload)
     """
     payload = ChallengeTokenPayload(
-        app_id=app_id,
+        site_id=site_id,
         fingerprint=fingerprint,
         kind=kind,
         exp=int(time.time()) + ttl,
         nonce=generate_nonce(),
+        difficulty=difficulty,
     )
     # 紧凑 JSON（无空格）+ 键排序，保证签名稳定
     payload_json = json.dumps(payload.to_dict(), sort_keys=True, separators=(",", ":"))
@@ -117,15 +126,15 @@ def verify_challenge_token(
     token: str,
     *,
     secret: str,
-    app_id: int,
+    site_id: int,
     fingerprint: str,
 ) -> TokenVerifyResult:
     """校验挑战凭据。
 
     Args:
         token: 客户端提交的凭据
-        secret: 站点密钥（app_secret）
-        app_id: 当前请求的 app_id（必须与 token 中的一致）
+        secret: 站点密钥（site_secret）
+        site_id: 当前请求的 site_id（必须与 token 中的一致）
         fingerprint: 当前请求的指纹（必须与 token 中的一致）
 
     Returns:
@@ -159,9 +168,9 @@ def verify_challenge_token(
     if payload.exp < int(time.time()):
         return TokenVerifyResult(valid=False, payload=payload, reason="expired")
 
-    # app_id 与 fingerprint 必须与当前请求一致，防跨租户 / 跨访客盗用
-    if payload.app_id != app_id:
-        return TokenVerifyResult(valid=False, payload=payload, reason="app_mismatch")
+    # site_id 与 fingerprint 必须与当前请求一致，防跨租户 / 跨访客盗用
+    if payload.site_id != site_id:
+        return TokenVerifyResult(valid=False, payload=payload, reason="site_mismatch")
     if payload.fingerprint != fingerprint:
         return TokenVerifyResult(valid=False, payload=payload, reason="fingerprint_mismatch")
 

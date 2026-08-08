@@ -63,7 +63,7 @@ _FALLBACK_ENABLED = ScoringConfig()
 
 
 class ScoringConfigCache:
-    """按 app_id 缓存评分配置，带本地 TTL。"""
+    """按 site_id 缓存评分配置，带本地 TTL。"""
 
     def __init__(
         self,
@@ -79,22 +79,22 @@ class ScoringConfigCache:
         self._local_ttl = local_ttl
         self._cache: dict[int, _CacheEntry] = {}
 
-    async def get(self, app_id: int) -> ScoringConfig:
+    async def get(self, site_id: int) -> ScoringConfig:
         """获取站点评分配置。任何错误均回退到默认值，保证不影响决策流程。"""
         now = time.monotonic()
-        entry = self._cache.get(app_id)
+        entry = self._cache.get(site_id)
         if entry is not None and entry.expires_at > now:
             return entry.config
 
-        config = await self._load(app_id)
-        self._cache[app_id] = _CacheEntry(config=config, expires_at=now + self._local_ttl)
+        config = await self._load(site_id)
+        self._cache[site_id] = _CacheEntry(config=config, expires_at=now + self._local_ttl)
         return config
 
-    async def _load(self, app_id: int) -> ScoringConfig:
+    async def _load(self, site_id: int) -> ScoringConfig:
         try:
-            raw = await self._redis.get(f"{_KEY_PREFIX}:{app_id}")  # type: ignore[misc]
+            raw = await self._redis.get(f"{_KEY_PREFIX}:{site_id}")  # type: ignore[misc]
         except Exception as exc:
-            _logger.warning("scoring_config_fetch_failed", app_id=app_id, error=str(exc))
+            _logger.warning("scoring_config_fetch_failed", site_id=site_id, error=str(exc))
             return self._default_config()
 
         if not raw:
@@ -103,7 +103,7 @@ class ScoringConfigCache:
         try:
             data = orjson.loads(raw)
         except (orjson.JSONDecodeError, TypeError):
-            _logger.warning("scoring_config_parse_failed", app_id=app_id)
+            _logger.warning("scoring_config_parse_failed", site_id=site_id)
             return self._default_config()
 
         return self._parse(data)

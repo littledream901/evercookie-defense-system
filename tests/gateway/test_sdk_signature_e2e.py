@@ -1,4 +1,4 @@
-"""SDK 签名与网关验签的端到端对接。
+﻿"""SDK 签名与网关验签的端到端对接。
 
 前面的 parity 测试锁的是「待签串构造一致」，这里锁的是「SDK 实际发出的请求
 形状能过网关验签」——两件不同的事。历史上最容易出问题的不是编码规则本身，
@@ -24,15 +24,15 @@ from src.interfaces.http.middleware.app_key import (
 )
 
 API_KEY = "ak_live_test"
-APP_SECRET = "sk_live_secret"
-APP_ID = 7
+SITE_SECRET = "sk_live_secret"
+SITE_ID = 7
 
 
 class _FakeRedis:
     def __init__(self) -> None:
         self.store = {
             f"fangyu:app_keys:{API_KEY}": json.dumps(
-                {"app_id": APP_ID, "app_secret": APP_SECRET}
+                {"site_id": SITE_ID, "site_secret": SITE_SECRET}
             )
         }
 
@@ -52,8 +52,8 @@ class _MemoryNonceStore:
     def __init__(self) -> None:
         self.seen: set[tuple[int, str]] = set()
 
-    async def claim(self, app_id: int, nonce: str) -> bool:
-        entry = (app_id, nonce)
+    async def claim(self, site_id: int, nonce: str) -> bool:
+        entry = (site_id, nonce)
         if entry in self.seen:
             return False
         self.seen.add(entry)
@@ -73,12 +73,12 @@ def _build_app(nonce_store: _MemoryNonceStore | None = None) -> FastAPI:
     @app.post("/v2/decide")
     async def _decide(request: Request) -> dict[str, Any]:
         state = getattr(request.state, "resolved_app_key", None)
-        return {"app_id": state.app_id, "verified": state.signature_verified}
+        return {"site_id": state.site_id, "verified": state.signature_verified}
 
     @app.post("/v2/sdk/heartbeat")
     async def _heartbeat(request: Request) -> dict[str, Any]:
         state = getattr(request.state, "resolved_app_key", None)
-        return {"app_id": state.app_id, "verified": state.signature_verified}
+        return {"site_id": state.site_id, "verified": state.signature_verified}
 
     return app
 
@@ -91,7 +91,7 @@ def _sdk_decide_body(*, timestamp: int, nonce: str) -> dict[str, Any]:
     """
     body: dict[str, Any] = {
         "context": {
-            "appId": APP_ID,
+            "siteId": SITE_ID,
             "ingress": "sdk",
             "fingerprint": "fp_abc123",
             "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
@@ -110,7 +110,7 @@ def _sdk_decide_body(*, timestamp: int, nonce: str) -> dict[str, Any]:
         "timestamp": timestamp,
         "nonce": nonce,
     }
-    body["sign"] = sign_params(body, APP_SECRET)
+    body["sign"] = sign_params(body, SITE_SECRET)
     return body
 
 
@@ -126,7 +126,7 @@ async def test_sdk_shaped_signed_request_passes_verification() -> None:
         resp = await client.post("/v2/decide", json=body, headers={"X-App-Key": API_KEY})
 
     assert resp.status_code == 200
-    assert resp.json() == {"app_id": APP_ID, "verified": True}
+    assert resp.json() == {"site_id": SITE_ID, "verified": True}
 
 
 @pytest.mark.asyncio
@@ -145,7 +145,7 @@ async def test_nested_context_is_signed_as_canonical_json() -> None:
         "timestamp": ts,
         "nonce": nonce,
     }
-    assert sign_params(shuffled, APP_SECRET) == body["sign"]
+    assert sign_params(shuffled, SITE_SECRET) == body["sign"]
 
 
 @pytest.mark.asyncio
@@ -175,7 +175,7 @@ async def test_signature_fields_inside_context_are_not_accepted() -> None:
 
     inner = {
         "context": {
-            "appId": APP_ID,
+            "siteId": SITE_ID,
             "ingress": "sdk",
             "fingerprint": "fp_abc123",
             "userAgent": "Mozilla/5.0",
@@ -183,7 +183,7 @@ async def test_signature_fields_inside_context_are_not_accepted() -> None:
             "nonce": generate_nonce(),
         },
     }
-    inner["context"]["sign"] = sign_params(inner["context"], APP_SECRET)
+    inner["context"]["sign"] = sign_params(inner["context"], SITE_SECRET)
 
     transport = ASGITransport(app=_build_app(), client=("198.51.100.7", 1))
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -253,7 +253,7 @@ async def test_sdk_heartbeat_signed_request_passes() -> None:
     import time
 
     body: dict[str, Any] = {
-        "appId": APP_ID,
+        "siteId": SITE_ID,
         "fingerprint": "fp_abc123",
         "sdkVersion": "2.0.0",
         "behaviorEvents": [
@@ -262,7 +262,7 @@ async def test_sdk_heartbeat_signed_request_passes() -> None:
         "timestamp": int(time.time()),
         "nonce": generate_nonce(),
     }
-    body["sign"] = sign_params(body, APP_SECRET)
+    body["sign"] = sign_params(body, SITE_SECRET)
 
     transport = ASGITransport(app=_build_app(), client=("198.51.100.7", 1))
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -279,6 +279,6 @@ async def test_sdk_endpoints_reject_missing_api_key() -> None:
     """/v2/sdk/* 在保护范围内：无 Key 直接 401。"""
     transport = ASGITransport(app=_build_app(), client=("198.51.100.7", 1))
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post("/v2/sdk/heartbeat", json={"appId": APP_ID})
+        resp = await client.post("/v2/sdk/heartbeat", json={"siteId": SITE_ID})
 
     assert resp.status_code == 401

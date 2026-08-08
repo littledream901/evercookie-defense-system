@@ -1,6 +1,6 @@
 """Nonce 一次性凭证存储（重放防护）。
 
-Key 设计：fangyu:nonce:{app_id}:{nonce}
+Key 设计：fangyu:nonce:{site_id}:{nonce}
 
 为什么单靠时间戳窗口不够
 ------------------------
@@ -32,10 +32,10 @@ class NonceStore:
         self._ttl = ttl
 
     @staticmethod
-    def make_key(app_id: int, nonce: str) -> str:
-        return f"{_KEY_PREFIX}:{app_id}:{nonce}"
+    def make_key(site_id: int, nonce: str) -> str:
+        return f"{_KEY_PREFIX}:{site_id}:{nonce}"
 
-    async def claim(self, app_id: int, nonce: str, *, ttl: int | None = None) -> bool:
+    async def claim(self, site_id: int, nonce: str, *, ttl: int | None = None) -> bool:
         """占用一个 nonce。
 
         Returns:
@@ -45,7 +45,7 @@ class NonceStore:
             return False
         try:
             created = await self._redis.set(
-                self.make_key(app_id, nonce),
+                self.make_key(site_id, nonce),
                 b"1",
                 nx=True,
                 ex=ttl or self._ttl,
@@ -55,9 +55,9 @@ class NonceStore:
             return True
         return bool(created)
 
-    async def release(self, app_id: int, nonce: str) -> None:
+    async def release(self, site_id: int, nonce: str) -> None:
         """释放 nonce，仅供测试与管理工具使用。"""
         try:
-            await self._redis.delete(self.make_key(app_id, nonce))
+            await self._redis.delete(self.make_key(site_id, nonce))
         except RedisError:
             return

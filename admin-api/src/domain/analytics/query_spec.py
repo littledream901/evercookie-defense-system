@@ -39,7 +39,7 @@ TopEntityDimension = Literal[
 
 @dataclass(frozen=True, slots=True)
 class AnalyticsQuerySpec:
-    app_id: Optional[int]
+    site_id: Optional[int]
     start: datetime
     end: datetime
     filters: dict[str, str] = field(default_factory=dict)

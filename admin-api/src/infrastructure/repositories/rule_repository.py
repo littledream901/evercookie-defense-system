@@ -88,14 +88,17 @@ class RuleAdminRepository:
         status: RuleStatus | None = None,
         keyword: str | None = None,
         site_id: int | None = None,
-        app_id: int | None = None,
         offset: int = 0,
         limit: int = 50,
     ) -> tuple[list[AnyRule], int]:
         """规则列表。
-        
-        - site_id: 不为空时只返回绑定了该站点的规则
-        - app_id: 不为空时返回应用级规则（V3）
+
+        - site_id: 不为空时只返回绑定了该站点的规则（经 rule_site 多对多关联）
+
+        注：原先这里还有一个 app_id 形参，其过滤条件为 RuleModel.app_id == app_id，
+        但 RuleModel 并无 app_id 列（规则与站点是多对多，通过 RuleSiteModel 关联），
+        且全仓库无任何调用点传入该形参（list_by_app 也是转发为 site_id），
+        属于 V3 改名遗留的死代码，故一并移除以免运行时 AttributeError。
         """
         base = select(RuleModel)
         if site_id is not None:
@@ -104,8 +107,6 @@ class RuleAdminRepository:
                     select(RuleSiteModel.rule_id).where(RuleSiteModel.site_id == site_id)
                 )
             )
-        if app_id is not None:
-            base = base.where(RuleModel.app_id == app_id)
         if status is not None:
             base = base.where(RuleModel.status == status.value)
         if keyword:
@@ -137,7 +138,7 @@ class RuleAdminRepository:
     async def list_published_by_site(self, site_id: int) -> list[AnyRule]:
         """取某站点全部需下发规则（已发布 + 影子），用于同步 Redis 分片。
 
-        返回的规则 app_id 已置为该 site_id，便于直接写入 fangyu:rules:{site_id}。
+        返回的规则 site_id 已置为该站点 id，便于直接写入 fangyu:rules:{site_id}。
 
         过滤条件用 SYNCABLE_STATUSES 而非硬编码 PUBLISHED：scheduler 的例行全量
         重建走的正是这个查询，只查 PUBLISHED 会把刚置为影子的规则从 Redis 抹掉，
@@ -154,7 +155,7 @@ class RuleAdminRepository:
             )
         )
         rows = (await self._session.execute(stmt)).scalars().all()
-        return [self._to_domain(r, site_ids=[site_id], app_id=site_id) for r in rows if r]
+        return [self._to_domain(r, site_ids=[site_id], site_id=site_id) for r in rows if r]
 
     # ---------- 站点绑定（多对多） ----------
     async def set_sites(self, rule_id: int, site_ids: list[int]) -> list[int]:
@@ -358,7 +359,7 @@ class RuleAdminRepository:
             published_at=row.published_at,
         )
 
-    async def list_app_ids_with_published_rules(self) -> list[int]:
+    async def list_site_ids_with_published_rules(self) -> list[int]:
         """返回绑定了需下发规则（已发布 + 影子）的所有 site_id，供 scheduler 全量同步缓存使用。
 
         必须把影子规则也算进来：只绑定影子规则的站点若不在这个列表里，
@@ -378,16 +379,16 @@ class RuleAdminRepository:
         row: RuleModel,
         *,
         site_ids: list[int] | None = None,
-        app_id: int = 0,
+        site_id: int = 0,
     ) -> AnyRule:
         """把 ORM 行转为领域对象。
 
-        app_id 是「写入哪个站点的 Redis 分片」的标记，只有同步缓存时才需要指定；
+        site_id 是「写入哪个站点的 Redis 分片」的标记，只有同步缓存时才需要指定；
         admin 侧查询一律传 0（规则不归属单一站点）。
         """
         common = {
             "id": row.id,
-            "appId": app_id,
+            "siteId": site_id,
             "siteIds": list(site_ids or []),
             "name": row.name,
             "description": row.description,

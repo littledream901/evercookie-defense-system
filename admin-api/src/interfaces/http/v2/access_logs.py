@@ -63,13 +63,14 @@ async def access_log_stats(
     service: AccessLogQueryService = Depends(_service),
 ) -> SuccessResponse[list[dict[str, Any]]]:
     """访问日志统计摘要。
-    
+
     Args:
-        site_id: 站点ID，对应 ClickHouse 的 app_id 列（
-    
+        site_id: 站点 ID，对应 ClickHouse decision_events 的站点维度列。
+
     Note:
-        ClickHouse 的 app_id 列实际存储的是 site_id（
-        应用级聚合查询需要在上层实现
+        TODO(V3 改名): SQL 已按目标列名 site_id 生成，ClickHouse DDL 的
+        app_id → site_id 改名由另一个任务负责，两边需同批次上线。
+        应用级聚合查询需要在上层实现（先查询应用下的站点列表）。
     """
     actual_end = end or datetime.utcnow()
     actual_start = start or actual_end - timedelta(days=1)
@@ -111,13 +112,14 @@ async def list_access_logs(
     service: AccessLogQueryService = Depends(_service),
 ) -> SuccessResponse[PageResponse[dict[str, Any]]]:
     """访问日志列表（分页）。
-    
+
     Args:
-        site_id: 站点ID，对应 ClickHouse 的 app_id 列（
-    
+        site_id: 站点 ID，对应 ClickHouse decision_events 的站点维度列。
+
     Note:
-        ClickHouse 的 app_id 列实际存储的是 site_id（
-        应用级聚合查询需要在上层实现（先查询应用下的站点列表，然后分别查询）
+        TODO(V3 改名): SQL 已按目标列名 site_id 生成，ClickHouse DDL 的
+        app_id → site_id 改名由另一个任务负责，两边需同批次上线。
+        应用级聚合查询需要在上层实现（先查询应用下的站点列表，然后分别查询）。
     """
     actual_end = end or datetime.utcnow()
     actual_start = start or actual_end - timedelta(days=1)
@@ -158,7 +160,7 @@ async def get_access_log(
     site_id: int | None = Query(default=None, alias="siteId"),
     service: AccessLogQueryService = Depends(_service),
 ) -> SuccessResponse[dict[str, Any] | None]:
-    row = await service.get_by_request_id(app_id=site_id, request_id=request_id)
+    row = await service.get_by_request_id(site_id=site_id, request_id=request_id)
     return SuccessResponse(data=_transform_row(row) if row else None)
 
 
@@ -177,7 +179,7 @@ async def get_access_log_traces(
 
     存储在冷表 ``fangyu.decision_traces``，TTL 7 天，超期后查询返回空列表。
     """
-    rows = await service.get_traces(app_id=site_id, request_id=request_id)
+    rows = await service.get_traces(site_id=site_id, request_id=request_id)
     return SuccessResponse(data=rows)
 
 
@@ -199,7 +201,7 @@ async def shadow_impact(
     """
     actual_end = end or datetime.utcnow()
     actual_start = start or actual_end - timedelta(days=1)
-    rows = await service.shadow_impact(app_id=site_id, start=actual_start, end=actual_end)
+    rows = await service.shadow_impact(site_id=site_id, start=actual_start, end=actual_end)
     return SuccessResponse(data=rows)
 
 
@@ -227,7 +229,7 @@ async def pool_distribution(
     actual_end = end or datetime.utcnow()
     actual_start = start or actual_end - timedelta(days=1)
     rows = await service.pool_distribution(
-        app_id=site_id, start=actual_start, end=actual_end, rule_id=rule_id
+        site_id=site_id, start=actual_start, end=actual_end, rule_id=rule_id
     )
     return SuccessResponse(data=rows)
 
@@ -250,7 +252,7 @@ async def crawler_overview(
     """
     actual_end = end or datetime.utcnow()
     actual_start = start or actual_end - timedelta(days=1)
-    data = await service.crawler_overview(app_id=site_id, start=actual_start, end=actual_end)
+    data = await service.crawler_overview(site_id=site_id, start=actual_start, end=actual_end)
     return SuccessResponse(data=data)
 
 
@@ -272,7 +274,7 @@ async def crawler_vendor_distribution(
     """
     actual_end = end or datetime.utcnow()
     actual_start = start or actual_end - timedelta(days=1)
-    rows = await service.crawler_vendor_distribution(app_id=site_id, start=actual_start, end=actual_end)
+    rows = await service.crawler_vendor_distribution(site_id=site_id, start=actual_start, end=actual_end)
     return SuccessResponse(data=rows)
 
 
@@ -294,7 +296,7 @@ async def crawler_category_distribution(
     """
     actual_end = end or datetime.utcnow()
     actual_start = start or actual_end - timedelta(days=1)
-    rows = await service.crawler_category_distribution(app_id=site_id, start=actual_start, end=actual_end)
+    rows = await service.crawler_category_distribution(site_id=site_id, start=actual_start, end=actual_end)
     return SuccessResponse(data=rows)
 
 
@@ -317,7 +319,7 @@ async def crawler_top_list(
     """
     actual_end = end or datetime.utcnow()
     actual_start = start or actual_end - timedelta(days=1)
-    rows = await service.crawler_top_list(app_id=site_id, start=actual_start, end=actual_end, limit=limit)
+    rows = await service.crawler_top_list(site_id=site_id, start=actual_start, end=actual_end, limit=limit)
     return SuccessResponse(data=rows)
 
 
@@ -341,6 +343,6 @@ async def crawler_timeline(
     actual_end = end or datetime.utcnow()
     actual_start = start or actual_end - timedelta(days=1)
     rows = await service.crawler_timeline(
-        app_id=site_id, start=actual_start, end=actual_end, granularity=granularity
+        site_id=site_id, start=actual_start, end=actual_end, granularity=granularity
     )
     return SuccessResponse(data=rows)

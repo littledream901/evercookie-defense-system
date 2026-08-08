@@ -59,17 +59,19 @@ class RuleService:
         previous = await self._repo.set_sites(rule_id, site_ids)
         target = sorted(set(site_ids))
 
+        # 重新获取规则对象，确保并发场景下使用最新状态判断是否同步缓存
+        updated = await self._repo.get(rule_id)
+        assert updated is not None
+
         # 已发布规则才需要动缓存：解绑的站点要移除，新绑的站点要写入
-        if rule.status == RuleStatus.PUBLISHED:
+        if updated.status == RuleStatus.PUBLISHED:
             removed = [s for s in previous if s not in target]
             if removed:
                 await self._cache.remove_from_sites(rule_id, removed)
             added = [s for s in target if s not in previous]
             if added:
-                await self._cache.upsert_to_sites(rule, added)
+                await self._cache.upsert_to_sites(updated, added)
 
-        updated = await self._repo.get(rule_id)
-        assert updated is not None
         _logger.info("rule_sites_set", rule_id=rule_id, site_count=len(target))
         return updated
 
@@ -103,7 +105,7 @@ class RuleService:
 
     async def list_by_app(
         self,
-        app_id: int,
+        site_id: int,
         *,
         status: RuleStatus | None = None,
         keyword: str | None = None,
@@ -112,7 +114,7 @@ class RuleService:
     ) -> tuple[list[AnyRule], int]:
         offset = max(0, (page - 1) * page_size)
         return await self._repo.list_by_app(
-            app_id,
+            site_id,
             status=status,
             keyword=keyword,
             offset=offset,
@@ -142,7 +144,7 @@ class RuleService:
                 change_summary="创建规则",
             )
         )
-        _logger.info("rule_created", rule_id=created.id, app_id=created.app_id)
+        _logger.info("rule_created", rule_id=created.id, site_id=created.site_id)
         return created
 
     async def update(self, rule_id: int, patch: AnyRule, author_id: int) -> AnyRule:

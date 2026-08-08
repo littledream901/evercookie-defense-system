@@ -22,9 +22,9 @@ from fastapi import APIRouter, Depends, Query
 from fangyu_shared.clickhouse_manager import ClickHouseClient, get_clickhouse
 from fangyu_shared.schemas.common import SuccessResponse
 
-from src.application.services.app_service import AppService
+from src.application.services.site_service import SiteService
 from src.infrastructure.clickhouse.access_log_query import AccessLogQueryService
-from src.interfaces.http.dependencies import get_app_service, require_permission
+from src.interfaces.http.dependencies import get_site_service, require_permission
 from .schemas import (
     IngressStatSchema,
     IntegrationDiagnosticsSchema,
@@ -197,18 +197,18 @@ def _analyze_sdk(stat: IngressStatSchema, findings: list[IntegrationFindingSchem
 async def integration_diagnostics(
     site_id: int,
     hours: int = Query(default=24, ge=1, le=720),
-    app_service: AppService = Depends(get_app_service),
+    site_service: SiteService = Depends(get_site_service),
     log_service: AccessLogQueryService = Depends(_service),
 ) -> SuccessResponse[IntegrationDiagnosticsSchema]:
     """诊断某站点的接入健康度：实测接入方式、最后活跃时间与异常信号。
 
-    站点不存在时由 AppService 抛出 ResourceNotFoundException（404）。
+    站点不存在时由 SiteService 抛出 ResourceNotFoundException（404）。
     """
-    app = await app_service.get(site_id)
+    site = await site_service.get(site_id)
 
     end = datetime.utcnow()
     start = end - timedelta(hours=hours)
-    rows = await log_service.ingress_diagnostics(app_id=site_id, start=start, end=end)
+    rows = await log_service.ingress_diagnostics(site_id=site_id, start=start, end=end)
 
     stats = [
         IngressStatSchema(
@@ -233,8 +233,8 @@ async def integration_diagnostics(
     ]
 
     status, findings = _analyze(
-        access_mode=app.access_mode,
-        is_active=app.is_active,
+        access_mode=site.access_mode,
+        is_active=site.is_active,
         stats=stats,
         hours=hours,
     )
@@ -243,12 +243,12 @@ async def integration_diagnostics(
     return SuccessResponse(
         data=IntegrationDiagnosticsSchema(
             site_id=site_id,
-            site_name=app.name,
-            domain=app.domain,
-            is_active=app.is_active,
-            configured_access_mode=app.access_mode,
-            configured_sdk_version=app.sdk_version,
-            gateway_url=app.gateway_url,
+            site_name=site.name,
+            domain=site.domain,
+            is_active=site.is_active,
+            configured_access_mode=site.access_mode,
+            configured_sdk_version=site.sdk_version,
+            gateway_url=site.gateway_url,
             window_hours=hours,
             total_requests=sum(s.total for s in stats),
             last_seen_at=last_seen,

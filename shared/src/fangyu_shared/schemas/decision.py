@@ -185,7 +185,12 @@ class DecisionResponse(BaseSchema):
     target_url: str | None = Field(default=None, alias="targetUrl")
     http_status: int = Field(default=200, alias="httpStatus", ge=100, le=599)
     challenge_kind: ChallengeKind | None = Field(default=None, alias="challengeKind")
-    challenge_token: str | None = Field(default=None, alias="challengeToken")
+    pow_difficulty: int = Field(default=4, alias="powDifficulty", ge=1, le=8)
+    """js_challenge 的 PoW 难度（要求哈希前导零位数）。
+
+    由服务端下发而非客户端硬编码：难度需随攻击态势调整，且验证端必须与计算端
+    用同一个值，写死在两侧代码里迟早会漂移。
+    """
     score: float = Field(default=0.0, ge=0.0, le=100.0)
     rule_ids: list[int] = Field(default_factory=list, alias="ruleIds")
     reason: str | None = None

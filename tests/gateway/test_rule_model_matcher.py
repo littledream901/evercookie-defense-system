@@ -44,7 +44,7 @@ def _decision(
 ) -> DecisionRule:
     return DecisionRule(
         id=rid,
-        appId=1,
+        siteId=1,
         name=name,
         status=status,
         priority=priority,
@@ -57,7 +57,7 @@ def _decision(
 
 # ---------- 模型：种类互斥 ----------
 def test_scoring_rule_has_no_disposition_field() -> None:
-    r = ScoringRule(appId=1, name="s", conditions=[_cond()], weight=30)
+    r = ScoringRule(siteId=1, name="s", conditions=[_cond()], weight=30)
     assert not hasattr(r, "disposition")
     assert r.kind == RuleKind.SCORING
 
@@ -70,19 +70,19 @@ def test_decision_rule_has_no_weight_field() -> None:
 
 def test_kind_cannot_be_mismatched() -> None:
     with pytest.raises(ValidationError):
-        ScoringRule(appId=1, name="s", conditions=[_cond()], weight=1, kind=RuleKind.DECISION)
+        ScoringRule(siteId=1, name="s", conditions=[_cond()], weight=1, kind=RuleKind.DECISION)
     with pytest.raises(ValidationError):
         DecisionRule(
-            appId=1, name="d", conditions=[_cond()], disposition=deny(), kind=RuleKind.SCORING
+            siteId=1, name="d", conditions=[_cond()], disposition=deny(), kind=RuleKind.SCORING
         )
 
 
 def test_empty_conditions_rejected() -> None:
     # fail-closed：旧版空条件规则会命中全部流量
     with pytest.raises(ValidationError):
-        DecisionRule(appId=1, name="d", conditions=[], disposition=deny())
+        DecisionRule(siteId=1, name="d", conditions=[], disposition=deny())
     with pytest.raises(ValidationError):
-        ScoringRule(appId=1, name="s", conditions=[], weight=10)
+        ScoringRule(siteId=1, name="s", conditions=[], weight=10)
 
 
 def test_invalid_operator_rejected() -> None:
@@ -98,12 +98,12 @@ def test_invalid_field_namespace_rejected() -> None:
 # ---------- 规则组语义 ----------
 def test_allowlist_requires_on_no_match() -> None:
     with pytest.raises(ValidationError):
-        RuleGroup(appId=1, name="g", mode=GroupMode.ALLOWLIST)
+        RuleGroup(siteId=1, name="g", mode=GroupMode.ALLOWLIST)
 
 
 def test_blocklist_rejects_on_no_match() -> None:
     with pytest.raises(ValidationError):
-        RuleGroup(appId=1, name="g", mode=GroupMode.BLOCKLIST, onNoMatch=deny())
+        RuleGroup(siteId=1, name="g", mode=GroupMode.BLOCKLIST, onNoMatch=deny())
 
 
 # ---------- 匹配器 ----------
@@ -160,7 +160,7 @@ def test_match_all_semantics(matcher: DecisionRuleMatcher) -> None:
 # ---------- allowlist 兜底 ----------
 def test_allowlist_no_match_applies_group_disposition(matcher: DecisionRuleMatcher) -> None:
     group = RuleGroup(
-        appId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=not_found()
+        siteId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=not_found()
     )
     member = _decision(rid=1, group="office", conditions=[_cond(value="CN")])
     result = matcher.match([member], {"ip": {"country": "US"}}, groups=[group])
@@ -171,7 +171,7 @@ def test_allowlist_no_match_applies_group_disposition(matcher: DecisionRuleMatch
 
 
 def test_allowlist_hit_skips_group_fallback(matcher: DecisionRuleMatcher) -> None:
-    group = RuleGroup(appId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=deny())
+    group = RuleGroup(siteId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=deny())
     member = _decision(rid=1, group="office", disposition=allow(), conditions=[_cond(value="CN")])
     result = matcher.match([member], {"ip": {"country": "CN"}}, groups=[group])
     assert result.is_group_no_match is False
@@ -180,14 +180,14 @@ def test_allowlist_hit_skips_group_fallback(matcher: DecisionRuleMatcher) -> Non
 
 def test_empty_allowlist_group_does_not_block_everything(matcher: DecisionRuleMatcher) -> None:
     """刚建好还没加规则的白名单组不得拦下全部流量。"""
-    group = RuleGroup(appId=1, name="empty", mode=GroupMode.ALLOWLIST, onNoMatch=deny())
+    group = RuleGroup(siteId=1, name="empty", mode=GroupMode.ALLOWLIST, onNoMatch=deny())
     result = matcher.match([], {"ip": {"country": "US"}}, groups=[group])
     assert result.matched is False
 
 
 def test_group_scope_is_isolated(matcher: DecisionRuleMatcher) -> None:
     """组外规则不参与该组的兜底判定——修掉旧版 on_miss 的全局副作用。"""
-    group = RuleGroup(appId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=deny())
+    group = RuleGroup(siteId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=deny())
     outsider = _decision(rid=9, group=None, conditions=[_cond(value="JP")])
     member = _decision(rid=1, group="office", conditions=[_cond(value="CN")])
     result = matcher.match([member, outsider], {"ip": {"country": "US"}}, groups=[group])
@@ -197,7 +197,7 @@ def test_group_scope_is_isolated(matcher: DecisionRuleMatcher) -> None:
 
 def test_disabled_group_is_skipped(matcher: DecisionRuleMatcher) -> None:
     group = RuleGroup(
-        appId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=deny(), enabled=False
+        siteId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=deny(), enabled=False
     )
     member = _decision(rid=1, group="office", conditions=[_cond(value="CN")])
     result = matcher.match([member], {"ip": {"country": "US"}}, groups=[group])
@@ -234,7 +234,7 @@ def test_shadow_never_wins_over_group_no_match(matcher: DecisionRuleMatcher) -> 
     winner 为空时匹配器会转去问兜底，影子命中若被算作 winner，这条流量就会
     拿到影子规则的处置而不是组兜底——影子规则直接改变了真实结果。
     """
-    group = RuleGroup(appId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=not_found())
+    group = RuleGroup(siteId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=not_found())
     member = _decision(rid=1, group="office", conditions=[_cond(value="CN")])
     shadow = _decision(
         rid=2, name="shadow", status=RuleStatus.SHADOW, disposition=deny(),
@@ -260,7 +260,7 @@ def test_shadow_member_does_not_satisfy_allowlist_group(
     所以影子成员不算「白名单放行了这次访问」。反过来若把它算进去，一条还在观察
     期的规则就能让访客绕过白名单兜底——影子规则实打实地改变了真实处置。
     """
-    group = RuleGroup(appId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=not_found())
+    group = RuleGroup(siteId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=not_found())
     active_member = _decision(rid=1, group="office", conditions=[_cond(value="JP")])
     shadow_member = _decision(
         rid=2, name="shadow", group="office", status=RuleStatus.SHADOW,
@@ -282,7 +282,7 @@ def test_shadow_only_allowlist_group_stays_inert(matcher: DecisionRuleMatcher) -
     is_active 过滤，一个只含影子成员的白名单组会突然对所有未命中流量施加
     on_no_match，把观察行为变成全站拦截。
     """
-    group = RuleGroup(appId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=deny())
+    group = RuleGroup(siteId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=deny())
     shadow_member = _decision(
         rid=1, name="shadow", group="office", status=RuleStatus.SHADOW,
         disposition=allow(), conditions=[_cond(value="CN")],
@@ -301,7 +301,7 @@ def test_promoting_member_to_shadow_does_not_change_verdict(
     这正是 published→shadow 被状态机禁止的理由所在：一旦允许降级，
     组的兜底面会随之变化，而管理员以为自己只是「转为观察」。
     """
-    group = RuleGroup(appId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=deny())
+    group = RuleGroup(siteId=1, name="office", mode=GroupMode.ALLOWLIST, onNoMatch=deny())
     other = _decision(rid=1, group="office", conditions=[_cond(value="JP")])
     ctx = {"ip": {"country": "US"}}
 

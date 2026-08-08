@@ -13,17 +13,17 @@ class ScoringRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def get_by_app(self, app_id: int) -> ScoringConfigModel | None:
+    async def get_by_app(self, site_id: int) -> ScoringConfigModel | None:
         stmt = (
             select(ScoringConfigModel)
-            .where(ScoringConfigModel.app_id == app_id)
+            .where(ScoringConfigModel.site_id == site_id)
             .limit(1)
         )
         return (await self._session.execute(stmt)).scalar_one_or_none()
 
     async def upsert(
         self,
-        app_id: int,
+        site_id: int,
         *,
         name: str = "",
         enabled: bool = True,
@@ -37,7 +37,7 @@ class ScoringRepository:
         stmt = (
             mysql_insert(ScoringConfigModel)
             .values(
-                app_id=app_id,
+                site_id=site_id,
                 name=name,
                 enabled=enabled,
                 threshold_suspect=threshold_suspect,
@@ -58,12 +58,12 @@ class ScoringRepository:
         )
         await self._session.execute(stmt)
         await self._session.flush()
-        row = await self.get_by_app(app_id)
+        row = await self.get_by_app(site_id)
         return row  # type: ignore[return-value]
 
-    async def reset(self, app_id: int) -> bool:
+    async def reset(self, site_id: int) -> bool:
         """删除配置，让站点回退到全局默认。"""
-        row = await self.get_by_app(app_id)
+        row = await self.get_by_app(site_id)
         if row is None:
             return False
         await self._session.delete(row)

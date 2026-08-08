@@ -33,13 +33,31 @@ export const analyticsRoutes: AppRouteRecord = {
   }
 }
 
-/** 应用管理 */
+/** 应用管理（业务分组容器） */
+export const applicationsRoutes: AppRouteRecord = {
+  name: 'FangyuApplications',
+  path: '/defense/applications',
+  component: '/fangyu/applications',
+  meta: {
+    title: '应用管理',
+    icon: 'ri:stack-line',
+    permission: 'app.read',
+    keepAlive: true,
+    authList: [
+      { title: '新建', authMark: 'app.write' },
+      { title: '编辑', authMark: 'app.write' },
+      { title: '删除', authMark: 'app.write' }
+    ]
+  }
+}
+
+/** 站点管理（规则与验签的挂载点） */
 export const appsRoutes: AppRouteRecord = {
   name: 'FangyuApps',
   path: '/defense/apps',
   component: '/fangyu/apps',
   meta: {
-    title: '应用管理',
+    title: '站点管理',
     icon: 'ri:apps-line',
     permission: 'app.read',
     keepAlive: true,

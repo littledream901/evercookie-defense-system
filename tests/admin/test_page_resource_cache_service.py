@@ -64,10 +64,10 @@ class _FakePipeline:
 
 
 # ---------- helpers ----------
-def _make_resource(*, app_id: int = 1, name: str = "safe_page", kind: PageResourceKind = PageResourceKind.SAFE, enabled: bool = True) -> PageResource:
+def _make_resource(*, site_id: int = 1, name: str = "safe_page", kind: PageResourceKind = PageResourceKind.SAFE, enabled: bool = True) -> PageResource:
     return PageResource(
         id=10,
-        app_id=app_id,
+        site_id=site_id,
         name=name,
         kind=kind,
         content="<h1>Hello</h1>",

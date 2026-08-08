@@ -31,7 +31,7 @@ from src.interfaces.http.v2 import decide as decide_module
 def test_sdk_context_allows_missing_ip() -> None:
     """SDK 路径可以不带 IP：浏览器结构上无法得知。"""
     ctx = DecisionContext(
-        appId=1,
+        siteId=1,
         ingress=IngressKind.SDK,
         fingerprint="fp_abc",
         userAgent="Mozilla/5.0",
@@ -43,7 +43,7 @@ def test_adapter_context_requires_ip() -> None:
     """Adapter 路径必须带 IP：gateway 看到的 socket peer 是站点服务器。"""
     with pytest.raises(ValidationError, match="ingress=adapter 必须提供 ip"):
         DecisionContext(
-            appId=1,
+            siteId=1,
             ingress=IngressKind.ADAPTER,
             userAgent="Mozilla/5.0",
         )
@@ -51,7 +51,7 @@ def test_adapter_context_requires_ip() -> None:
 
 def test_adapter_derived_fingerprint_still_works_with_ip() -> None:
     ctx = DecisionContext(
-        appId=1,
+        siteId=1,
         ingress=IngressKind.ADAPTER,
         ip="203.0.113.9",
         userAgent="Mozilla/5.0",
@@ -63,7 +63,7 @@ def test_adapter_derived_fingerprint_still_works_with_ip() -> None:
 def test_sdk_context_still_requires_fingerprint() -> None:
     """放开 ip 不能顺带放开 fingerprint。"""
     with pytest.raises(ValidationError, match="ingress=sdk 必须提供 fingerprint"):
-        DecisionContext(appId=1, ingress=IngressKind.SDK, userAgent="Mozilla/5.0")
+        DecisionContext(siteId=1, ingress=IngressKind.SDK, userAgent="Mozilla/5.0")
 
 
 # ── 路由层 ──
@@ -82,11 +82,11 @@ class _CapturingService:
         return DecisionResponse(verdict="trusted", mechanism="pass", requestId="rid")
 
 
-def _build(service: _CapturingService, app_id: int = 1) -> FastAPI:
+def _build(service: _CapturingService, site_id: int = 1) -> FastAPI:
     app = FastAPI()
     app.include_router(decide_module.router, prefix="/v2")
     app.dependency_overrides[require_app_key] = lambda: ResolvedAppKey(
-        app_id=app_id, api_key="k"
+        site_id=site_id, api_key="k"
     )
     app.dependency_overrides[decide_module.get_decision_service] = lambda: service
     return app
@@ -94,7 +94,7 @@ def _build(service: _CapturingService, app_id: int = 1) -> FastAPI:
 
 def _sdk_body(**ctx_overrides: Any) -> dict[str, Any]:
     context: dict[str, Any] = {
-        "appId": 1,
+        "siteId": 1,
         "ingress": "sdk",
         "fingerprint": "fp_abc",
         "userAgent": "Mozilla/5.0",
@@ -156,7 +156,7 @@ async def test_adapter_ip_is_preserved() -> None:
             "/v2/decide",
             json={
                 "context": {
-                    "appId": 1,
+                    "siteId": 1,
                     "ingress": "adapter",
                     "ip": "203.0.113.9",
                     "userAgent": "Mozilla/5.0",

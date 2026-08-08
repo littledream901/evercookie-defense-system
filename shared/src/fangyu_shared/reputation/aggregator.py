@@ -20,9 +20,12 @@ class _Fetcher(Protocol):
 class IpReputationRow:
     """一个「租户 + IP」维度的聚合结果。
 
-    ``app_id`` 必须在这里出现：MV 的 ORDER BY 是 ``(log_date, app_id, ip)``，
-    聚合时丢掉 app_id 有两个后果——多租户之间共享同一份 IP 声誉（A 站的爬虫
+    ``app_id`` 必须在这里出现：MV 的 ORDER BY 是 ``(log_date, site_id, ip)``，
+    聚合时丢掉 site_id 有两个后果——多租户之间共享同一份 IP 声誉（A 站的爬虫
     流量压低 B 站对同一 IP 的评分），以及查询用不上主键前缀而每小时全表扫。
+    
+    注意：字段名保留 ``app_id`` 以保持向后兼容（admin-api 多处代码引用此字段），
+    但查询的 MV 列名已改为 ``site_id``，通过 ``AS app_id`` 别名对齐。
     """
 
     app_id: int
@@ -54,27 +57,27 @@ class DeviceReputationRow:
 # 漂移——这种错误不报错，只让分数看起来「不太对」。
 _IP_SQL = """
     SELECT
-        app_id,
+        site_id AS app_id,
         ip,
         sum(total_count)   AS total,
         sum(blocked_count) AS blocked
     FROM fangyu.mv_ip_reputation_daily
     WHERE log_date >= today() - {lookback_days}
       AND ip != ''
-    GROUP BY app_id, ip
+    GROUP BY site_id, ip
     HAVING total >= {min_samples}
 """
 
 _DEVICE_SQL = """
     SELECT
-        app_id,
+        site_id AS app_id,
         fingerprint,
         sum(total_count)   AS total,
         sum(blocked_count) AS blocked
     FROM fangyu.mv_fingerprint_reputation_daily
     WHERE log_date >= today() - {lookback_days}
       AND fingerprint != ''
-    GROUP BY app_id, fingerprint
+    GROUP BY site_id, fingerprint
     HAVING total >= {min_samples}
 """
 

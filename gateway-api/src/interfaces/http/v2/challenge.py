@@ -94,9 +94,9 @@ async def verify_challenge(
     if payload.site_id != resolved.site_id:
         raise AuthenticationException("API Key 与 siteId 不匹配")
 
-    # 2. 获取 app_secret 用于验签
+    # 2. 获取 site_secret 用于验签
     resolver = get_app_key_resolver()
-    secret = await resolver.get_secret_by_app_id(payload.site_id)
+    secret = await resolver.get_secret_by_site_id(payload.site_id)
     if not secret:
         _logger.warning(
             "challenge_verify_no_secret",
@@ -149,8 +149,11 @@ async def verify_challenge(
     # 5. 答案校验
     kind = result.payload.kind
     if kind == ChallengeKind.JS.value:
-        # js_challenge：验证 PoW（客户端计算满足难度要求的 nonce）
-        if not _verify_pow(payload.challenge_token, payload.answer, difficulty=4):
+        # js_challenge：验证 PoW。难度取自 token 载荷——签发时定的值必须与验证时
+        # 一致，从 token 读而不是读配置，避免难度调整期间在途 token 全部失效。
+        if not _verify_pow(
+            payload.challenge_token, payload.answer, difficulty=result.payload.difficulty
+        ):
             _logger.warning(
                 "challenge_pow_failed",
                 site_id=payload.site_id,

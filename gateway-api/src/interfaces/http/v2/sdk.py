@@ -15,7 +15,7 @@
 
 鉴权
 ----
-与 ``/v2/decide`` 同级保护：这三个端点都会按 ``appId`` 读写站点数据，
+与 ``/v2/decide`` 同级保护：这三个端点都会按 ``siteId`` 读写站点数据，
 不鉴权等于让任意调用方往他人的时序库里灌数据。故在
 ``AppKeyEnforcementMiddleware`` 的 ``protected_patterns`` 中一并覆盖。
 """
@@ -65,14 +65,12 @@ class SdkBehaviorPolicy(BaseSchema):
 
 
 class SdkInitRequest(BaseSchema):
-    site_id: int = Field(default=0, alias="siteId", ge=0)
-    """站点主键（Site.id）。注意：
+    site_id: int = Field(default=0, alias="siteId", ge=0, description="站点主键（Site.id）")
     sdk_version: str = Field(default="", alias="sdkVersion", max_length=32)
 
 
 class SdkInitResponse(BaseSchema):
-    site_id: int = Field(..., alias="siteId")
-    """站点主键（Site.id）"""
+    site_id: int = Field(..., alias="siteId", description="站点主键（Site.id）")
     sdk_version: str = Field(default=SDK_VERSION, alias="sdkVersion")
     server_time_ms: int = Field(..., alias="serverTimeMs")
     config_version: str = Field(default="", alias="configVersion")
@@ -81,15 +79,13 @@ class SdkInitResponse(BaseSchema):
 
 
 class SdkStatusResponse(BaseSchema):
-    site_id: int = Field(..., alias="siteId")
-    """站点主键（Site.id）"""
+    site_id: int = Field(..., alias="siteId", description="站点主键（Site.id）")
     config_version: str = Field(default="", alias="configVersion")
     server_time_ms: int = Field(..., alias="serverTimeMs")
 
 
 class SdkHeartbeatRequest(BaseSchema):
-    site_id: int = Field(default=0, alias="siteId", ge=0)
-    """站点主键（Site.id）"""
+    site_id: int = Field(default=0, alias="siteId", ge=0, description="站点主键（Site.id）")
     fingerprint: str = Field(default="", max_length=128)
     sdk_version: str = Field(default="", alias="sdkVersion", max_length=32)
     behavior_events: list[BehaviorEvent] = Field(
@@ -113,27 +109,27 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def _resolve_app_id(claimed: int, resolved: ResolvedAppKey) -> int:
-    """确定 app_id，口径与 ``/v2/decide`` 的 ``_guard_app_id`` 一致。
+def _resolve_site_id(claimed: int, resolved: ResolvedAppKey) -> int:
+    """确定 site_id，口径与 ``/v2/decide`` 的 ``_guard_app_id`` 一致。
 
     以 API Key 派生的 site_id 为准；请求体自报的值若与之冲突直接拒绝，
     避免持有 A 站点 Key 的调用方往 B 站点写数据。
     
     Note:
-        返回值实际是站点主键（Site.id），函数名保持历史兼容。
+        返回值是站点主键(Site.id)
     """
     if resolved.site_id <= 0:
-        # 免鉴权模式（仅本地 / debug）：必须自报 appId
+        # 免鉴权模式（仅本地 / debug）：必须自报 siteId
         if claimed <= 0:
             raise AuthenticationException("缺少 API Key")
         return claimed
 
     if claimed and claimed != resolved.site_id:
-        raise AuthenticationException("API Key 与 appId 不匹配")
+        raise AuthenticationException("API Key 与 siteId 不匹配")
     return resolved.site_id
 
 
-def _config_version(settings: GatewaySettings, app_id: int) -> str:
+def _config_version(settings: GatewaySettings, site_id: int) -> str:
     """配置版本标识。
 
     当前用「SDK 版本 + 站点开关」组合派生，站点改开关时 SDK 能感知到变化。
@@ -141,7 +137,7 @@ def _config_version(settings: GatewaySettings, app_id: int) -> str:
     不需要客户端配合。
     """
     flags = f"{int(settings.clock_enabled)}{int(settings.whitelist_enabled)}"
-    return f"{SDK_VERSION}-{app_id}-{flags}"
+    return f"{SDK_VERSION}-{site_id}-{flags}"
 
 
 def _behavior_policy(settings: GatewaySettings) -> SdkBehaviorPolicy:
@@ -171,7 +167,7 @@ async def sdk_init(
         # 不拒绝旧版本：站点的 SDK 更新节奏不由网关控制，硬拒会直接打断线上流量
         _logger.info(
             "sdk_version_mismatch",
-            app_id=app_id,
+            site_id=site_id,
             client_version=payload.sdk_version,
             server_version=SDK_VERSION,
         )
@@ -193,11 +189,11 @@ async def sdk_init(
     summary="配置版本探测：供 SDK 轮询判断是否需要重新 init",
 )
 async def sdk_status(
-    app_id: int = Query(default=0, alias="appId", ge=0),
+    site_id: int = Query(default=0, alias="siteId", ge=0),
     resolved: ResolvedAppKey = Depends(require_app_key),
     settings: GatewaySettings = Depends(get_gateway_settings),
 ) -> SuccessResponse[SdkStatusResponse]:
-    resolved_id = _resolve_app_id(app_id, resolved)
+    resolved_id = _resolve_site_id(site_id, resolved)
     data = SdkStatusResponse(
         siteId=resolved_id,
         configVersion=_config_version(settings, resolved_id),
@@ -218,7 +214,7 @@ async def sdk_heartbeat(
     settings: GatewaySettings = Depends(get_gateway_settings),
     clock: ClockRepository | None = Depends(get_clock_repository),
 ) -> SuccessResponse[SdkHeartbeatResponse]:
-    app_id = _resolve_app_id(payload.site_id, resolved)
+    site_id = _resolve_site_id(payload.site_id, resolved)
     now_ms = _now_ms()
 
     accepted = 0
@@ -226,7 +222,7 @@ async def sdk_heartbeat(
         # 指纹是时序库的分区键。缺指纹的事件无法归属到访客，落库只会产生
         # 一条永远长不大的孤儿序列，不如直接丢弃并留日志。
         if not payload.fingerprint:
-            _logger.warning("behavior_dropped_no_fingerprint", app_id=app_id)
+            _logger.warning("behavior_dropped_no_fingerprint", site_id=site_id)
         else:
             try:
                 accepted = await clock.store_behavior(
@@ -243,7 +239,7 @@ async def sdk_heartbeat(
     data = SdkHeartbeatResponse(
         accepted=accepted,
         serverTimeMs=now_ms,
-        configVersion=_config_version(settings, app_id),
+        configVersion=_config_version(settings, site_id),
     )
     return SuccessResponse[SdkHeartbeatResponse](data=data)
 

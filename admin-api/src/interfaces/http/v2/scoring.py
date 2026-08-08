@@ -19,7 +19,7 @@ router = APIRouter(tags=["scoring"])
 def _to_schema(row: ScoringConfigModel) -> ScoringConfigSchema:
     return ScoringConfigSchema(
         id=row.id,
-        app_id=row.app_id,
+        site_id=row.site_id,
         name=row.name,
         enabled=row.enabled,
         threshold_suspect=row.threshold_suspect,

@@ -122,7 +122,7 @@ def _extract_host(visit_url: str | None) -> str:
     """从 visit_url 提取域名。
 
     访问日志需要按域名区分流量——同一 API Key 可能被多个站点复用，
-    app_id 关联不出具体域名。visit_url 是唯一携带该信息的字段。
+    site_id 关联不出具体域名。visit_url 是唯一携带该信息的字段。
 
     解析失败或字段缺失时返回空串，不抛异常：事件发布不能因为一个
     展示字段拖垮决策链路。
@@ -1224,7 +1224,7 @@ class DecisionService:
         self,
         response: DecisionResponse,
         disposition: Disposition,
-        app_id: int,
+        site_id: int,
     ) -> DecisionResponse:
         """serve_alt 命中时从 Redis 缓存取页面内容并填充 page_content 字段。
 
@@ -1242,16 +1242,16 @@ class DecisionService:
         if not name:
             _logger.warning(
                 "serve_alt_no_resource_name",
-                app_id=app_id,
+                site_id=site_id,
                 request_id=response.request_id,
                 reason="url_pool empty or all disabled",
             )
             return response
-        entry = await cache.get(app_id, name)
+        entry = await cache.get(site_id, name)
         if entry is None:
             _logger.warning(
                 "serve_alt_resource_not_found",
-                app_id=app_id,
+                site_id=site_id,
                 resource_name=name,
                 request_id=response.request_id,
             )
@@ -1279,7 +1279,7 @@ class DecisionService:
         if disposition.challenge_kind is None:
             _logger.warning(
                 "challenge_without_kind",
-                app_id=ctx.site_id,
+                site_id=ctx.site_id,
                 request_id=response.request_id,
                 reason="challengeKind is None, cannot issue token",
             )
@@ -1289,36 +1289,37 @@ class DecisionService:
         if resolver is None:
             _logger.warning(
                 "challenge_token_no_resolver",
-                app_id=ctx.site_id,
+                site_id=ctx.site_id,
                 request_id=response.request_id,
             )
             return response
 
         try:
-            secret = await resolver.get_secret_by_app_id(ctx.site_id)
+            secret = await resolver.get_secret_by_site_id(ctx.site_id)
             if not secret:
-                # 站点未配置 app_secret（或凭据缓存已过期）：无法签发，只能降级。
+                # 站点未配置 site_secret（或凭据缓存已过期）：无法签发，只能降级。
                 # 客户端见 mechanism=challenge 但 challengeToken 为空时应按拦截处理。
                 _logger.warning(
                     "challenge_token_no_secret",
-                    app_id=ctx.site_id,
+                    site_id=ctx.site_id,
                     request_id=response.request_id,
                 )
                 return response
 
             token = issue_challenge_token(
-                app_id=ctx.site_id,
+                site_id=ctx.site_id,
                 fingerprint=ctx.fingerprint or "",
                 kind=disposition.challenge_kind.value,
                 secret=secret,
                 ttl=disposition.ttl_seconds or DEFAULT_CHALLENGE_TTL,
+                difficulty=response.pow_difficulty,  # 下发给客户端，避免硬编码
             )
             return response.model_copy(update={"challenge_token": token})
 
         except Exception as exc:
             _logger.error(
                 "challenge_token_sign_error",
-                app_id=ctx.site_id,
+                site_id=ctx.site_id,
                 request_id=response.request_id,
                 error=str(exc),
             )
@@ -1397,7 +1398,7 @@ class DecisionService:
             ua = snapshot.ua if snapshot else None
             event = DecisionEvent(
                 eventId=uuid.uuid4().hex,
-                appId=ctx.site_id,
+                siteId=ctx.site_id,
                 fingerprint=ctx.fingerprint,
                 deviceId=ctx.device_id,
                 ip=str(ctx.ip),

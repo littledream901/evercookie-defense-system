@@ -17,7 +17,7 @@
       >
         <template #title>
           <span class="font-medium">
-            旧 App Secret 已立即失效，所有使用旧密钥的适配器（Nginx-Lua、CF Worker、WordPress 插件等）
+            旧 Site Secret 已立即失效，所有使用旧密钥的适配器（Nginx-Lua、CF Worker、WordPress 插件等）
             需同步更新配置，否则签名验证将失败，站点防护中断。
           </span>
         </template>
@@ -30,29 +30,38 @@
         show-icon
       >
         <template #title>
-          <span class="font-medium">站点已创建，以下凭证请妥善保存。App Secret 随时可在站点列表中查看。</span>
+          <span class="font-medium">站点已创建，以下凭证仅此一次可见，请立即保存。</span>
         </template>
       </ElAlert>
 
       <div class="secret-reveal__item">
         <span class="secret-reveal__label">Site ID</span>
         <div class="secret-reveal__value">
-          <span class="secret-reveal__mono">{{ site.site_id }}</span>
-          <ElButton link type="primary" :icon="CopyDocument" @click="copy(site.site_id, '站点 ID')" />
+          <span class="secret-reveal__mono">{{ site.id }}</span>
+          <ElButton link type="primary" :icon="CopyDocument" @click="copy(String(site.id), 'Site ID')" />
         </div>
       </div>
 
       <div class="secret-reveal__item">
-        <span class="secret-reveal__label">App Secret</span>
+        <span class="secret-reveal__label">Site Key</span>
         <div class="secret-reveal__value">
-          <span class="secret-reveal__mono secret-reveal__secret">{{ site.app_secret }}</span>
-          <ElButton link type="primary" :icon="CopyDocument" @click="copy(site.app_secret, 'App Secret')" />
+          <span class="secret-reveal__mono">{{ site.site_key }}</span>
+          <ElButton link type="primary" :icon="CopyDocument" @click="copy(String(site.site_key), 'Site Key')" />
+        </div>
+      </div>
+
+      <div class="secret-reveal__item">
+        <span class="secret-reveal__label">Site Secret</span>
+        <div class="secret-reveal__value">
+          <span class="secret-reveal__mono secret-reveal__secret">{{ site.site_secret }}</span>
+          <ElButton link type="primary" :icon="CopyDocument" @click="copy(String(site.site_secret), 'Site Secret')" />
         </div>
       </div>
 
       <div class="secret-reveal__hint">
         <span class="text-sm text-g-500">
-          App Secret 永久明文保存，可随时在站点列表的 App Secret 列中查看或复制。
+          Site Key 用作 <code>X-App-Key</code> 请求头；Site Secret 用于 HMAC 验签，
+          关闭本弹窗后无法再次查看，遗失只能轮换。
         </span>
       </div>
     </div>
@@ -69,7 +78,7 @@ import { ElMessage } from 'element-plus'
 
 interface Props {
   modelValue: boolean
-  site: Api.Fangyu.SiteCreateResponse
+  site: Api.Fangyu.SiteDetail
   /** 'create' = 新建后展示；'rotate' = 轮换后展示 */
   mode?: 'create' | 'rotate'
 }

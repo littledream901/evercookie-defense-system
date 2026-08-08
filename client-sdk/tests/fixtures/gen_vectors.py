@@ -73,7 +73,7 @@ CASES: list[dict] = [
         "note": "真实 /v2/decide 顶层签名参数形状",
         "params": {
             "context": {
-                "appId": 1,
+                "siteId": 1,
                 "ingress": "sdk",
                 "fingerprint": "abc123",
                 "userAgent": "Mozilla/5.0",

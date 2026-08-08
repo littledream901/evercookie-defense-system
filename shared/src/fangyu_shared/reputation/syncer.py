@@ -23,10 +23,10 @@ _logger = get_logger("shared.reputation_syncer")
 
 
 class _Cache(Protocol):
-    async def get_ip(self, app_id: int, ip: str) -> IpProfile | None: ...
-    async def set_ip(self, app_id: int, profile: IpProfile) -> None: ...
-    async def get_device(self, app_id: int, fingerprint: str) -> DeviceProfile | None: ...
-    async def set_device(self, app_id: int, profile: DeviceProfile) -> None: ...
+    async def get_ip(self, site_id: int, ip: str) -> IpProfile | None: ...
+    async def set_ip(self, site_id: int, profile: IpProfile) -> None: ...
+    async def get_device(self, site_id: int, fingerprint: str) -> DeviceProfile | None: ...
+    async def set_device(self, site_id: int, profile: DeviceProfile) -> None: ...
 
 
 class _Fetcher(Protocol):
@@ -115,7 +115,7 @@ class ReputationSyncer:
                 await self._write_ip(row, now)
                 outcome.ips_written += 1
             except Exception as exc:
-                self._record(outcome, f"ip_write_failed app={row.app_id} ip={row.ip}: {exc}")
+                self._record(outcome, f"ip_write_failed site={row.app_id} ip={row.ip}: {exc}")
 
         await self._run_sink(rows, outcome)
 
@@ -198,7 +198,7 @@ class ReputationSyncer:
             except Exception as exc:
                 self._record(
                     outcome,
-                    f"device_write_failed app={row.app_id} fp={row.fingerprint}: {exc}",
+                    f"device_write_failed site={row.app_id} fp={row.fingerprint}: {exc}",
                 )
 
     def _record(self, outcome: ReputationSyncOutcome, msg: str) -> None:

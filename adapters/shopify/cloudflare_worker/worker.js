@@ -9,7 +9,7 @@
  * Configuration via Cloudflare Worker environment variables / secrets:
  *   FANGYU_GATEWAY_URL   e.g. https://defense.example.com
  *   FANGYU_SITE_KEY      站点密钥字符串（格式 site_<hex8>），用作 X-App-Key 请求头
- *   FANGYU_SITE_ID       站点数字主键（Site.id），用于 SDK 配置的 appId 参数
+ *   FANGYU_SITE_ID       站点数字主键（Site.id），用于 SDK 配置的 siteId 参数
  *   FANGYU_SITE_SECRET   站点签名密钥，用于 HMAC 验签
  *   FANGYU_FAIL_MODE     "open"（默认）或 "closed"
  *
@@ -142,19 +142,79 @@ async function gatewayDecide(context, env) {
       body: JSON.stringify(body),
       signal: controller.signal,
     });
-  } catch {
+  } catch (err) {
+    console.error('[fangyu] decide fetch failed:', err.message || String(err));
     return null;
   } finally {
     clearTimeout(timer);
   }
 
-  if (!res.ok) return null;
+  if (!res.ok) {
+    const bodyPreview = (await res.text()).slice(0, 512);
+    console.error(`[fangyu] decide rejected: HTTP ${res.status}, body=${bodyPreview}`);
+    return null;
+  }
 
   let data;
   try { data = await res.json(); } catch { return null; }
 
   // Support both wrapped { data: {...} } and bare { verdict, mechanism, ... } shapes.
   return (data && typeof data.data === 'object' && data.data) ? data.data : data;
+}
+
+const HEARTBEAT_PATH = '/v2/sdk/heartbeat';
+
+/**
+ * 向网关上报心跳（含行为事件）。
+ *
+ * Worker 侧无法持续采集交互事件，故只上报一次 page_view：既让网关的时钟校验
+ * 有数据可依，也让服务端能感知适配器仍在工作。失败不抛异常。
+ *
+ * @param {string} fingerprint  访客指纹（与 decide 请求同源）。
+ * @param {object} env          Cloudflare Worker env bindings.
+ * @returns {Promise<void>}
+ */
+async function sendHeartbeat(fingerprint, env) {
+  const gatewayUrl = (env.FANGYU_GATEWAY_URL || '').replace(/\/$/, '');
+  const siteKey    = env.FANGYU_SITE_KEY || '';
+  const siteSecret = env.FANGYU_SITE_SECRET || '';
+  const siteId     = parseInt(env.FANGYU_SITE_ID || '0', 10);
+
+  if (!gatewayUrl || !siteKey || !siteSecret || !fingerprint) return;
+
+  const body = await signBody(
+    {
+      siteId,
+      fingerprint,
+      sdkVersion: 'cf-worker-2.0',
+      behaviorEvents: [{ kind: 'page_view', ts: Date.now(), value: 1 }],
+    },
+    siteSecret,
+  );
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GATEWAY_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(gatewayUrl + HEARTBEAT_PATH, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'X-App-Key': siteKey,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      // 记录响应体前 512 字节，便于定位签名/字段错误
+      const preview = (await res.text()).slice(0, 512);
+      console.warn(`[fangyu] heartbeat rejected: HTTP ${res.status}, body=${preview}`);
+    }
+  } catch (err) {
+    console.warn('[fangyu] heartbeat failed:', err);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ── SDK 注入 ─────────────────────────────────────────────────────────────────
@@ -174,7 +234,7 @@ function serverSessionToken() {
  * 使用 HTMLRewriter 流式处理，不缓冲完整响应体。
  *
  * 注入内容：
- *   window.__fy_server_ctx = { apiBase, apiKey, appId, serverVerdict, serverToken }
+ *   window.__fy_server_ctx = { apiBase, apiKey, siteId, serverVerdict, serverToken }
  *   <script src="...sdk.min.js" defer></script>
  *   <script>/* 缓存兜底（同步）+ DOMContentLoaded 内的 protect() *\/</script>
  *
@@ -203,12 +263,11 @@ function injectSdk(originResponse, env, serverDecision, serverToken) {
   const snippet = `
 <script>
 window.__fy_server_ctx = ${JSON.stringify({
-    // 键名对齐 SdkConfig：apiBase / apiKey / appId。
-    // 旧的 gatewayUrl / siteId 在 SDK 中不存在，validateConfig() 会抛错。
-    // 注意：apiKey 是站点密钥字符串（siteKey），appId 是站点数字主键（siteId）
+    // 键名对齐 SdkConfig：apiBase / apiKey / siteId。
+    // 注意：apiKey 是站点密钥字符串（siteKey），siteId 是站点数字主键（Site.id）
     apiBase: gatewayUrl,
     apiKey: siteKey,        // 站点密钥字符串（site_xxxxxxxx）
-    appId: siteId,          // 站点数字主键（Site.id）
+    siteId: siteId,         // 站点数字主键（Site.id）
     serverVerdict: serverDecision?.verdict || 'unknown',
     serverToken,
     blockedUrl,
@@ -231,13 +290,13 @@ window.__fy_server_ctx = ${JSON.stringify({
   }
   document.addEventListener('DOMContentLoaded', function () {
     if (typeof SdSdk === 'undefined') return;  // SDK 加载失败时静默放行
-    if (!ctx.apiBase || !ctx.apiKey || !ctx.appId) return;
+    if (!ctx.apiBase || !ctx.apiKey || !ctx.siteId) return;
     // protect() 返回 Promise<{decision, applied}>。SDK 无 onDecision 配置项，
     // 处置回调必须从返回的 Promise 取，否则永远不会被调用。
     SdSdk.protect({
       apiBase:         ctx.apiBase,
       apiKey:          ctx.apiKey,
-      appId:           ctx.appId,
+      siteId:          ctx.siteId,
       serverToken:     ctx.serverToken || '',   // 网关用此字段关联服务端预判
       autoApply:       false,
       collectBehavior: true
@@ -417,12 +476,18 @@ export default {
     const serverToken = serverSessionToken();
     // 通过 context.extra 传递 serverToken，gateway DecisionContext.extra 字段接收
     context.extra = { serverToken };
+    context.siteId = siteId;  // 显式补充 siteId 字段
 
     const payload  = await gatewayDecide(context, env);
     const blocked  = executeDecision(payload, request, env);
 
     // 第一层判定为 hostile/deny/redirect → 直接返回，SDK 永不加载
     if (blocked) return blocked;
+
+    // 决策完成后异步上报心跳（ctx.waitUntil 保证即使响应已返回也能完成）
+    if (context.fingerprint) {
+      ctx.waitUntil(sendHeartbeat(context.fingerprint, env));
+    }
 
     // 第一层 pass（含网关不可达的 fail-open）→ 放行并注入 SDK
     const htmlMode = env.FANGYU_SDK_INJECT !== 'false';   // 默认开启注入

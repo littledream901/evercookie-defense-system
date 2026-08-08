@@ -25,10 +25,16 @@ export interface ExecutorContext {
   apiBase?: string;
   /** API Key，用于 challenge 校验请求。 */
   apiKey?: string;
-  /** 应用 ID。 */
-  appId?: number;
+  /** App Secret，站点开启验签时用于对挑战提交签名。 */
+  appSecret?: string;
+  /** 站点 ID（`Site.id`）。 */
+  siteId?: number;
   /** 访客指纹。 */
   fingerprint?: string;
+  /** 与服务端的时钟偏移（毫秒），用于纠正签名时间戳。 */
+  clockSkewMs?: number;
+  /** 挑战通过后的回调。缺省时退化为刷新页面。 */
+  onChallengePassed?: () => Promise<void> | void;
   /** 调试日志。 */
   debug?: boolean;
 }
@@ -170,16 +176,29 @@ function replaceDocument(html: string): void {
 
 function renderChallengeScreen(decision: DecisionResponse, context?: ExecutorContext): void {
   // 如果外部提供了 context（包含 apiBase 等），使用真实挑战组件（FY-DISP-003 修复）
-  if (context?.apiBase && context?.apiKey && context?.appId && context?.fingerprint) {
+  if (context?.apiBase && context?.apiKey && context?.siteId && context?.fingerprint) {
     const challengeContext: ChallengeContext = {
       apiBase: context.apiBase,
       apiKey: context.apiKey,
-      appId: context.appId,
+      appSecret: context.appSecret,
+      siteId: context.siteId,
       fingerprint: context.fingerprint,
+      challengeKind: decision.challengeKind!,
+      challengeToken: decision.challengeToken!,
+      powDifficulty: decision.powDifficulty,
+      clockSkewMs: context.clockSkewMs ?? 0,
       debug: context.debug,
     };
     mountChallenge(decision, challengeContext, {
-      onSuccess: () => location.reload(),
+      // 优先走「重新决策」而不是刷新页面：服务端写通行凭据与页面重载之间存在竞态，
+      // reload 可能再次撞上 challenge。onChallengePassed 由 SdSdk 注入。
+      onSuccess: () => {
+        if (context.onChallengePassed) {
+          void context.onChallengePassed();
+        } else {
+          location.reload();
+        }
+      },
       onError: (msg) => console.error('[fangyu] 挑战失败:', msg),
     });
   } else {

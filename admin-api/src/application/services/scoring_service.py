@@ -71,12 +71,12 @@ class ScoringService:
         self._repo = repo
         self._sync = sync
 
-    async def get(self, app_id: int) -> ScoringConfigModel | None:
-        return await self._repo.get_by_app(app_id)
+    async def get(self, site_id: int) -> ScoringConfigModel | None:
+        return await self._repo.get_by_app(site_id)
 
     async def upsert(
         self,
-        app_id: int,
+        site_id: int,
         *,
         name: str = "",
         enabled: bool = True,
@@ -87,7 +87,7 @@ class ScoringService:
         disposition_hostile: dict[str, Any] | None = None,
     ) -> ScoringConfigModel:
         result = await self._repo.upsert(
-            app_id,
+            site_id,
             name=name,
             enabled=enabled,
             threshold_suspect=threshold_suspect,
@@ -98,7 +98,7 @@ class ScoringService:
         )
         # 同步到 Redis，gateway 通过 ScoringConfigCache 读取
         await self._sync.put(
-            app_id,
+            site_id,
             enabled=enabled,
             threshold_suspect=threshold_suspect,
             threshold_hostile=threshold_hostile,
@@ -106,14 +106,14 @@ class ScoringService:
             disposition_suspect=disposition_suspect,
             disposition_hostile=disposition_hostile,
         )
-        _logger.info("scoring_config_upserted", app_id=app_id)
+        _logger.info("scoring_config_upserted", site_id=site_id)
         return result
 
-    async def reset(self, app_id: int) -> bool:
-        deleted = await self._repo.reset(app_id)
+    async def reset(self, site_id: int) -> bool:
+        deleted = await self._repo.reset(site_id)
         if deleted:
-            await self._sync.delete(app_id)
-            _logger.info("scoring_config_reset", app_id=app_id)
+            await self._sync.delete(site_id)
+            _logger.info("scoring_config_reset", site_id=site_id)
         return deleted
 
     @staticmethod

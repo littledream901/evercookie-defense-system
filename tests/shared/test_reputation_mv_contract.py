@@ -34,7 +34,7 @@ _FP_MV = "mv_fingerprint_reputation_daily"
 
 # 查询侧真正读取的列。MV 至少要提供这些。
 _IP_REQUIRED = {"log_date", "ip", "total_count", "blocked_count"}
-_FP_REQUIRED = {"log_date", "app_id", "fingerprint", "total_count", "blocked_count"}
+_FP_REQUIRED = {"log_date", "site_id", "fingerprint", "total_count", "blocked_count"}
 
 
 def _sql_text() -> str:
@@ -136,17 +136,17 @@ def test_queries_apply_min_samples_threshold() -> None:
     assert "min_samples" in source
 
 
-def test_both_queries_group_by_app_id() -> None:
-    """两个维度都必须按 app_id 分组。
+def test_both_queries_group_by_site_id() -> None:
+    """两个维度都必须按 site_id 分组。
 
     IP 侧曾经只 ``GROUP BY ip``：声誉分在所有租户间共享（一个站点的爬虫流量
     压低另一个站点对同一 IP 的评分），且用不上 MV 的主键前缀
-    ``(log_date, app_id, ip)``，每小时全表扫一遍。指纹侧一直带 app_id，两者
+    ``(log_date, site_id, ip)``，每小时全表扫一遍。指纹侧一直带站点维度，两者
     此前不一致。
     """
     source = _QUERY.read_text(encoding="utf-8")
-    assert "GROUP BY app_id, ip" in source
-    assert "GROUP BY app_id, fingerprint" in source
+    assert "GROUP BY site_id, ip" in source
+    assert "GROUP BY site_id, fingerprint" in source
 
 
 # ---------- 「已拦截」的口径 ----------

@@ -1,14 +1,12 @@
-"""AppKeyRedisSync + AppService 的单元测试。"""
+"""AppKeyRedisSync + SiteService 的单元测试。"""
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 import orjson
 import pytest
 
-from src.application.services.app_service import AppService
-from src.domain.app.entities import Application, ApplicationStatus
+from src.application.services.site_service import SiteService
 from src.infrastructure.cache.app_key_sync import AppKeyRedisSync
 
 
@@ -39,44 +37,62 @@ class _FakeRedis:
         return int(self.store.pop(key, None) is not None)
 
 
-class _StubRepo:
-    """AppRepository 替身（与新实体契约对齐：用 site_id 替代 api_key）。"""
+class _StubSite:
+    """SiteModel 替身，只带 SiteService 用到的字段。"""
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.id: int | None = kwargs.get("id")
+        self.site_key: str = kwargs.get("site_key", "")
+        self.app_id: int = kwargs.get("app_id", 1)
+        self.name: str = kwargs.get("name", "")
+        self.domain: str = kwargs.get("domain", "")
+        self.site_secret: str = kwargs.get("site_secret", "")
+        self.is_active: bool = kwargs.get("is_active", True)
+
+
+class _StubSiteRepo:
+    """SiteRepository 替身。"""
 
     def __init__(self) -> None:
-        self._store: dict[int, Application] = {}
+        self._store: dict[int, _StubSite] = {}
         self._next_id = 1
 
-    async def create(self, app: Application) -> Application:
-        app_id = self._next_id
+    async def create(self, **kwargs: Any) -> _StubSite:
+        site_id = self._next_id
         self._next_id += 1
-        created = Application(
-            id=app_id,
-            site_id=app.site_id or f"fangyu_test{app_id:04d}",
-            name=app.name,
-            domain=app.domain or "example.com",
-            app_secret=app.app_secret,
-            owner_user_id=app.owner_user_id,
+        created = _StubSite(
+            id=site_id,
+            site_key=f"site_test{site_id:04d}",
+            app_id=kwargs.get("app_id", 1),
+            name=kwargs.get("name", ""),
+            domain=kwargs.get("domain", ""),
+            site_secret=kwargs.get("site_secret", ""),
         )
-        self._store[app_id] = created
+        self._store[site_id] = created
         return created
 
-    async def get(self, app_id: int) -> Application | None:
-        return self._store.get(app_id)
+    async def get(self, site_id: int) -> _StubSite | None:
+        return self._store.get(site_id)
 
-    async def rotate_secret(self, app_id: int, app_secret: str) -> Application | None:
-        """site_id 不变，只更新 app_secret。"""
-        existing = self._store.get(app_id)
+    async def update(self, site_id: int, **kwargs: Any) -> _StubSite | None:
+        existing = self._store.get(site_id)
         if existing is None:
             return None
-        existing.app_secret = app_secret
+        for key, value in kwargs.items():
+            if value is not None and hasattr(existing, key):
+                setattr(existing, key, value)
         return existing
 
-    # 向后兼容旧测试调用 rotate_api_key
-    async def rotate_api_key(self, app_id: int, new_key: str, new_secret: str | None = None) -> Application | None:
-        return await self.rotate_secret(app_id, new_secret or "")
+    async def rotate_secret(self, site_id: int, site_secret: str) -> _StubSite | None:
+        """site_key 不变，只更新 site_secret。"""
+        existing = self._store.get(site_id)
+        if existing is None:
+            return None
+        existing.site_secret = site_secret
+        return existing
 
-    async def delete(self, app_id: int) -> bool:
-        return self._store.pop(app_id, None) is not None
+    async def delete(self, site_id: int) -> bool:
+        return self._store.pop(site_id, None) is not None
 
 
 # ---------------- AppKeyRedisSync ----------------
@@ -203,45 +219,43 @@ async def test_sync_swallows_redis_errors():
     await sync.unbind("k")
 
 
-# ---------------- AppService 与 sync 联动 ----------------
+# ---------------- SiteService 与 sync 联动 ----------------
 
 
 @pytest.mark.asyncio
-async def test_app_service_create_binds_key():
+async def test_site_service_create_binds_key():
     redis = _FakeRedis()
-    svc = AppService(_StubRepo(), app_key_sync=AppKeyRedisSync(redis))
-    app = await svc.create(name="demo", owner_user_id=1, domain="example.com")
-    payload = _parse(redis.store[f"fangyu:app_keys:{app.site_id}"])
-    assert payload["app_id"] == app.id
-    assert payload.get("app_secret") == app.app_secret
+    svc = SiteService(_StubSiteRepo(), app_key_sync=AppKeyRedisSync(redis))
+    site, secret = await svc.create(app_id=1, name="demo", domain="example.com")
+    payload = _parse(redis.store[f"fangyu:app_keys:{site.site_key}"])
+    assert payload["app_id"] == site.id
+    assert payload.get("app_secret") == secret
 
 
 @pytest.mark.asyncio
-async def test_app_service_rotate_keeps_site_id_updates_secret():
-    """轮换只更新 secret，site_id 不变，Redis key 不移动。"""
+async def test_site_service_rotate_keeps_site_key_updates_secret():
+    """轮换只更新 secret，site_key 不变，Redis key 不移动。"""
     redis = _FakeRedis()
-    svc = AppService(_StubRepo(), app_key_sync=AppKeyRedisSync(redis))
-    app = await svc.create(name="demo", owner_user_id=1, domain="example.com")
-    old_site_id = app.site_id
-    old_secret = app.app_secret
-    rotated = await svc.rotate_api_key(app.id)  # type: ignore[arg-type]
-    # site_id 不变，旧 Redis key 仍存在（不再删除旧 key 后重建新 key）
-    assert rotated.site_id == old_site_id
-    assert rotated.app_secret != old_secret
-    payload = _parse(redis.store[f"fangyu:app_keys:{old_site_id}"])
-    assert payload["app_id"] == app.id
+    svc = SiteService(_StubSiteRepo(), app_key_sync=AppKeyRedisSync(redis))
+    site, old_secret = await svc.create(app_id=1, name="demo", domain="example.com")
+    old_key = site.site_key
+    rotated, new_secret = await svc.rotate_secret(site.id)  # type: ignore[arg-type]
+    assert rotated.site_key == old_key
+    assert new_secret != old_secret
+    payload = _parse(redis.store[f"fangyu:app_keys:{old_key}"])
+    assert payload["app_id"] == site.id
+    assert payload.get("app_secret") == new_secret
 
 
 @pytest.mark.asyncio
-async def test_app_service_delete_unbinds_key():
+async def test_site_service_delete_unbinds_key():
     redis = _FakeRedis()
-    repo = _StubRepo()
-    svc = AppService(repo, app_key_sync=AppKeyRedisSync(redis))
-    app = await svc.create(name="demo", owner_user_id=1, domain="example.com")
-    # 直接改成非 active 才允许删除（通过 repo 直接改，绕过 service 权限校验）
-    stored = repo._store[app.id]
-    stored.is_active = False
-    await svc.delete(app.id)  # type: ignore[arg-type]
+    repo = _StubSiteRepo()
+    svc = SiteService(repo, app_key_sync=AppKeyRedisSync(redis))
+    site, _secret = await svc.create(app_id=1, name="demo", domain="example.com")
+    # 激活状态不允许删除，先直接改仓储里的状态绕过业务校验
+    repo._store[site.id].is_active = False  # type: ignore[index]
+    await svc.delete(site.id)  # type: ignore[arg-type]
     assert redis.store == {}
 
 

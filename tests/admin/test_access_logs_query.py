@@ -37,7 +37,7 @@ async def test_list_paged_builds_filters():
     service, ch = _service()
     start, end = _window()
     rows, total = await service.list_paged(
-        app_id=1,
+        site_id=1,
         start=start,
         end=end,
         filters={"request_id": "req-1", "ip": "1.1.1.1", "verdict": "trusted"},
@@ -57,7 +57,7 @@ async def test_list_paged_ignores_unknown_filter_columns():
     service, ch = _service()
     start, end = _window()
     await service.list_paged(
-        app_id=1,
+        site_id=1,
         start=start,
         end=end,
         filters={"ip = '1' OR 1=1 --": "x", "evil_col": "y"},
@@ -73,7 +73,7 @@ async def test_list_paged_selects_parsed_columns():
     """UA / MMDB 解析结果必须在投影里，否则设备维度分析无法进行。"""
     service, ch = _service()
     start, end = _window()
-    await service.list_paged(app_id=1, start=start, end=end)
+    await service.list_paged(site_id=1, start=start, end=end)
     sql = ch.calls[0][0]
     for col in ("device_type", "os_name", "browser_name", "country", "asn", "connection_type"):
         assert col in sql
@@ -83,7 +83,7 @@ async def test_list_paged_selects_parsed_columns():
 async def test_list_paged_is_bot_filter():
     service, ch = _service()
     start, end = _window()
-    await service.list_paged(app_id=1, start=start, end=end, is_bot=True)
+    await service.list_paged(site_id=1, start=start, end=end, is_bot=True)
     assert any(params.get("is_bot") == 1 for _, params in ch.calls)
 
 
@@ -91,14 +91,14 @@ async def test_list_paged_is_bot_filter():
 async def test_list_paged_offset_never_negative():
     service, ch = _service()
     start, end = _window()
-    await service.list_paged(app_id=1, start=start, end=end, page=0, page_size=20)
+    await service.list_paged(site_id=1, start=start, end=end, page=0, page_size=20)
     assert all(params.get("offset", 0) >= 0 for _, params in ch.calls)
 
 
 @pytest.mark.asyncio
 async def test_get_traces_queries_cold_table():
     service, ch = _service()
-    await service.get_traces(app_id=1, request_id="req-1")
+    await service.get_traces(site_id=1, request_id="req-1")
     assert "decision_traces" in ch.calls[0][0]
 
 
@@ -106,7 +106,7 @@ async def test_get_traces_queries_cold_table():
 async def test_stats_groups_by_disposition_layers():
     service, ch = _service()
     start, end = _window()
-    await service.stats(app_id=1, start=start, end=end)
+    await service.stats(site_id=1, start=start, end=end)
     sql = ch.calls[0][0]
     assert "verdict" in sql
     assert "mechanism" in sql
@@ -117,5 +117,5 @@ async def test_stats_groups_by_disposition_layers():
 async def test_shadow_impact_uses_shadow_columns():
     service, ch = _service()
     start, end = _window()
-    await service.shadow_impact(app_id=1, start=start, end=end)
+    await service.shadow_impact(site_id=1, start=start, end=end)
     assert "shadow_rule_ids" in ch.calls[0][0]

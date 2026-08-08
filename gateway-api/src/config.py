@@ -66,7 +66,7 @@ class GatewaySettings(BaseSettings):
     app_key_header: str = "X-App-Key"
     app_key_redis_prefix: str = "fangyu:app_keys:"
     app_secret_redis_prefix: str = "fangyu:app_secrets:"
-    """app_id → app_secret 反向索引前缀，供挑战凭据签发/校验按 app_id 取密钥。"""
+    """site_id → site_secret 反向索引前缀，供挑战凭据签发/校验按 site_id 取密钥。"""
     app_key_cache_ttl: int = 60
     app_key_cache_max_size: int = 4096
 

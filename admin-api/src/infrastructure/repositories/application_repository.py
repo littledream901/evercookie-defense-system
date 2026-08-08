@@ -7,7 +7,7 @@ import uuid
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.infrastructure.repositories.models import ApplicationModel
+from src.infrastructure.repositories.models import ApplicationModel, SiteModel
 
 
 def _gen_app_key() -> str:
@@ -29,6 +29,16 @@ class ApplicationRepository:
     async def list_by_owner(self, owner_id: int) -> list[ApplicationModel]:
         stmt = select(ApplicationModel).where(ApplicationModel.owner_user_id == owner_id)
         return list((await self._session.execute(stmt)).scalars().all())
+
+    async def get_names(self, app_ids: list[int]) -> dict[int, str]:
+        """批量取应用名，供站点列表回填 app_name，避免逐条查询。"""
+        if not app_ids:
+            return {}
+        stmt = select(ApplicationModel.id, ApplicationModel.name).where(
+            ApplicationModel.id.in_(app_ids)
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return {row[0]: row[1] for row in rows}
 
     async def list_active_bindings(self) -> list[tuple[str, int, str]]:
         """启动引导：拉 (app_key, id, app_secret)，用于全量刷新 Redis 映射。"""
@@ -135,7 +145,20 @@ class ApplicationRepository:
 
     async def count_sites(self, app_id: int) -> int:
         """统计应用下的站点数量。"""
-        from src.infrastructure.repositories.models import SiteModel
-        
         stmt = select(func.count()).select_from(SiteModel).where(SiteModel.app_id == app_id)
         return (await self._session.execute(stmt)).scalar_one()
+
+    async def count_sites_batch(self, app_ids: list[int]) -> dict[int, int]:
+        """批量统计站点数，供应用列表使用，避免逐条查询。"""
+        if not app_ids:
+            return {}
+        stmt = (
+            select(SiteModel.app_id, func.count())
+            .where(SiteModel.app_id.in_(app_ids))
+            .group_by(SiteModel.app_id)
+        )
+        rows = (await self._session.execute(stmt)).all()
+        counts = {aid: 0 for aid in app_ids}
+        for app_id, count in rows:
+            counts[app_id] = count
+        return counts

@@ -66,7 +66,7 @@
 <script setup lang="ts">
   import { formatTime } from '@/utils/format'
   import { fetchGetPoolDistribution } from '@/api/logs'
-  import { fetchGetAppList } from '@/api/apps'
+  import { fetchGetSiteList } from '@/api/apps'
   import { recentRange } from '@/constants/fangyu'
 
   defineOptions({ name: 'PoolDistributionChart' })
@@ -127,7 +127,7 @@
   const loadApps = async () => {
     appLoading.value = true
     try {
-      const res = await fetchGetAppList({ page: 1, pageSize: 100 })
+      const res = await fetchGetSiteList({ page: 1, pageSize: 100 })
       appOptions.value = (res.items || []).map((i: any) => ({ label: i.name, value: i.id }))
       // 默认选中第一个站点，避免面板初始为空让人以为功能没生效
       if (!siteId.value && appOptions.value.length) {

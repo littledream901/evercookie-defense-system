@@ -11,11 +11,12 @@
 </template>
 
 <script setup lang="ts">
-  import { APP_STATUS_OPTIONS } from '@/constants/fangyu'
+  import { fetchGetApplicationList } from '@/api/apps'
 
   type AppSearchFormParams = {
     keyword?: string
-    status?: string
+    appId?: number
+    is_active?: boolean
     access_mode?: string
   }
 
@@ -47,24 +48,53 @@
    */
   const rules = {}
 
+  /** 应用下拉选项 */
+  const appOptions = ref<Array<{ label: string; value: number }>>([])
+  const appLoading = ref(false)
+
+  onMounted(async () => {
+    appLoading.value = true
+    try {
+      const res = await fetchGetApplicationList({ page: 1, pageSize: 100 })
+      appOptions.value = (res.items || []).map((app) => ({ label: app.name, value: app.id }))
+    } finally {
+      appLoading.value = false
+    }
+  })
+
   /**
    * 搜索表单配置项
    */
   const formItems = computed(() => [
     {
-      label: '应用名',
+      label: '站点名 / 域名',
       key: 'keyword',
       type: 'input',
-      placeholder: '请输入应用名关键词',
+      placeholder: '请输入站点名或域名关键词',
       clearable: true
     },
     {
-      label: '状态',
-      key: 'status',
+      label: '所属应用',
+      key: 'appId',
       type: 'select',
       props: {
-        placeholder: '请选择状态',
-        options: APP_STATUS_OPTIONS,
+        placeholder: '请选择应用',
+        options: appOptions.value,
+        loading: appLoading.value,
+        filterable: true,
+        clearable: true
+      }
+    },
+    {
+      label: '启用状态',
+      key: 'is_active',
+      type: 'select',
+      props: {
+        placeholder: '请选择启用状态',
+        options: [
+          { label: '已启用', value: true },
+          { label: '已停用', value: false }
+        ],
         clearable: true
       }
     },

@@ -1,6 +1,6 @@
 """频控阈值与封禁管理路由。
 
-补齐 V2 的一处链路缺口：``fangyu:clock:limits:{app_id}`` 此前只有 gateway 侧
+补齐 V2 的一处链路缺口：``fangyu:clock:limits:{site_id}`` 此前只有 gateway 侧
 读取方、没有写入方，导致站点级阈值永远走默认值。
 """
 

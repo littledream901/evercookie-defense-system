@@ -25,10 +25,10 @@ from redis.asyncio import Redis
 
 
 class WhitelistSync:
-    """app 级白名单的 Redis 读写。
+    """站点级白名单的 Redis 读写。
 
     白名单只存 Redis，没有 DB 表。这是计划限定的范围（`fangyu:whitelist:
-    {app_id}`），也是白名单与频控阈值的关键差别：阈值有默认值兜底，丢了只是
+    {site_id}`），也是白名单与频控阈值的关键差别：阈值有默认值兜底，丢了只是
     回到默认防护；白名单丢了没有任何兜底。因此 Redis 持久化配置（AOF/RDB）
     是这个功能的前提，运维文档里要写明。
     """
@@ -38,7 +38,7 @@ class WhitelistSync:
 
     async def add(
         self,
-        app_id: int,
+        site_id: int,
         dimension: WhitelistDimension,
         value: str,
         *,
@@ -53,7 +53,7 @@ class WhitelistSync:
         now_ms = utcnow_ms()
         meta = {"note": note, "createdBy": created_by, "createdAtMs": now_ms}
         await self._redis.hset(  # type: ignore[misc]
-            whitelist_key(app_id), field_name(dimension, value), orjson.dumps(meta)
+            whitelist_key(site_id), field_name(dimension, value), orjson.dumps(meta)
         )
         return {
             "dimension": dimension.value,
@@ -64,34 +64,34 @@ class WhitelistSync:
         }
 
     async def remove(
-        self, app_id: int, dimension: WhitelistDimension, value: str
+        self, site_id: int, dimension: WhitelistDimension, value: str
     ) -> bool:
         """删除一条。返回是否确实删掉了（用于区分 404）。"""
         removed = await self._redis.hdel(  # type: ignore[misc]
-            whitelist_key(app_id), field_name(dimension, value)
+            whitelist_key(site_id), field_name(dimension, value)
         )
         return bool(removed)
 
     async def get(
-        self, app_id: int, dimension: WhitelistDimension, value: str
+        self, site_id: int, dimension: WhitelistDimension, value: str
     ) -> dict[str, Any] | None:
         """查询单条。不存在返回 ``None``。"""
         raw = await self._redis.hget(  # type: ignore[misc]
-            whitelist_key(app_id), field_name(dimension, value)
+            whitelist_key(site_id), field_name(dimension, value)
         )
         if raw is None:
             return None
         return _entry(dimension, value, raw)
 
-    async def list_entries(self, app_id: int) -> list[dict[str, Any]]:
-        """列出某 app 的全部白名单。
+    async def list_entries(self, site_id: int) -> list[dict[str, Any]]:
+        """列出某站点的全部白名单。
 
         用 ``HGETALL`` 而不是 ``HSCAN``：白名单是人工维护的准入清单，量级在
         几十到几百条，一次取回比游标分页简单得多。这个前提由写入侧的
         :data:`MAX_ENTRIES_PER_APP` 保证——不设上限的话，某天有人脚本批量灌
         十万条，这里就会阻塞 Redis。
         """
-        raw_map = await self._redis.hgetall(whitelist_key(app_id))  # type: ignore[misc]
+        raw_map = await self._redis.hgetall(whitelist_key(site_id))  # type: ignore[misc]
         out: list[dict[str, Any]] = []
         for field, raw in (raw_map or {}).items():
             parsed = parse_field(_text(field))
@@ -103,13 +103,13 @@ class WhitelistSync:
         out.sort(key=lambda e: (e["dimension"], e["value"]))
         return out
 
-    async def count(self, app_id: int) -> int:
+    async def count(self, site_id: int) -> int:
         """当前条目数。写入前做上限校验用。"""
-        return int(await self._redis.hlen(whitelist_key(app_id)))  # type: ignore[misc]
+        return int(await self._redis.hlen(whitelist_key(site_id)))  # type: ignore[misc]
 
-    async def clear(self, app_id: int) -> int:
-        """清空某 app 的白名单，返回删除条数。"""
-        key = whitelist_key(app_id)
+    async def clear(self, site_id: int) -> int:
+        """清空某站点的白名单，返回删除条数。"""
+        key = whitelist_key(site_id)
         size = int(await self._redis.hlen(key))  # type: ignore[misc]
         if size:
             await self._redis.delete(key)

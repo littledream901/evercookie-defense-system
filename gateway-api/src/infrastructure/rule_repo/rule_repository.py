@@ -16,7 +16,6 @@ from redis.asyncio import Redis
 
 from fangyu_shared.schemas.rule import DecisionRule, RuleGroup, RuleSet, ScoringRule
 
-_REDIS_PREFIX = "fangyu:rules"
 _GROUP_PREFIX = "fangyu:rule_groups"
 
 # admin 侧 RuleCache 换页时随快照写入的代次字段，不是规则，解析时必须跳过，
@@ -54,18 +53,18 @@ class RuleRepository:
         self._local: dict[int, _CacheEntry] = {}
         self._lock = asyncio.Lock()
 
-    async def get_rule_set(self, app_id: int) -> RuleSet:
-        entry = self._local.get(app_id)
+    async def get_rule_set(self, site_id: int) -> RuleSet:
+        entry = self._local.get(site_id)
         now = time.time()
         if entry and entry.expires_at > now:
             return entry.rule_set
 
         async with self._lock:
-            entry = self._local.get(app_id)
+            entry = self._local.get(site_id)
             if entry and entry.expires_at > now:
                 return entry.rule_set
-            rule_set, version = await self._load_from_redis(app_id)
-            self._local[app_id] = _CacheEntry(
+            rule_set, version = await self._load_from_redis(site_id)
+            self._local[site_id] = _CacheEntry(
                 rule_set=rule_set,
                 expires_at=now + self._config.local_ttl_seconds,
                 version=version,
@@ -108,7 +107,7 @@ class RuleRepository:
                 continue
 
         groups: list[RuleGroup] = []
-        raw_groups: dict[str, Any] = await self._redis.hgetall(f"{_GROUP_PREFIX}:{app_id}")
+        raw_groups: dict[str, Any] = await self._redis.hgetall(f"{_GROUP_PREFIX}:{site_id}")
         for raw in raw_groups.values():
             try:
                 groups.append(RuleGroup.model_validate(orjson.loads(raw)))
@@ -116,7 +115,7 @@ class RuleRepository:
                 continue
 
         rule_set = RuleSet(
-            appId=app_id,
+            siteId=site_id,
             decisionRules=decision_rules,
             scoringRules=scoring_rules,
             groups=groups,

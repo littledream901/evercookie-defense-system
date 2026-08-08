@@ -46,10 +46,10 @@ def _build_app(redis) -> FastAPI:
 
     @app.middleware("http")
     async def inject_app_key(request, call_next):
-        resolved_id = request.headers.get("x-test-resolved-app-id")
+        resolved_id = request.headers.get("x-test-resolved-site-id")
         if resolved_id:
             request.state.resolved_app_key = ResolvedAppKey(
-                app_id=int(resolved_id), api_key="resolved_key"
+                site_id=int(resolved_id), api_key="resolved_key"
             )
         if request.headers.get("x-test-app-key"):
             request.state.app_key = request.headers["x-test-app-key"]
@@ -130,8 +130,8 @@ async def test_decision_rate_limit_falls_back_to_ip_without_app_key():
 
 
 @pytest.mark.asyncio
-async def test_decision_rate_limit_prefers_resolved_app_id():
-    """限流主体优先取 AppKeyEnforcementMiddleware 解析出的 app_id。"""
+async def test_decision_rate_limit_prefers_resolved_site_id():
+    """限流主体优先取 AppKeyEnforcementMiddleware 解析出的 site_id。"""
     redis = _StubRedis()
     app = _build_app(redis)
 
@@ -139,11 +139,11 @@ async def test_decision_rate_limit_prefers_resolved_app_id():
         resp = await client.post(
             "/v2/decide",
             json={"event": "login"},
-            headers={"x-test-resolved-app-id": "42"},
+            headers={"x-test-resolved-site-id": "42"},
         )
 
     assert resp.status_code == 200
-    assert redis.calls == ["decide:app:42"]
+    assert redis.calls == ["decide:site:42"]
 
 
 @pytest.mark.asyncio

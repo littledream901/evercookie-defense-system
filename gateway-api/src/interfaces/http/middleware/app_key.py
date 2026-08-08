@@ -127,30 +127,30 @@ class AppKeyResolver:
         credential = await self.resolve_credential(api_key)
         return credential.site_id if credential else None
 
-    async def get_secret_by_app_id(self, app_id: int) -> str | None:
-        """反向查询：从 app_id 拿 app_secret，用于 challenge token 签发与校验。
+    async def get_secret_by_site_id(self, site_id: int) -> str | None:
+        """反向查询：从 site_id 拿 site_secret，用于 challenge token 签发与校验。
 
         两级查找：
         1. 本地凭据缓存（热路径，decide 刚鉴权过时命中）
-        2. Redis 反向索引 ``fangyu:app_secrets:{app_id}``，由 admin 侧 bind 时写入
+        2. Redis 反向索引 ``fangyu:app_secrets:{site_id}``，由 admin 侧 bind 时写入
 
-        必须有第 2 级：正向键以 api_key 作后缀无法按 app_id 检索，只扫本地缓存时
-        多 worker 部署下处理 /challenge/verify 的进程往往不是处理 /decide 的那个，
+        必须有第 2 级：正向键以 api_key 作后缀无法按 site_id 检索，只扫本地缓存时
+        多进程部署下处理 /challenge/verify 的进程往往不是处理 /decide 的那个，
         缓存必然未命中，挑战校验会静默失败。
 
         fail-open：Redis 异常返回 None，由外层降级（签发失败不阻断决策）。
         """
         now = time.monotonic()
-        for api_key, (credential, expire_at) in self._cache.items():
+        for _api_key, (credential, expire_at) in self._cache.items():
             if expire_at > now and credential.site_id == site_id and credential.site_secret:
                 return credential.site_secret
 
-        if app_id <= 0:
+        if site_id <= 0:
             return None
         try:
-            raw: Any = await self._redis.get(f"{self._secret_prefix}{app_id}")
+            raw: Any = await self._redis.get(f"{self._secret_prefix}{site_id}")
         except Exception as exc:  # noqa: BLE001 - Redis 抖动不应让挑战链路抛错
-            _logger.warning("app_secret_index_lookup_failed", app_id=app_id, error=str(exc))
+            _logger.warning("site_secret_index_lookup_failed", site_id=site_id, error=str(exc))
             return None
         if raw is None:
             return None
@@ -252,8 +252,8 @@ async def verify_request_signature(
 
     参数取自 JSON body（适配器统一用 POST + JSON）。GET 请求回退到 query。
     """
-    if not credential.app_secret:
-        return SignatureCheck(False, "no_app_secret")
+    if not credential.site_secret:
+        return SignatureCheck(False, "no_site_secret")
 
     params = await _signable_params(request)
     if params is None:
@@ -266,7 +266,7 @@ async def verify_request_signature(
     if not is_timestamp_fresh(params.get("timestamp"), window=window):
         return SignatureCheck(False, "stale_timestamp")
 
-    if not verify_params_signature(params, credential.app_secret, sign):
+    if not verify_params_signature(params, credential.site_secret, sign):
         return SignatureCheck(False, "bad_signature")
 
     # 验签通过后才占用 nonce：否则伪造请求能把合法访客的 nonce 提前烧掉。
@@ -274,7 +274,7 @@ async def verify_request_signature(
     if nonce_store is not None:
         if not nonce:
             return SignatureCheck(False, "missing_nonce")
-        if not await nonce_store.claim(credential.app_id, nonce):
+        if not await nonce_store.claim(credential.site_id, nonce):
             return SignatureCheck(False, "replayed_nonce")
 
     return SignatureCheck(True)
@@ -367,7 +367,7 @@ class AppKeyEnforcementMiddleware(BaseHTTPMiddleware):
             if not check.ok:
                 _logger.warning(
                     "request_signature_rejected",
-                    app_id=credential.app_id,
+                    site_id=credential.site_id,
                     reason=check.reason,
                     path=request.url.path,
                 )
@@ -376,7 +376,7 @@ class AppKeyEnforcementMiddleware(BaseHTTPMiddleware):
             verified = True
 
         request.state.resolved_app_key = ResolvedAppKey(
-            site_id=credential.app_id,  # credential.app_id 实际是站点主键
+            site_id=credential.site_id,
             api_key=api_key,
             signature_verified=verified,
         )
@@ -443,14 +443,14 @@ async def require_app_key(request: Request) -> ResolvedAppKey:
         if not check.ok:
             _logger.warning(
                 "request_signature_rejected",
-                app_id=credential.app_id,
+                site_id=credential.site_id,
                 reason=check.reason,
                 path=request.url.path,
             )
             raise AuthenticationException("API Key 无效或已失效")
 
     return ResolvedAppKey(
-        site_id=credential.app_id,  # credential.app_id 实际是站点主键
+        site_id=credential.site_id,
         api_key=api_key,
         signature_verified=bool(getattr(settings, "signature_required", False)),
     )

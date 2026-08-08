@@ -15,7 +15,7 @@ class ClockLimitsRepository:
 
     async def upsert(
         self,
-        app_id: int,
+        site_id: int,
         *,
         enabled: bool,
         windows: dict[str, int],
@@ -25,7 +25,7 @@ class ClockLimitsRepository:
         stmt = (
             mysql_insert(ClockLimitsModel)
             .values(
-                app_id=app_id,
+                site_id=site_id,
                 enabled=enabled,
                 windows=windows,
                 ban_seconds=ban_seconds,
@@ -40,16 +40,16 @@ class ClockLimitsRepository:
             )
         )
         await self._session.execute(stmt)
-        row = await self.get(app_id)
+        row = await self.get(site_id)
         return row  # type: ignore[return-value]
 
-    async def get(self, app_id: int) -> ClockLimitsModel | None:
+    async def get(self, site_id: int) -> ClockLimitsModel | None:
         return await self._session.scalar(
-            select(ClockLimitsModel).where(ClockLimitsModel.app_id == app_id)
+            select(ClockLimitsModel).where(ClockLimitsModel.site_id == site_id)
         )
 
-    async def delete(self, app_id: int) -> bool:
-        row = await self.get(app_id)
+    async def delete(self, site_id: int) -> bool:
+        row = await self.get(site_id)
         if row is None:
             return False
         await self._session.delete(row)

@@ -35,7 +35,7 @@ class WhitelistService:
 
     async def add(
         self,
-        app_id: int,
+        site_id: int,
         dimension: WhitelistDimension,
         value: str,
         *,
@@ -50,29 +50,29 @@ class WhitelistService:
         normalized = self._normalize(dimension, value)
 
         # 已存在的条目属于「改备注」，不占新配额，否则满额后连备注都改不了
-        existing = await self._sync.get(app_id, dimension, normalized)
-        if existing is None and await self._sync.count(app_id) >= MAX_ENTRIES_PER_APP:
+        existing = await self._sync.get(site_id, dimension, normalized)
+        if existing is None and await self._sync.count(site_id) >= MAX_ENTRIES_PER_APP:
             raise WhitelistError(
                 f"白名单条目已达上限 {MAX_ENTRIES_PER_APP}，请先清理无用条目"
             )
 
         return await self._sync.add(
-            app_id, dimension, normalized, note=note, created_by=created_by
+            site_id, dimension, normalized, note=note, created_by=created_by
         )
 
     async def remove(
-        self, app_id: int, dimension: WhitelistDimension, value: str
+        self, site_id: int, dimension: WhitelistDimension, value: str
     ) -> bool:
         """删除一条。值同样先规范化，否则 ``1.2.3.004`` 这类写法删不掉。"""
         return await self._sync.remove(
-            app_id, dimension, self._normalize(dimension, value)
+            site_id, dimension, self._normalize(dimension, value)
         )
 
-    async def list_entries(self, app_id: int) -> list[dict[str, Any]]:
-        return await self._sync.list_entries(app_id)
+    async def list_entries(self, site_id: int) -> list[dict[str, Any]]:
+        return await self._sync.list_entries(site_id)
 
-    async def clear(self, app_id: int) -> int:
-        return await self._sync.clear(app_id)
+    async def clear(self, site_id: int) -> int:
+        return await self._sync.clear(site_id)
 
     @staticmethod
     def _normalize(dimension: WhitelistDimension, value: str) -> str:

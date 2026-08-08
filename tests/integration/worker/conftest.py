@@ -48,7 +48,7 @@ async def worker_runtime(integration_env: dict) -> AsyncIterator[dict]:
             CREATE TABLE IF NOT EXISTS fangyu.decision_events
             (
                 event_id String,
-                app_id UInt64,
+                site_id UInt64,
                 fingerprint String,
                 device_id String DEFAULT '',
                 ip String,
@@ -69,7 +69,7 @@ async def worker_runtime(integration_env: dict) -> AsyncIterator[dict]:
             )
             ENGINE = ReplacingMergeTree(event_version)
             PARTITION BY toYYYYMMDD(occurred_at)
-            ORDER BY (event_id, app_id, occurred_at)
+            ORDER BY (event_id, site_id, occurred_at)
             """
         )
         await clickhouse.execute("TRUNCATE TABLE fangyu.decision_events")

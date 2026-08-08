@@ -46,8 +46,8 @@ class _MemoryNonceStore:
     def __init__(self) -> None:
         self.seen: set[tuple[int, str]] = set()
 
-    async def claim(self, app_id: int, nonce: str) -> bool:
-        entry = (app_id, nonce)
+    async def claim(self, site_id: int, nonce: str) -> bool:
+        entry = (site_id, nonce)
         if entry in self.seen:
             return False
         self.seen.add(entry)
@@ -70,17 +70,17 @@ def _build_app(
     @app.post("/v2/decide")
     async def _decide(request: Request) -> dict[str, Any]:
         state = getattr(request.state, "resolved_app_key", None)
-        return {"app_id": state.app_id if state else None}
+        return {"site_id": state.site_id if state else None}
 
     @app.post("/v2/decide/fast")
     async def _decide_fast(request: Request) -> dict[str, Any]:
         state = getattr(request.state, "resolved_app_key", None)
-        return {"app_id": state.app_id if state else None}
+        return {"site_id": state.site_id if state else None}
 
     @app.post("/v2/rule/test")
     async def _rule_test(request: Request) -> dict[str, Any]:
         state = getattr(request.state, "resolved_app_key", None)
-        return {"app_id": state.app_id if state else None}
+        return {"site_id": state.site_id if state else None}
 
     @app.get("/healthz")
     async def _healthz() -> dict[str, str]:
@@ -143,7 +143,7 @@ async def test_resolver_rejects_invalid_value():
 
 
 @pytest.mark.asyncio
-async def test_resolver_rejects_non_positive_app_id():
+async def test_resolver_rejects_non_positive_site_id():
     redis = _FakeRedis({"fangyu:app_keys:zero": "0"})
     resolver = AppKeyResolver(redis)
     assert await resolver.resolve("zero") is None
@@ -201,7 +201,7 @@ async def test_middleware_accepts_valid_key_and_injects_state():
             json={},
         )
     assert resp.status_code == 200
-    assert resp.json() == {"app_id": 99}
+    assert resp.json() == {"site_id": 99}
 
 
 @pytest.mark.asyncio
@@ -224,7 +224,7 @@ async def test_middleware_supports_bearer_scheme():
             json={},
         )
     assert resp.status_code == 200
-    assert resp.json() == {"app_id": 5}
+    assert resp.json() == {"site_id": 5}
 
 
 @pytest.mark.asyncio
@@ -234,7 +234,7 @@ async def test_middleware_bypass_when_not_required():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post("/v2/decide", json={})
     assert resp.status_code == 200
-    assert resp.json() == {"app_id": 0}
+    assert resp.json() == {"site_id": 0}
 
 
 @pytest.mark.asyncio
@@ -255,8 +255,8 @@ async def test_middleware_returns_json_error_when_resolver_raises():
 
 
 def test_resolved_app_key_dataclass_shape():
-    resolved = ResolvedAppKey(app_id=1, api_key="k")
-    assert resolved.app_id == 1
+    resolved = ResolvedAppKey(site_id=1, api_key="k")
+    assert resolved.site_id == 1
     assert resolved.api_key == "k"
     assert resolved.signature_verified is False
 
@@ -299,7 +299,7 @@ async def test_rule_test_accepts_valid_key():
             json={},
         )
     assert resp.status_code == 200
-    assert resp.json() == {"app_id": 77}
+    assert resp.json() == {"site_id": 77}
 
 
 # ---------------- 凭据解析（JSON / 旧格式） ----------------
@@ -307,17 +307,17 @@ async def test_rule_test_accepts_valid_key():
 
 @pytest.mark.asyncio
 async def test_resolver_parses_json_credential():
-    redis = _FakeRedis({"fangyu:app_keys:k": '{"app_id": 12, "app_secret": "sec"}'})
+    redis = _FakeRedis({"fangyu:app_keys:k": '{"site_id": 12, "site_secret": "sec"}'})
     cred = await AppKeyResolver(redis).resolve_credential("k")
-    assert cred == AppCredential(app_id=12, app_secret="sec")
+    assert cred == AppCredential(site_id=12, site_secret="sec")
 
 
 @pytest.mark.asyncio
 async def test_resolver_parses_legacy_plain_int():
-    """旧部署里存的是裸 app_id，升级期间必须继续可用（只是无法验签）。"""
+    """旧部署里存的是裸 site_id，升级期间必须继续可用（只是无法验签）。"""
     redis = _FakeRedis({"fangyu:app_keys:k": "9"})
     cred = await AppKeyResolver(redis).resolve_credential("k")
-    assert cred == AppCredential(app_id=9, app_secret=None)
+    assert cred == AppCredential(site_id=9, site_secret=None)
 
 
 @pytest.mark.asyncio
@@ -327,31 +327,31 @@ async def test_resolver_rejects_malformed_json():
 
 
 @pytest.mark.asyncio
-async def test_resolver_rejects_json_without_app_id():
-    redis = _FakeRedis({"fangyu:app_keys:k": '{"app_secret": "sec"}'})
+async def test_resolver_rejects_json_without_site_id():
+    redis = _FakeRedis({"fangyu:app_keys:k": '{"site_secret": "sec"}'})
     assert await AppKeyResolver(redis).resolve_credential("k") is None
 
 
 @pytest.mark.asyncio
 async def test_resolver_treats_empty_secret_as_absent():
-    redis = _FakeRedis({"fangyu:app_keys:k": '{"app_id": 3, "app_secret": ""}'})
+    redis = _FakeRedis({"fangyu:app_keys:k": '{"site_id": 3, "site_secret": ""}'})
     cred = await AppKeyResolver(redis).resolve_credential("k")
-    assert cred is not None and cred.app_secret is None
+    assert cred is not None and cred.site_secret is None
 
 
 @pytest.mark.asyncio
 async def test_resolver_accepts_bytes_value():
     """真实 redis-py 在未开 decode_responses 时返回 bytes。"""
     redis = _FakeRedis()
-    redis.store["fangyu:app_keys:k"] = b'{"app_id": 4, "app_secret": "s"}'  # type: ignore[assignment]
+    redis.store["fangyu:app_keys:k"] = b'{"site_id": 4, "site_secret": "s"}'  # type: ignore[assignment]
     cred = await AppKeyResolver(redis).resolve_credential("k")
-    assert cred == AppCredential(app_id=4, app_secret="s")
+    assert cred == AppCredential(site_id=4, site_secret="s")
 
 
 # ---------------- 签名强制 ----------------
 
 
-_SIGN_REDIS = {"fangyu:app_keys:live": '{"app_id": 8, "app_secret": "top-secret"}'}
+_SIGN_REDIS = {"fangyu:app_keys:live": '{"site_id": 8, "site_secret": "top-secret"}'}
 
 
 def _signed_body(secret: str = "top-secret", **overrides: Any) -> dict[str, Any]:
@@ -380,7 +380,7 @@ async def test_signed_request_passes():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post("/v2/decide", headers={"X-App-Key": "live"}, json=_signed_body())
     assert resp.status_code == 200
-    assert resp.json() == {"app_id": 8}
+    assert resp.json() == {"site_id": 8}
 
 
 @pytest.mark.asyncio

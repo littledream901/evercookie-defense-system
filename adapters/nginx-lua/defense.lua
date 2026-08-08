@@ -24,7 +24,7 @@ ngx.log(ngx.ERR, "[fangyu-test] ========== defense.lua loaded ==========")
 
     set $fangyu_gateway_url  "https://defense.example.com";
     set $fangyu_site_key     "site_xxxxxxxx";   -- 站点密钥字符串，用作 X-App-Key 请求头
-    set $fangyu_site_id      "1";               -- 站点数字主键（Site.id），用于 SDK 配置的 appId 参数
+    set $fangyu_site_id      "1";               -- 站点数字主键（Site.id），用于 SDK 配置的 siteId 参数
     set $fangyu_site_secret  "your_site_secret"; -- 站点签名密钥
     set $fangyu_fail_mode    "open";            -- "open" or "closed"
     set $fangyu_sdk_inject   "on";              -- "on"(默认) 或 "off"
@@ -152,7 +152,7 @@ local function check_environment()
   
   if SITE_ID == 0 then
     table.insert(errors, "$fangyu_site_id 未配置或无效（需要 > 0 的整数）")
-    ngx.log(ngx.ERR, "[fangyu] ERROR: $fangyu_site_id 未配置或无效（用于 SDK appId）")
+    ngx.log(ngx.ERR, "[fangyu] ERROR: $fangyu_site_id 未配置或无效（用于 SDK siteId）")
   end
   
   if SITE_SECRET == "" then
@@ -341,7 +341,14 @@ local function decide(context)
   })
 
   if not res or res.status < 200 or res.status >= 300 then
-    return nil, err or ("http " .. (res and res.status or "?"))
+    local err_msg = err or ("http " .. (res and res.status or "?"))
+    if res and res.body then
+      local body_preview = string.sub(res.body, 1, 512)
+      ngx.log(ngx.ERR, "[fangyu] decide failed: ", err_msg, ", response body (first 512 bytes): ", body_preview)
+    else
+      ngx.log(ngx.ERR, "[fangyu] decide failed: ", err_msg)
+    end
+    return nil, err_msg
   end
 
   local data, derr = cjson.decode(res.body)
@@ -353,6 +360,44 @@ local function decide(context)
 end
 
 -- ── Disposition execution ─────────────────────────────────────────────────────
+
+-- 向网关上报心跳（异步，失败不影响主流程）
+local function send_heartbeat(fingerprint)
+  if not fingerprint or fingerprint == "" then return end
+  
+  local now_ms = ngx.now() * 1000
+  local body = {
+    siteId = SITE_ID,
+    fingerprint = fingerprint,
+    sdkVersion = "nginx-adapter-2.0",
+    behaviorEvents = {
+      { kind = "page_view", ts = math.floor(now_ms), value = 1 }
+    }
+  }
+  
+  local signed_body = sign_body(body, SITE_SECRET)
+  local httpc = http.new()
+  httpc:set_timeout(3000)
+  
+  local res, err = httpc:request_uri(GATEWAY_URL .. "/v2/sdk/heartbeat", {
+    method = "POST",
+    headers = {
+      ["Content-Type"] = "application/json",
+      ["X-App-Key"] = SITE_KEY,
+    },
+    body = cjson.encode(signed_body),
+  })
+  
+  if not res then
+    ngx.log(ngx.WARN, "[fangyu] heartbeat failed: ", err)
+  elseif res.status < 200 or res.status >= 300 then
+    -- 记录响应体前 512 字节，便于定位签名/字段错误
+    local body_preview = string.sub(res.body or "", 1, 512)
+    ngx.log(ngx.WARN, "[fangyu] heartbeat rejected: HTTP ", res.status, ", body=", body_preview)
+  end
+  
+  httpc:close()
+end
 
 local function execute(payload)
   if not payload then return end
@@ -420,13 +465,12 @@ local function build_sdk_snippet(server_verdict, server_token)
   local sdk_src = SDK_URL ~= "" and SDK_URL
     or (GATEWAY_URL .. "/sdk/fangyu-sdk.min.js")
 
-  -- 键名必须与 SdkConfig 对齐：apiBase / apiKey / appId。
-  -- 旧的 gatewayUrl / siteId 在 SDK 里不存在，validateConfig() 会直接抛错。
-  -- 注意：apiKey 是站点密钥字符串（SITE_KEY），appId 是站点数字主键（SITE_ID）
+  -- 键名必须与 SdkConfig 对齐：apiBase / apiKey / siteId。
+  -- 注意：apiKey 是站点密钥字符串（SITE_KEY），siteId 是站点数字主键（SITE_ID）
   local ctx_json = cjson.encode({
     apiBase       = GATEWAY_URL,
     apiKey        = SITE_KEY,      -- 站点密钥字符串（site_xxxxxxxx）
-    appId         = SITE_ID,        -- 站点数字主键（Site.id）
+    siteId        = SITE_ID,       -- 站点数字主键（Site.id）
     serverVerdict = server_verdict or "unknown",
     serverToken   = server_token,
     blockedUrl    = BLOCKED_URL,
@@ -464,11 +508,11 @@ window.__fy_server_ctx = %s;
   }
   document.addEventListener('DOMContentLoaded', function () {
     if (typeof SdSdk === 'undefined') return;
-    if (!ctx.apiBase || !ctx.apiKey || !ctx.appId) return;
+    if (!ctx.apiBase || !ctx.apiKey || !ctx.siteId) return;
     // protect() 返回 Promise<{decision, applied}>；SDK 没有 onDecision 配置项，
     // 处置回调只能从这里取。autoApply:false 时由下面的分支自行执行。
     SdSdk.protect({
-      apiBase: ctx.apiBase, apiKey: ctx.apiKey, appId: ctx.appId,
+      apiBase: ctx.apiBase, apiKey: ctx.apiKey, siteId: ctx.siteId,
       serverToken: ctx.serverToken || '', autoApply: false, collectBehavior: true
     }).then(function (outcome) {
       var d = outcome && outcome.decision;
@@ -539,7 +583,7 @@ end
 ngx.log(ngx.ERR, "[fangyu-debug] Starting decision call for: ", context.visitUrl)
 ngx.log(ngx.ERR, "[fangyu-debug] Gateway URL: ", GATEWAY_URL)
 ngx.log(ngx.ERR, "[fangyu-debug] Site Key: ", SITE_KEY)
-ngx.log(ngx.ERR, "[fangyu-debug] Site ID (appId): ", SITE_ID)
+ngx.log(ngx.ERR, "[fangyu-debug] Site ID: ", SITE_ID)
 
 local payload, err = decide(context)
 
@@ -564,26 +608,31 @@ if payload and payload.mechanism ~= "pass" then
   return
 end
 
+-- 决策完成后异步上报心跳（使用 ngx.timer.at 避免阻塞主流程）
+if context.fingerprint then
+  local ok, err = ngx.timer.at(0, function(premature)
+    if not premature then
+      send_heartbeat(context.fingerprint)
+    end
+  end)
+  if not ok then
+    ngx.log(ngx.WARN, "[fangyu] failed to create heartbeat timer: ", err)
+  end
+end
+
 
 -- 第一层 pass（或网关不可达）→ 注入 SDK 到响应 HTML
 -- 使用 header_filter + body_filter 阶段实现；
--- 重要：proxy_pass 会导致 ngx.ctx 在子请求中丢失，必须用 ngx.var 传递！
+-- 重要：proxy_pass 会导致 ngx.ctx 在子请求中丢失，但 body_filter 阶段不受影响
 if SDK_INJECT ~= "off" then
   local server_verdict = payload and payload.verdict or "unknown"
   local snippet = build_sdk_snippet(server_verdict, server_token)
   
-  -- 存储到 Nginx 变量而不是 ngx.ctx，这样在 proxy_pass 后仍然可用
-  ngx.var.fy_sdk_snippet = snippet
+  -- 存入 ngx.ctx 供 body_filter 阶段注入（避免 ngx.var 的 4KB 限制）
+  ngx.ctx.fy_sdk_snippet = snippet
   
-  -- 验证赋值是否成功
-  if ngx.var.fy_sdk_snippet == snippet then
-    ngx.log(ngx.INFO, "[fangyu] SDK snippet 已准备 (", #snippet, " 字节), verdict: ", server_verdict)
-    ngx.log(ngx.ERR, "[fangyu-debug] SDK snippet prepared, verdict: ", server_verdict)
-  else
-    ngx.log(ngx.CRIT, "[fangyu] CRITICAL: SDK snippet 赋值失败！")
-    ngx.log(ngx.CRIT, "[fangyu] 可能原因: $fy_sdk_snippet 变量未声明")
-    ngx.log(ngx.CRIT, "[fangyu] 修复方法: 在 nginx.conf 中添加: set $fy_sdk_snippet \"\";")
-  end
+  ngx.log(ngx.INFO, "[fangyu] SDK snippet 已准备 (", #snippet, " 字节), verdict: ", server_verdict)
+  ngx.log(ngx.ERR, "[fangyu-debug] SDK snippet prepared, verdict: ", server_verdict)
 else
   ngx.log(ngx.WARN, "[fangyu] SDK 注入已禁用 (SDK_INJECT=off)")
 end
@@ -594,12 +643,12 @@ end
   server {
     # 必需的变量声明
     set $fangyu_gateway_url  "https://gateway.example.com";
-    set $fangyu_site_id      "site_xxxxxxxx";
-    set $fangyu_app_id       "1";
-    set $fangyu_app_secret   "your_secret";
+    set $fangyu_site_key     "site_xxxxxxxx";      # 站点密钥字符串，用作 X-App-Key 请求头
+    set $fangyu_site_id      "1";                  # 站点数字主键（Site.id），用于 SDK 配置的 siteId 参数
+    set $fangyu_site_secret  "your_site_secret";   # 站点签名密钥
     set $fangyu_fail_mode    "open";
     set $fangyu_sdk_inject   "on";
-    set $fy_sdk_snippet      "";  # ⚠️ 关键！
+    set $fy_sdk_snippet      "";                   # ⚠️ 关键！SDK 注入必需
 
     location / {
       # 第一层：access 阶段，决策+准备 SDK snippet

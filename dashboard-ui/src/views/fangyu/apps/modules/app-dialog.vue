@@ -10,8 +10,27 @@
       <ElTabs v-model="activeTab" type="border-card">
         <ElTabPane label="基础配置" name="basic">
           <div class="tab-pane-body">
-            <ElFormItem v-if="isEdit" label="站点 ID">
-              <span class="readonly-text">{{ form.site_id }}</span>
+            <ElFormItem v-if="isEdit" label="Site Key">
+              <span class="readonly-text">{{ appData?.site_key }}</span>
+            </ElFormItem>
+
+            <ElFormItem label="所属应用" prop="app_id">
+              <ElSelect
+                v-model="form.app_id"
+                placeholder="请选择所属应用"
+                :loading="appLoading"
+                :disabled="isEdit"
+                filterable
+                class="w-full"
+              >
+                <ElOption
+                  v-for="opt in appOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
+              </ElSelect>
+              <div v-if="isEdit" class="form-tip">所属应用创建后不可变更</div>
             </ElFormItem>
 
             <ElFormItem label="站点名称" prop="name">
@@ -147,7 +166,7 @@
 </template>
 
 <script setup lang="ts">
-import { fetchCreateApp, fetchUpdateApp } from '@/api/apps'
+import { fetchCreateSite, fetchUpdateSite, fetchGetApplicationList } from '@/api/apps'
 import { fetchGetAllRules, fetchBindRulesToSite } from '@/api/rules'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules, InputInstance } from 'element-plus'
@@ -163,7 +182,7 @@ interface Props {
 interface Emits {
   (e: 'update:visible', value: boolean): void
   (e: 'submit'): void
-  (e: 'created', site: Api.Fangyu.SiteCreateResponse): void
+  (e: 'created', site: Api.Fangyu.SiteDetail): void
 }
 
 const props = defineProps<Props>()
@@ -186,6 +205,20 @@ const rulesLoading = ref(false)
 const selectedRuleIds = ref<number[]>([])
 /** 规则绑定是否被修改（避免每次保存都调用 bind API） */
 const rulesChanged = ref(false)
+
+/** 应用选项（下拉用） */
+const appOptions = ref<Array<{ label: string; value: number }>>([])
+const appLoading = ref(false)
+
+const loadApplications = async () => {
+  appLoading.value = true
+  try {
+    const res = await fetchGetApplicationList({ page: 1, pageSize: 100 })
+    appOptions.value = (res.items || []).map((app) => ({ label: app.name, value: app.id }))
+  } finally {
+    appLoading.value = false
+  }
+}
 
 const loadAllRules = async () => {
   if (allRules.value.length) return
@@ -221,7 +254,7 @@ watch(activeTab, (tab) => {
 })
 
 const defaultForm = () => ({
-  site_id: '',
+  app_id: undefined as number | undefined,
   name: '',
   domain: '',
   alt_domains: [] as string[],
@@ -237,6 +270,7 @@ const defaultForm = () => ({
 const form = reactive(defaultForm())
 
 const rules: FormRules = {
+  app_id: [{ required: true, message: '请选择所属应用', trigger: 'change' }],
   name: [{ required: true, message: '请输入站点名称', trigger: 'blur' }],
   domain: [
     { required: true, message: '请输入主域名', trigger: 'blur' },
@@ -277,7 +311,7 @@ const initForm = () => {
     const s = props.appData
     Object.assign(form, {
       ...d,
-      site_id: s.site_id || '',
+      app_id: s.app_id,
       name: s.name || '',
       domain: s.domain || '',
       alt_domains: Array.isArray(s.alt_domains) ? [...s.alt_domains] : [],
@@ -305,6 +339,8 @@ watch(
     if (visible) {
       initForm()
       nextTick(() => formRef.value?.clearValidate())
+      // 应用列表用于「所属应用」下拉
+      loadApplications()
       // 预加载所有规则列表（避免切换 tab 时延迟）
       loadAllRules()
       // 如果是编辑模式，预加载当前站点的规则绑定
@@ -317,6 +353,7 @@ watch(
 )
 
 const buildCreatePayload = (): Api.Fangyu.SiteCreatePayload => ({
+  app_id: form.app_id!,
   name: form.name,
   domain: form.domain,
   alt_domains: form.alt_domains,
@@ -348,7 +385,7 @@ const handleSubmit = async () => {
   saving.value = true
   try {
     if (isEdit.value && props.appData?.id) {
-      await fetchUpdateApp(props.appData.id, buildUpdatePayload())
+      await fetchUpdateSite(props.appData.id, buildUpdatePayload())
       // 规则绑定有变更时，提交绑定关系
       if (rulesChanged.value && props.appData.id) {
         const res = await fetchBindRulesToSite(props.appData.id, selectedRuleIds.value)
@@ -374,7 +411,7 @@ const handleSubmit = async () => {
       dialogVisible.value = false
       emit('submit')
     } else {
-      const res = await fetchCreateApp(buildCreatePayload())
+      const res = await fetchCreateSite(buildCreatePayload())
       dialogVisible.value = false
       emit('created', res)
       emit('submit')

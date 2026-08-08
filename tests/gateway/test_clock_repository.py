@@ -262,7 +262,7 @@ async def test_zero_duration_ban_is_noop(repo: ClockRepository) -> None:
 @pytest.mark.asyncio
 async def test_limits_default_when_unset(repo: ClockRepository) -> None:
     limits = await repo.get_limits(42)
-    assert limits.app_id == 42
+    assert limits.site_id == 42
     assert limits.enabled is True
 
 
@@ -272,7 +272,7 @@ async def test_limits_read_from_redis(repo: ClockRepository, redis: _FakeRedis) 
     from fangyu_shared.clock.windows import limits_key
 
     redis.strings[limits_key(7)] = orjson.dumps(
-        {"appId": 7, "windows": {"burst": 3}, "banSeconds": 60}
+        {"siteId": 7, "windows": {"burst": 3}, "banSeconds": 60}
     )
     limits = await repo.get_limits(7)
     assert limits.windows["burst"] == 3
@@ -288,7 +288,7 @@ async def test_corrupt_limits_fall_back_to_default(
 
     redis.strings[limits_key(7)] = b"{not json"
     limits = await repo.get_limits(7)
-    assert limits == ClockLimits(appId=7)
+    assert limits == ClockLimits(siteId=7)
 
 
 # ---------- 行为时序：乱序修复 ----------

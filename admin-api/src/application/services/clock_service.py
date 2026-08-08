@@ -26,16 +26,16 @@ class ClockService:
         self._sync = sync
 
     # ---------- 阈值 ----------
-    async def get_limits(self, app_id: int) -> ClockLimits:
+    async def get_limits(self, site_id: int) -> ClockLimits:
         """读取阈值。未配置时返回默认值，与 gateway 的回退行为保持一致。"""
-        row = await self._repo.get(app_id)
+        row = await self._repo.get(site_id)
         if row is None:
-            return default_limits(app_id)
+            return default_limits(site_id)
         return self._to_limits(row)
 
     async def put_limits(
         self,
-        app_id: int,
+        site_id: int,
         *,
         enabled: bool,
         windows: dict[str, int],
@@ -48,14 +48,14 @@ class ClockService:
         超上限的封禁时长会在写库前就被拒绝，不会留下网关读不了的脏配置。
         """
         limits = ClockLimits(
-            appId=app_id,
+            siteId=site_id,
             enabled=enabled,
             windows=windows,
             banSeconds=ban_seconds,
             banEnabled=ban_enabled,
         )
         await self._repo.upsert(
-            app_id,
+            site_id,
             enabled=limits.enabled,
             windows=limits.windows,
             ban_seconds=limits.ban_seconds,
@@ -65,11 +65,11 @@ class ClockService:
         await self._sync.put_limits(limits)
         return limits
 
-    async def reset_limits(self, app_id: int) -> bool:
+    async def reset_limits(self, site_id: int) -> bool:
         """删除站点自定义阈值，回退到默认值。"""
-        deleted = await self._repo.delete(app_id)
+        deleted = await self._repo.delete(site_id)
         await self._session.commit()
-        await self._sync.delete_limits(app_id)
+        await self._sync.delete_limits(site_id)
         return deleted
 
     async def resync_all(self) -> dict[str, int]:
@@ -85,7 +85,7 @@ class ClockService:
     # ---------- 封禁 ----------
     async def ban(
         self,
-        app_id: int,
+        site_id: int,
         dimension: ClockDimension,
         value: str,
         *,
@@ -93,10 +93,10 @@ class ClockService:
         reason: str,
     ) -> dict[str, Any]:
         await self._sync.ban(
-            app_id, dimension, value, seconds=seconds, reason=reason
+            site_id, dimension, value, seconds=seconds, reason=reason
         )
         return {
-            "appId": app_id,
+            "siteId": site_id,
             "dimension": dimension.value,
             "value": value,
             "ttlSeconds": seconds,
@@ -104,18 +104,18 @@ class ClockService:
         }
 
     async def unban(
-        self, app_id: int, dimension: ClockDimension, value: str
+        self, site_id: int, dimension: ClockDimension, value: str
     ) -> bool:
-        return await self._sync.unban(app_id, dimension, value)
+        return await self._sync.unban(site_id, dimension, value)
 
     async def get_ban(
-        self, app_id: int, dimension: ClockDimension, value: str
+        self, site_id: int, dimension: ClockDimension, value: str
     ) -> dict[str, Any] | None:
-        return await self._sync.get_ban(app_id, dimension, value)
+        return await self._sync.get_ban(site_id, dimension, value)
 
     async def list_bans(
         self,
-        app_id: int,
+        site_id: int,
         *,
         dimension: ClockDimension | None = None,
         cursor: int = 0,
@@ -127,7 +127,7 @@ class ClockService:
         中间批次返回 0 条也完全正常，用条目数判断会提前截断列表。
         """
         next_cursor, items = await self._sync.scan_bans(
-            app_id, dimension=dimension, cursor=cursor, count=count
+            site_id, dimension=dimension, cursor=cursor, count=count
         )
         return {
             "items": items,
@@ -136,15 +136,15 @@ class ClockService:
         }
 
     async def unban_many(
-        self, app_id: int, items: list[tuple[ClockDimension, str]]
+        self, site_id: int, items: list[tuple[ClockDimension, str]]
     ) -> dict[str, int]:
-        removed = await self._sync.unban_many(app_id, items)
+        removed = await self._sync.unban_many(site_id, items)
         return {"requested": len(items), "removed": removed}
 
     @staticmethod
     def _to_limits(row: Any) -> ClockLimits:
         return ClockLimits(
-            appId=row.app_id,
+            siteId=row.site_id,
             enabled=row.enabled,
             windows=dict(row.windows or {}),
             banSeconds=row.ban_seconds,

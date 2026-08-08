@@ -55,13 +55,13 @@ class _StubClockRepo:
         self.touch_calls = 0
         self.behavior_calls: list[int] = []
         self.bans: list[tuple[ClockDimension, str, int]] = []
-        self.limits = ClockLimits(appId=1, windows={"burst": 10, "short": 100})
+        self.limits = ClockLimits(siteId=1, windows={"burst": 10, "short": 100})
 
-    async def get_limits(self, app_id: int) -> ClockLimits:
+    async def get_limits(self, site_id: int) -> ClockLimits:
         return self.limits
 
     async def touch_and_read(
-        self, app_id: int, *, ip_hash: str, fingerprint: str, now_ms: int
+        self, site_id: int, *, ip_hash: str, fingerprint: str, now_ms: int
     ) -> ClockReading:
         self.touch_calls += 1
         ban = BanState(banned=True, reason="manual") if self._banned else BanState(banned=False)
@@ -73,11 +73,11 @@ class _StubClockRepo:
             now_ms=now_ms,
         )
 
-    async def store_behavior(self, app_id, fingerprint, events, *, now_ms) -> int:
+    async def store_behavior(self, site_id, fingerprint, events, *, now_ms) -> int:
         self.behavior_calls.append(len(events))
         return len(events)
 
-    async def ban(self, app_id, dimension, value, *, seconds, reason) -> None:
+    async def ban(self, site_id, dimension, value, *, seconds, reason) -> None:
         self.bans.append((dimension, value, seconds))
 
 
@@ -87,19 +87,19 @@ class _StubDecisionCache:
         self.set_calls: list = []
         self.get_calls = 0
 
-    async def get(self, app_id, fingerprint, ip):
+    async def get(self, site_id, fingerprint, ip):
         self.get_calls += 1
         return self._hit
 
-    async def set(self, app_id, fingerprint, ip, cached) -> None:
+    async def set(self, site_id, fingerprint, ip, cached) -> None:
         self.set_calls.append(cached)
 
 
 class _StubProfileCache:
-    async def get_device(self, app_id, fingerprint):
+    async def get_device(self, site_id, fingerprint):
         return None
 
-    async def get_ip(self, app_id, ip):
+    async def get_ip(self, site_id, ip):
         return None
 
     async def set_device(self, *a, **kw) -> None:
@@ -110,8 +110,8 @@ class _StubProfileCache:
 
 
 class _StubRuleRepo:
-    async def get_rule_set(self, app_id):
-        return RuleSet(appId=app_id)
+    async def get_rule_set(self, site_id):
+        return RuleSet(siteId=site_id)
 
 
 class _StubMatcher:
@@ -167,7 +167,7 @@ def _build_service(
 
 def _request(**overrides) -> DecisionRequest:
     payload = {
-        "appId": 1,
+        "siteId": 1,
         "fingerprint": "fp_abc",
         "ip": "203.0.113.7",
         "userAgent": "Mozilla/5.0",
@@ -265,7 +265,7 @@ async def test_over_limit_escalates_to_ban() -> None:
 @pytest.mark.asyncio
 async def test_ban_skipped_when_disabled() -> None:
     repo = _StubClockRepo(counts={"burst": 999, "short": 999, "hour": 999})
-    repo.limits = ClockLimits(appId=1, windows={"burst": 10}, banEnabled=False)
+    repo.limits = ClockLimits(siteId=1, windows={"burst": 10}, banEnabled=False)
     service, _, _ = _build_service(repo)
 
     await service.decide(_request())

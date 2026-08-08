@@ -69,7 +69,7 @@ def context() -> dict:
     """真实评估上下文，走与线上决策完全相同的构建路径。"""
     return ProfileBuilder().build(
         DecisionContext(
-            appId=1,
+            siteId=1,
             fingerprint="fp-contract",
             ip="8.8.8.8",
             userAgent=_BROWSER_UA,
@@ -197,7 +197,7 @@ def test_request_namespace_not_overridable_by_client() -> None:
     """
     snapshot = ProfileBuilder().build(
         DecisionContext(
-            appId=1,
+            siteId=1,
             fingerprint="fp",
             ip="8.8.8.8",
             userAgent=_BROWSER_UA,

@@ -17,10 +17,10 @@ class PageResourceRepository:
         row = await self._session.get(PageResourceModel, resource_id)
         return self._to_domain(row) if row else None
 
-    async def get_by_name(self, app_id: int, name: str) -> PageResource | None:
+    async def get_by_name(self, site_id: int, name: str) -> PageResource | None:
         stmt = (
             select(PageResourceModel)
-            .where(PageResourceModel.app_id == app_id)
+            .where(PageResourceModel.site_id == site_id)
             .where(PageResourceModel.name == name)
             .limit(1)
         )
@@ -29,14 +29,14 @@ class PageResourceRepository:
 
     async def list_by_app(
         self,
-        app_id: int,
+        site_id: int,
         *,
         kind: PageResourceKind | None = None,
         enabled: bool | None = None,
         offset: int = 0,
         limit: int = 50,
     ) -> tuple[list[PageResource], int]:
-        base = select(PageResourceModel).where(PageResourceModel.app_id == app_id)
+        base = select(PageResourceModel).where(PageResourceModel.site_id == site_id)
         if kind is not None:
             base = base.where(PageResourceModel.kind == kind.value)
         if enabled is not None:
@@ -52,7 +52,7 @@ class PageResourceRepository:
 
     async def create(self, resource: PageResource) -> PageResource:
         model = PageResourceModel(
-            app_id=resource.app_id,
+            site_id=resource.site_id,
             name=resource.name,
             kind=resource.kind.value,
             content=resource.content,
@@ -90,7 +90,7 @@ class PageResourceRepository:
     def _to_domain(row: PageResourceModel) -> PageResource:
         return PageResource(
             id=row.id,
-            app_id=row.app_id,
+            site_id=row.site_id,
             name=row.name,
             kind=PageResourceKind(row.kind),
             content=row.content,

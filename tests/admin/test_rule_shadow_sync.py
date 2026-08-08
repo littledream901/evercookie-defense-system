@@ -25,7 +25,7 @@ _VERSION_FIELD = "__version__"
 def _rule(*, rid: int, status: RuleStatus, name: str = "r") -> DecisionRule:
     return DecisionRule(
         id=rid,
-        appId=0,
+        siteId=0,
         siteIds=[7],
         name=name,
         status=status,
@@ -73,11 +73,11 @@ class _FakeRedis:
 
     def rule_ids(self, site_id: int) -> set[str]:
         """某站点分片里的规则 id 集合（剔除代次字段）。"""
-        bucket = self.hashes.get(f"fangyu:rules:{site_id}", {})
+        bucket = self.hashes.get(f"fangyu:rules:site:{site_id}", {})
         return {k for k in bucket if k != _VERSION_FIELD}
 
     def payload(self, site_id: int, rule_id: int) -> dict:
-        return orjson.loads(self.hashes[f"fangyu:rules:{site_id}"][str(rule_id)])
+        return orjson.loads(self.hashes[f"fangyu:rules:site:{site_id}"][str(rule_id)])
 
 
 class _StubRepo:

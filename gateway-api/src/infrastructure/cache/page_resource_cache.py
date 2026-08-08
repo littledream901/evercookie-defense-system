@@ -2,7 +2,7 @@
 
 只读——内容由 admin-api 写入，gateway 仅做 HGET。
 Key 结构与 admin-api 侧保持一致:
-  fangyu:page_resources:{app_id}  field=name  value=JSON
+  fangyu:page_resources:{site_id}  field=name  value=JSON
 """
 
 from __future__ import annotations
@@ -27,10 +27,10 @@ class PageResourceCache:
     def __init__(self, redis: Redis) -> None:
         self._redis = redis
 
-    async def get(self, app_id: int, name: str) -> PageResourceEntry | None:
+    async def get(self, site_id: int, name: str) -> PageResourceEntry | None:
         """按资源名查找内容，未命中或 Redis 不可达均返回 None（fail-open）。"""
         try:
-            key = f"{_KEY_PREFIX}:{app_id}"
+            key = f"{_KEY_PREFIX}:{site_id}"
             raw = await self._redis.hget(key, name)
         except Exception:
             return None

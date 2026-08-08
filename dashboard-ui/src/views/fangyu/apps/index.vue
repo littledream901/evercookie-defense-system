@@ -110,45 +110,29 @@
           </div>
         </template>
 
-        <!-- 站点 ID / API Key 列 -->
-        <template #site_id="{ row }">
-          <div v-if="row.site_id" class="flex items-center gap-1 min-w-0">
-            <span
-              class="text-[12px] text-g-500 truncate"
-              style="font-family: ui-monospace, 'Cascadia Code', monospace; max-width: 160px"
-              :title="row.site_id"
-            >{{ row.site_id }}</span>
-            <ElButton link type="primary" :icon="CopyDocument" size="small" @click.stop="copyAppId(row.site_id)" />
-          </div>
+        <!-- 所属应用列 -->
+        <template #app_name="{ row }">
+          <ElButton
+            v-if="row.app_name"
+            link
+            type="primary"
+            class="text-[13px]"
+            @click="goToApplication(row.app_id)"
+          >
+            {{ row.app_name }}
+          </ElButton>
           <span v-else class="text-g-400 text-[12px]">—</span>
         </template>
 
-        <!-- App Secret 列（默认掩码，可展开查看/复制） -->
-        <template #app_secret="{ row }">
-          <div v-if="row.app_secret" class="flex items-center gap-1 min-w-0">
+        <!-- Site Key 列（用作 X-App-Key 请求头） -->
+        <template #site_key="{ row }">
+          <div v-if="row.site_key" class="flex items-center gap-1 min-w-0">
             <span
               class="text-[12px] text-g-500 truncate"
-              style="font-family: ui-monospace, 'Cascadia Code', monospace; max-width: 190px"
-              :title="revealedSecrets.has(row.id) ? row.app_secret : '点击右侧眼睛图标查看'"
-            >
-              {{ revealedSecrets.has(row.id) ? row.app_secret : maskSecret(row.app_secret) }}
-            </span>
-            <ElButton
-              link
-              type="primary"
-              size="small"
-              :icon="revealedSecrets.has(row.id) ? Hide : View"
-              :title="revealedSecrets.has(row.id) ? '隐藏' : '查看'"
-              @click.stop="toggleSecret(row.id)"
-            />
-            <ElButton
-              link
-              type="primary"
-              size="small"
-              :icon="CopyDocument"
-              title="复制 App Secret"
-              @click.stop="copyText(row.app_secret, 'App Secret')"
-            />
+              style="font-family: ui-monospace, 'Cascadia Code', monospace; max-width: 160px"
+              :title="row.site_key"
+            >{{ row.site_key }}</span>
+            <ElButton link type="primary" :icon="CopyDocument" size="small" @click.stop="copyText(row.site_key, 'Site Key')" />
           </div>
           <span v-else class="text-g-400 text-[12px]">—</span>
         </template>
@@ -312,17 +296,17 @@
   import { useTable } from '@/hooks/core/useTable'
   import { formatTime } from '@/utils/format'
   import {
-    fetchGetAppList,
-    fetchDeleteApp,
-    fetchPublishSnapshot,
-    fetchBatchPublishApps,
-    fetchRotateAppKey,
-    fetchUpdateApp,
-    fetchBatchDeleteApps,
-    fetchBatchToggleApps,
-    fetchBatchUpdateApps
+    fetchGetSiteList,
+    fetchDeleteSite,
+    fetchPublishSiteRules,
+    fetchBatchPublishSites,
+    fetchRotateSiteSecret,
+    fetchUpdateSite,
+    fetchBatchDeleteSites,
+    fetchBatchToggleSites,
+    fetchBatchUpdateSites
   } from '@/api/apps'
-  import { APP_STATUS_TAGS, APP_STATUS_OPTIONS, pruneParams, RULE_STATUS_TAGS, RULE_STATUS_LABELS } from '@/constants/fangyu'
+  import { pruneParams, RULE_STATUS_TAGS, RULE_STATUS_LABELS } from '@/constants/fangyu'
   import AppSearch from './modules/app-search.vue'
   import AppDialog from './modules/app-dialog.vue'
   import AppIntegrationDrawer from './modules/app-integration-drawer.vue'
@@ -334,45 +318,42 @@
     Upload,
     RefreshRight,
     Delete,
-    CopyDocument,
-    View,
-    Hide
+    CopyDocument
   } from '@element-plus/icons-vue'
   import type { DialogType } from '@/types'
 
   defineOptions({ name: 'FangyuApps' })
 
   type SiteItem = Api.Fangyu.Site
-  type SearchForm = { keyword?: string; status?: string; access_mode?: string }
+  type SearchForm = { keyword?: string; appId?: number; is_active?: boolean; access_mode?: string }
 
   const showSearchBar = ref(false)
   const dialogType = ref<DialogType>('add')
   const dialogVisible = ref(false)
   const currentSiteData = ref<Partial<SiteItem>>({})
-  const newSiteData = ref<Api.Fangyu.SiteCreateResponse | null>(null)
+  const newSiteData = ref<Api.Fangyu.SiteDetail | null>(null)
   const secretRevealVisible = ref(false)
   const secretRevealMode = ref<'create' | 'rotate'>('create')
   const integrationVisible = ref(false)
   const integrationSite = ref<Partial<SiteItem> | null>(null)
 
+  const router = useRouter()
+  const route = useRoute()
+
+  const goToApplication = (appId?: number) => {
+    if (!appId) return
+    router.push({ path: '/fangyu/applications', query: { appId: String(appId) } })
+  }
+
+  // 支持从应用管理页带 ?appId= 下钻，直接按应用过滤
+  const initialAppId = route.query.appId ? Number(route.query.appId) : undefined
+
   const searchForm = ref<SearchForm>({
     keyword: undefined,
-    status: undefined,
+    appId: Number.isNaN(initialAppId) ? undefined : initialAppId,
+    is_active: undefined,
     access_mode: undefined
   })
-
-  // ── App Secret 显隐 ────────────────────────────────────────────────────────
-  /** 已展开明文的行 id；默认掩码，避免共享屏幕时误泄露 */
-  const revealedSecrets = ref(new Set<number>())
-
-  const maskSecret = (secret: string) =>
-    secret.length <= 8 ? '••••••••' : `${secret.slice(0, 4)}${'•'.repeat(12)}${secret.slice(-4)}`
-
-  const toggleSecret = (id: number) => {
-    const next = new Set(revealedSecrets.value)
-    next.has(id) ? next.delete(id) : next.add(id)
-    revealedSecrets.value = next
-  }
 
   const copyText = async (text: string, label: string) => {
     try {
@@ -398,7 +379,7 @@
 
     togglingIds.value = new Set(togglingIds.value).add(row.id)
     try {
-      await fetchUpdateApp(row.id, { is_active: next })
+      await fetchUpdateSite(row.id, { is_active: next })
       ElMessage.success(`站点「${row.name}」已${next ? '启用' : '停用'}`)
       await refreshUpdate()
     } catch {
@@ -468,7 +449,7 @@
 
     batchLoading.value = true
     try {
-      const res = await fetchBatchToggleApps(
+      const res = await fetchBatchToggleSites(
         selectedRows.value.map((r) => r.id),
         isActive
       )
@@ -496,7 +477,7 @@
 
     batchLoading.value = true
     try {
-      const res = await fetchBatchDeleteApps(selectedRows.value.map((r) => r.id))
+      const res = await fetchBatchDeleteSites(selectedRows.value.map((r) => r.id))
       reportBatchResult(res, '删除')
       clearSelection()
       await refreshRemove()
@@ -521,7 +502,7 @@
 
     batchLoading.value = true
     try {
-      const res = await fetchBatchUpdateApps(payload)
+      const res = await fetchBatchUpdateSites(payload)
       reportBatchResult(res, '更新')
       batchEditVisible.value = false
       clearSelection()
@@ -544,7 +525,7 @@
 
     batchLoading.value = true
     try {
-      const res = await fetchBatchPublishApps(selectedRows.value.map((r) => r.id))
+      const res = await fetchBatchPublishSites(selectedRows.value.map((r) => r.id))
       reportBatchResult(res, '发布')
       clearSelection()
     } catch {
@@ -574,8 +555,8 @@
     if (!confirmed) return
 
     try {
-      await fetchPublishSnapshot(row.id)
-      ElMessage.success('快照发布成功，网关节点已更新')
+      await fetchPublishSiteRules(row.id)
+      ElMessage.success('规则缓存已重建，网关节点已更新')
     } catch {
       ElMessage.error('发布失败，请稍后重试')
     }
@@ -590,9 +571,9 @@
     if (!confirmed) return
 
     try {
-      const res = await fetchRotateAppKey(row.id)
+      const res = await fetchRotateSiteSecret(row.id)
       secretRevealMode.value = 'rotate'
-      newSiteData.value = res
+      newSiteData.value = { ...row, site_secret: res.site_secret }
       secretRevealVisible.value = true
       await refreshUpdate()
     } catch {
@@ -609,7 +590,7 @@
     if (!confirmed) return
 
     try {
-      await fetchDeleteApp(row.id)
+      await fetchDeleteSite(row.id)
       ElMessage.success(`站点「${row.name}」已删除`)
       await refreshRemove()
     } catch {
@@ -634,8 +615,8 @@
     refreshRemove
   } = useTable({
     core: {
-      apiFn: fetchGetAppList,
-      apiParams: { page: 1, pageSize: 20 },
+      apiFn: fetchGetSiteList,
+      apiParams: { page: 1, pageSize: 20, ...(searchForm.value.appId ? { appId: searchForm.value.appId } : {}) },
       columnsFactory: () => [
         { type: 'selection', width: 50 },
         { prop: 'id', label: 'ID', width: 60 },
@@ -646,27 +627,21 @@
           useSlot: true
         },
         {
-          prop: 'site_id',
-          label: 'Site ID',
+          prop: 'app_name',
+          label: '所属应用',
+          minWidth: 120,
+          useSlot: true
+        },
+        {
+          prop: 'site_key',
+          label: 'Site Key',
           minWidth: 150,
           useSlot: true
         },
         {
-          prop: 'app_secret',
-          label: 'App Secret',
-          minWidth: 250,
-          useSlot: true
-        },
-        {
-          prop: 'rule_name',
+          prop: 'rules',
           label: '绑定规则',
-          minWidth: 100,
-          useSlot: true
-        },
-        {
-          prop: 'rule_status',
-          label: '规则状态',
-          width: 100,
+          minWidth: 140,
           useSlot: true
         },
         {
@@ -708,21 +683,13 @@
     await refreshUpdate()
   }
 
-  const handleSiteCreated = (site: Api.Fangyu.SiteCreateResponse) => {
+  const handleSiteCreated = (site: Api.Fangyu.SiteDetail) => {
     secretRevealMode.value = 'create'
     newSiteData.value = site
     secretRevealVisible.value = true
     refreshCreate()
   }
 
-  const copyAppId = async (appId: string) => {
-    try {
-      await navigator.clipboard.writeText(appId)
-      ElMessage.success('已复制 App ID')
-    } catch {
-      ElMessage.error('复制失败，请手动复制')
-    }
-  }
 </script>
 
 <style scoped lang="scss">

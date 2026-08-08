@@ -33,13 +33,14 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 def _base(payload: AnalyticsBaseRequest) -> AnalyticsQuerySpec:
     """构建分析查询基础参数。
-    
+
     Args:
-        payload.site_id: 站点ID，对应 ClickHouse 的 app_id 列（
-    
+        payload.site_id: 站点 ID，对应 ClickHouse decision_events 的站点维度列。
+
     Note:
-        ClickHouse 的 app_id 列实际存储的是 site_id（
-        应用级聚合查询需要在上层实现
+        TODO(V3 改名): SQL 已按目标列名 site_id 生成，ClickHouse DDL 的
+        app_id → site_id 改名由另一个任务负责，两边需同批次上线。
+        应用级聚合查询需要在上层实现（先查询应用下的站点列表）。
     """
     return AnalyticsQuerySpec(
         site_id=payload.site_id,
@@ -113,7 +114,7 @@ async def rule_hit_rate(
     rule_id 与规则列表做本地映射。
     """
     spec = RuleHitRateSpec(
-        app_id=payload.site_id,
+        site_id=payload.site_id,
         start=payload.start,
         end=payload.end,
         limit=payload.limit,

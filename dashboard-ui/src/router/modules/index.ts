@@ -3,6 +3,7 @@ import { exceptionRoutes } from './exception'
 import {
   overviewRoutes,
   analyticsRoutes,
+  applicationsRoutes,
   appsRoutes,
   rulesRoutes,
   clockRoutes,
@@ -26,6 +27,7 @@ import {
 export const routeModules: AppRouteRecord[] = [
   overviewRoutes,
   analyticsRoutes,
+  applicationsRoutes,
   appsRoutes,
   rulesRoutes,
   clockRoutes,

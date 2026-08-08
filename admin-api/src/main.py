@@ -20,7 +20,7 @@ from src.config import AdminSettings, get_settings
 from src.infrastructure.cache.app_key_sync import AppKeyRedisSync
 from src.infrastructure.database import Database
 from src.infrastructure.rate_limiter import RateLimiter
-from src.infrastructure.repositories.app_repository import AppRepository
+from src.infrastructure.repositories.site_repository import SiteRepository
 from src.infrastructure.repositories.audit_repository import AuditLogRepository
 from src.infrastructure.scheduler import start_scheduler, stop_scheduler
 from src.interfaces.http.middleware import AuditLogMiddleware, LoginRateLimitMiddleware
@@ -85,10 +85,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 async def _bootstrap_app_key_bindings(settings: AdminSettings) -> None:
-    """启动时把 DB 中所有 active 应用的 api_key → app_id 映射刷进 Redis。
+    """启动时把 DB 中所有 active 站点的 site_key → site_id 映射刷进 Redis。
 
     保证 gateway 侧的 :class:`AppKeyResolver` 在冷启动后仍能命中缓存，
     并修复历史数据（例如手动写入 DB 但从未走 admin API 的场景）。
+
+    V3 双层架构下，网关 ``X-App-Key`` 携带的是 **站点** 的 site_key，
+    租户隔离维度也是 site_id，因此这里绑定的是站点而非应用。
     """
     try:
         redis = RedisManager.get_client()
@@ -98,10 +101,10 @@ async def _bootstrap_app_key_bindings(settings: AdminSettings) -> None:
             ttl_seconds=settings.app_key_redis_ttl_seconds or None,
         )
         async with Database.session() as session:
-            repo = AppRepository(session)
-            bindings = await repo.list_active_app_bindings()
-        for api_key, app_id, app_secret in bindings:
-            await sync.bind(api_key, app_id, app_secret)
+            repo = SiteRepository(session)
+            bindings = await repo.list_active_bindings()
+        for site_key, site_id, _app_id, site_secret in bindings:
+            await sync.bind(site_key, site_id, site_secret)
         _logger.info("app_key_bootstrap_done", count=len(bindings))
     except Exception as exc:  # pragma: no cover - 引导失败不阻塞启动
         _logger.error("app_key_bootstrap_failed", error=str(exc))
@@ -166,7 +169,7 @@ async def _bootstrap_scoring_config_sync() -> None:
             rows = await repo.list_all()
         for row in rows:
             await sync.put(
-                row.app_id,
+                row.site_id,
                 enabled=row.enabled,
                 threshold_suspect=row.threshold_suspect,
                 threshold_hostile=row.threshold_hostile,

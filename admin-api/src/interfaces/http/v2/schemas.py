@@ -151,114 +151,6 @@ class PermissionUpsertRequest(BaseSchema):
     description: str = Field(default="", max_length=255)
 
 
-# ---------- Application ----------
-class RuleBrief(BaseSchema):
-    """站点规则简要信息（用于站点列表展示）"""
-    name: str
-    status: str
-
-
-class AppSchema(BaseSchema):
-    id: int
-    site_id: str
-    """站点标识，同时用作 X-App-Key 请求头的值。"""
-    app_secret: str = ""
-    """HMAC 验签密钥，明文回显。"""
-    name: str
-    domain: str
-    alt_domains: list[str]
-    access_mode: str
-    status: str = "active"
-    sdk_version: str | None = None
-    gateway_url: str | None = None
-    is_active: bool
-    owner_user_id: int | None = None
-    clock_stats_enabled: bool
-    log_retention_days: int
-    remark: str | None = None
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
-    rules: list[RuleBrief] = []
-    """站点绑定的规则列表"""
-
-
-class AppCreateResponse(AppSchema):
-    """创建/轮换的响应。
-
-    与 AppSchema 结构一致（app_secret 已在基类中明文回显），
-    保留独立类型是为了让 OpenAPI 文档区分「创建结果」与「列表项」语义。
-    """
-
-
-class RuleBindResponse(BaseSchema):
-    """规则绑定响应（包含冲突检测结果）"""
-    bound: int
-    """绑定的规则数量"""
-    conflicts: dict = {}
-    """冲突检测结果：{"has_conflicts": bool, "high_severity_count": int, "conflicts": [...]}"""
-
-
-class AppListRequest(PageRequest):
-    keyword: str | None = None
-    status: Literal["active", "paused", "archived"] | None = None
-    access_mode: Literal["adapter", "sdk"] | None = None
-    owner_id: int | None = None
-
-
-class AppBatchDeleteRequest(BaseSchema):
-    """批量删除站点。"""
-
-    ids: list[int] = Field(min_length=1, max_length=100)
-
-
-class AppBatchToggleRequest(BaseSchema):
-    """批量启用 / 停用站点。"""
-
-    ids: list[int] = Field(min_length=1, max_length=100)
-    is_active: bool
-
-
-class AppBatchUpdateRequest(BaseSchema):
-    """批量修改站点通用配置；未传的字段保持原值。"""
-
-    ids: list[int] = Field(min_length=1, max_length=100)
-    access_mode: Literal["adapter", "sdk"] | None = None
-    clock_stats_enabled: bool | None = None
-    log_retention_days: int | None = Field(default=None, ge=1, le=365)
-
-
-class AppBatchResult(BaseSchema):
-    """批量操作结果；逐条执行，失败项不影响其他项。"""
-
-    succeeded: list[int] = Field(default_factory=list)
-    failed: list[dict[str, str]] = Field(default_factory=list)
-    """每项形如 {"id": "3", "reason": "激活状态的应用需先暂停后再删除"}。"""
-
-
-class AppCreateRequest(BaseSchema):
-    name: str = Field(min_length=1, max_length=128)
-    domain: str = Field(min_length=1, max_length=512)
-    alt_domains: list[str] = Field(default_factory=list)
-    access_mode: Literal["adapter", "sdk"] = "adapter"
-    sdk_version: str | None = None
-    gateway_url: str | None = None
-    clock_stats_enabled: bool = True
-    log_retention_days: int = Field(default=30, ge=1, le=365)
-    remark: str | None = Field(default=None, max_length=512)
-
-
-class AppUpdateRequest(BaseSchema):
-    name: str | None = None
-    alt_domains: list[str] | None = None
-    access_mode: Literal["adapter", "sdk"] | None = None
-    sdk_version: str | None = None
-    gateway_url: str | None = None
-    is_active: bool | None = None
-    clock_stats_enabled: bool | None = None
-    log_retention_days: int | None = Field(default=None, ge=1, le=365)
-    remark: str | None = None
-
-
 # ---------- 接入诊断 ----------
 class IngressStatSchema(BaseSchema):
     """单一接入来源（sdk / adapter）的实测指标。"""
@@ -400,7 +292,7 @@ class RuleHitRateRequest(BaseSchema):
     """规则命中率请求。
 
     不继承 ``AnalyticsBaseRequest``：命中率读日聚合 MV，用不上它的 ``filters``
-    （MV 里只有 log_date/app_id/rule_id 三个维度），带上一个静默失效的字段
+    （MV 里只有 log_date/site_id/rule_id 三个维度），带上一个静默失效的字段
     比没有更糟。
     """
 
@@ -414,7 +306,7 @@ class RuleHitRateRequest(BaseSchema):
 class ClockLimitsUpdateRequest(BaseSchema):
     """频控阈值更新请求。
 
-    这里刻意不复用 ``ClockLimits``：它带 ``app_id``，而 app_id 来自路径参数，
+    这里刻意不复用 ``ClockLimits``：它带 ``site_id``，而 site_id 来自路径参数，
     body 里再出现一次就有了两个真相来源，不一致时该信谁没有明确答案。
     窗口名与阈值范围的校验交给 service 层构造 ``ClockLimits`` 时统一执行，
     避免同一套规则在 DTO 和领域对象里写两遍。
@@ -459,7 +351,8 @@ class PageResourceUpdateRequest(BaseSchema):
 
 class PageResourceDetailResponse(BaseSchema):
     id: int | None
-    app_id: int = Field(alias="appId")
+    site_id: int = Field(alias="siteId")
+    app_id: int = Field(alias="appId", deprecated=True)
     name: str
     kind: PageResourceKind
     content: str
@@ -502,7 +395,7 @@ class WhitelistAddRequest(BaseSchema):
 # ---------- Scoring 评分配置 ----------
 class ScoringConfigSchema(BaseSchema):
     id: int
-    app_id: int
+    site_id: int
     name: str
     enabled: bool
     threshold_suspect: int

@@ -17,7 +17,7 @@ let stop: ReturnType<typeof vi.fn>;
 const baseConfig = {
   apiBase: 'https://gw.example.com',
   apiKey: 'site_abc12345',
-  appId: 7,
+  siteId: 7,
 };
 
 beforeEach(() => {

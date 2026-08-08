@@ -39,7 +39,7 @@ class _FakeCH:
 def _row(event_id: str) -> dict[str, Any]:
     return {
         "event_id": event_id,
-        "app_id": 1,
+        "site_id": 1,
         "schema_version": 1,
         "event_version": 1700000000000,
     }

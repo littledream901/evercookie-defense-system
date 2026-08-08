@@ -120,7 +120,7 @@ async def test_publish_rule_then_gateway_decide_emits_stream(
     assert body["ruleIds"] == [rule_id]
     assert body["details"][0]["ruleId"] == rule_id
 
-    redis_rules = await integration_redis.hgetall(f"fangyu:rules:{app_id}")
+    redis_rules = await integration_redis.hgetall(f"fangyu:rules:site:{app_id}")
     assert str(rule_id) in redis_rules
 
     stream_items = await integration_redis.xrange("fangyu:events:decision", min="-", max="+", count=10)

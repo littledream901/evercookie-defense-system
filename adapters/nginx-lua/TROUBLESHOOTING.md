@@ -71,9 +71,9 @@ server {
 
     # ★ 在这里添加 Fangyu 变量
     set $fangyu_gateway_url  "https://your-gateway.com";
-    set $fangyu_site_id      "site_xxxxxxxx";
-    set $fangyu_app_id       "12345";  # 必须是数字
-    set $fangyu_app_secret   "your_secret";
+    set $fangyu_site_key     "site_xxxxxxxx";
+    set $fangyu_site_id      "12345";  # 站点数字主键
+    set $fangyu_site_secret  "your_secret";
     set $fangyu_fail_mode    "open";
     set $fangyu_sdk_inject   "on";
     set $fangyu_sdk_url      "";
@@ -152,7 +152,7 @@ ngx.log(ngx.ERR, "[fangyu] Script loaded, version: 2024-08-07")
 
 ```lua
 ngx.log(ngx.ERR, "[fangyu] Config: GATEWAY_URL=", GATEWAY_URL, 
-        " SITE_ID=", SITE_ID, " APP_ID=", APP_ID)
+        " SITE_ID=", SITE_ID, " SITE_KEY=", SITE_KEY)
 ```
 
 在第 431 行后添加：
@@ -184,9 +184,9 @@ while true; do curl -s http://localhost/ > /dev/null; sleep 2; done
 location / {
     access_by_lua_block {
         ngx.log(ngx.ERR, "[debug] fangyu_gateway_url=", ngx.var.fangyu_gateway_url)
-        ngx.log(ngx.ERR, "[debug] fangyu_site_id=", ngx.var.fangyu_site_id)
-        ngx.log(ngx.ERR, "[debug] fangyu_app_secret=", 
-                ngx.var.fangyu_app_secret and "***SET***" or "EMPTY")
+        ngx.log(ngx.ERR, "[debug] fangyu_site_key=", ngx.var.fangyu_site_key)
+        ngx.log(ngx.ERR, "[debug] fangyu_site_secret=", 
+                ngx.var.fangyu_site_secret and "***SET***" or "EMPTY")
     }
     
     access_by_lua_file /path/to/defense.lua;
@@ -206,8 +206,8 @@ server {
     server_name _;
     
     set $fangyu_gateway_url  "";  # 故意留空，触发 not_configured
-    set $fangyu_site_id      "";
-    set $fangyu_app_secret   "";
+    set $fangyu_site_key     "";
+    set $fangyu_site_secret  "";
     set $fangyu_fail_mode    "open";
     
     location / {

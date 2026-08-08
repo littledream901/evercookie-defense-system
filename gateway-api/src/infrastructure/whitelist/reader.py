@@ -53,7 +53,7 @@ class WhitelistReader:
         self._redis = redis
 
     async def check(
-        self, app_id: int, *, ip: str, fingerprint: str
+        self, site_id: int, *, ip: str, fingerprint: str
     ) -> WhitelistHit:
         """判断 IP 或指纹是否在白名单中。
 
@@ -69,12 +69,12 @@ class WhitelistReader:
         fp_field = field_name(WhitelistDimension.FINGERPRINT, fingerprint)
         try:
             values = await self._redis.hmget(  # type: ignore[misc]
-                whitelist_key(app_id), [ip_field, fp_field]
+                whitelist_key(site_id), [ip_field, fp_field]
             )
         # 捕获全部异常：白名单在流水线最前面，任何 Redis 故障都不该把决策
         # 请求变成 500。收窄成 RedisError 会漏掉连接池耗尽等包装过的异常。
         except Exception as exc:
-            _logger.warning("whitelist_lookup_failed", app_id=app_id, error=str(exc))
+            _logger.warning("whitelist_lookup_failed", site_id=site_id, error=str(exc))
             return _MISS
 
         if not values:

@@ -1,0 +1,1004 @@
+[
+  {
+    "method": "GET",
+    "path": "/v1/intelligence/mmdb/status",
+    "url": "/v1/intelligence/mmdb/status",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"storage_dir\":\"\\\\data\\\\mmdb\",\"files\":[{\"file_type\":\"country\",\"exists\":true,\"size_bytes\":8741982,\"modified_at\":1785680530.6157582},{\"file_type\":\"asn\",\"exists\":true,\"size_bytes\":12057295,\"modified_at\":1785680535.4797237}]},\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v1/intelligence/mmdb/upload",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v1/intelligence/mmdb/{file_type}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v1/intelligence/mmdb/compare-cidrs",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/intelligence/mmdb/test",
+    "url": "/v1/intelligence/mmdb/test",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"ip\":\"8.8.8.8\",\"country\":{\"continent\":{\"code\":\"NA\",\"geoname_id\":6255149,\"names\":{\"de\":\"Nordamerika\",\"en\":\"North America\",\"es\":\"Norteamérica\",\"fr\":\"Amérique du Nord\",\"ja\":\"北アメリカ\",\"pt-BR\":\"América do Norte\",\"ru\":\"Северная Америка\",\"zh-CN\":\"北美洲\"}},\"country\":{\"geoname_id\":6252001,\"iso_code\":\"US\",\"names\":{\"de\":\"USA\",\"en\":\"United States\",\"es\":\"Estados Unidos\",\"fr\":\"États-Unis\",\"ja\":\"アメリカ\",\"pt-BR\":\"EUA\",\"ru\":\"США\",\"zh-CN\":\"美国\"}},\"registered_country\":{\"geoname_id\":6252001,\"iso_code\":\"US\",\"names\":{\"de\":\"USA\",\"en\":\"United States\",\"es\":\"Estados Unidos\",\"fr\":\"États-Unis\",\"ja\":\"アメリカ\",\"pt-BR\":\"EUA\",\"ru\":\"США\",\"zh-CN\":\"美国\"}}},\"asn\":{\"autonomous_system_number\":15169,\"autonomous_system_organization\":\"Google LLC\"}},\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/auth/login",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/auth/refresh",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/auth/me",
+    "url": "/v2/auth/me",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"user\":{\"id\":1,\"username\":\"admin\",\"email\":\"admin@fangyu.local\",\"display_name\":\"系统超级管理员\",\"status\":\"active\",\"role_ids\":[1],\"last_login_at\":\"2026-08-08T15:35:32.000Z\",\"created_at\":\"2026-08-02T10:15:40.000Z\",\"updated_at\":\"2026-08-08T15:35:31.000Z\"},\"role_names\":[\"super_admin\"],\"permissions\":[\"*\",\"audit.read\"]},\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/auth/change-password",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/auth/logout",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/users",
+    "url": "/v2/users",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"items\":[{\"id\":1,\"username\":\"admin\",\"email\":\"admin@fangyu.local\",\"display_name\":\"系统超级管理员\",\"status\":\"active\",\"role_ids\":[1],\"last_login_at\":\"2026-08-08T15:35:32.000Z\",\"created_at\":\"2026-08-02T10:15:40.000Z\",\"updated_at\":\"2026-08-08T15:35:31.000Z\"}],\"total\":1,\"page\":1,\"pageSize\":20},\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/users",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/users/{user_id}",
+    "url": "/v2/users/1",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"id\":1,\"username\":\"admin\",\"email\":\"admin@fangyu.local\",\"display_name\":\"系统超级管理员\",\"status\":\"active\",\"role_ids\":[1],\"last_login_at\":\"2026-08-08T15:35:32.000Z\",\"created_at\":\"2026-08-02T10:15:40.000Z\",\"updated_at\":\"2026-08-08T15:35:31.000Z\"},\"request_id\":null}"
+  },
+  {
+    "method": "PATCH",
+    "path": "/v2/users/{user_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/users/{user_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/users/{user_id}/reset-password",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/users/{user_id}/roles",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/api-keys",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/api-keys",
+    "url": "/v2/api-keys",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[{\"id\":1,\"user_id\":1,\"name\":\"生产环境\",\"key_prefix\":\"fy_Utzhz1tpC\",\"last_used_at\":null,\"status\":\"active\",\"created_at\":\"2026-08-07T02:41:10.000Z\"}],\"request_id\":null}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/api-keys/{key_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/roles",
+    "url": "/v2/roles",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[{\"id\":1,\"name\":\"super_admin\",\"description\":\"超级管理员，拥有全部权限\",\"is_system\":true,\"permissions\":[\"*\",\"audit.read\"],\"created_at\":\"2026-08-02T10:15:40.000Z\",\"updated_at\":\"2026-08-02T10:15:40.000Z\"},{\"id\":2,\"name\":\"admin\",\"description\":\"管理员，除权限元数据外拥有大部分权限\",\"is_system\":true,\"permissions\":[\"analytics.read\",\"app.*\",\"audit.read\",\"clock.read\",\"clock.write\",\"role.read\",\"rule.*\",\"threat_intel.read\",\"threat_intel.write\",\"user.read\",\"user.reset_password\",\"user.write\"],\"created_at\":\"2026-08-02T10:15:40.000Z\",\"updated_at\":\"2026-08-02T10:15:40.000Z\"},{\"id\":3,\"name\":\"operator\",\"description\":\"运营，管理规则与应用\",\"is_system\":true,\"permissions\":[\"analytics.read\",\"app.read\",\"app.write\",\"clock.read\",\"clock.write\",\"rule.*\",\"threat_intel.read\",\"threat_intel.write\"],\"created_at\":\"2026-08-02T10:15:40.000Z\",\"updated_at\":\"2026-08-02T10:15:40.000Z\"},{\"id\":4,\"name\":\"auditor\",\"description\":\"审计，只读\",\"is_system\":true,\"permissions\":[\"analytics.read\",\"app.read\",\"audit.read\",\"clock.read\",\"role.read\",\"rule.read\",\"threat_intel.read\",\"user.read\"],\"created_at\":\"2026-08-02T10:15:40.000Z\",\"updated_at\":\"2026-08-02T10:15:40.000Z\"}],\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/roles",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/roles/{role_id}",
+    "url": "/v2/roles/1",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"id\":1,\"name\":\"super_admin\",\"description\":\"超级管理员，拥有全部权限\",\"is_system\":true,\"permissions\":[\"*\",\"audit.read\"],\"created_at\":\"2026-08-02T10:15:40.000Z\",\"updated_at\":\"2026-08-02T10:15:40.000Z\"},\"request_id\":null}"
+  },
+  {
+    "method": "PATCH",
+    "path": "/v2/roles/{role_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/roles/{role_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/permissions",
+    "url": "/v2/permissions",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[{\"code\":\"analytics.read\",\"description\":\"查看分析数据\"},{\"code\":\"app.delete\",\"description\":\"删除应用\"},{\"code\":\"app.read\",\"description\":\"查看应用\"},{\"code\":\"app.rotate_key\",\"description\":\"轮换应用 API Key\"},{\"code\":\"app.write\",\"description\":\"创建/更新应用\"},{\"code\":\"audit.read\",\"description\":\"查看审计日志\"},{\"code\":\"clock.read\",\"description\":\"查看 Clock 阈值与封禁\"},{\"code\":\"clock.write\",\"description\":\"更新 Clock 阈值与封禁\"},{\"code\":\"permission.read\",\"description\":\"查看权限\"},{\"code\":\"permission.write\",\"description\":\"维护权限元数据\"},{\"code\":\"role.delete\",\"description\":\"删除角色\"},{\"code\":\"role.read\",\"description\":\"查看角色\"},{\"code\":\"role.write\",\"description\":\"创建/更新角色\"},{\"code\":\"rule.delete\",\"description\":\"删除规则\"},{\"code\":\"rule.publish\",\"description\":\"发布/回滚/同步规则\"},{\"code\":\"rule.read\",\"description\":\"查看规则\"},{\"code\":\"rule.write\",\"description\":\"创建/更新规则\"},{\"code\":\"threat_intel.read\",\"description\":\"查看威胁情报\"},{\"code\":\"threat_intel.write\",\"description\":\"创建/更新/删除威胁情报\"},{\"code\":\"user.delete\",\"description\":\"删除用户\"},{\"code\":\"user.read\",\"description\":\"查看用户\"},{\"code\":\"user.reset_password\",\"description\":\"重置用户密码\"},{\"code\":\"user.write\",\"description\":\"创建/更新用户\"}],\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/permissions",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/applications",
+    "url": "/v2/applications",
+    "status": 200,
+    "body": "{\"items\":[{\"id\":1,\"app_key\":\"app_default\",\"name\":\"默认应用\",\"description\":\"系统默认应用\",\"owner_user_id\":null,\"is_active\":true,\"site_count\":1,\"created_at\":\"2026-08-08T11:19:21\",\"updated_at\":\"2026-08-08T11:19:21\"}],\"total\":1,\"page\":1,\"page_size\":20}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/applications",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/applications/{app_id}",
+    "url": "/v2/applications/1",
+    "status": 200,
+    "body": "{\"id\":1,\"app_key\":\"app_default\",\"name\":\"默认应用\",\"description\":\"系统默认应用\",\"owner_user_id\":null,\"is_active\":true,\"site_count\":1,\"created_at\":\"2026-08-08T11:19:21\",\"updated_at\":\"2026-08-08T11:19:21\"}"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/applications/{app_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/applications/{app_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/applications/{app_id}/rotate-secret",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/applications/{app_id}/sites",
+    "url": "/v2/applications/1/sites",
+    "status": 200,
+    "body": "{\"items\":[{\"id\":1,\"site_key\":\"site_default\",\"app_id\":1,\"app_name\":\"默认应用\",\"name\":\"默认站点\",\"domain\":\"localhost\",\"alt_domains\":[],\"access_mode\":\"adapter\",\"sdk_version\":null,\"gateway_url\":null,\"is_active\":true,\"clock_stats_enabled\":true,\"log_retention_days\":30,\"remark\":null,\"created_at\":\"2026-08-08T11:19:21\",\"updated_at\":\"2026-08-08T11:19:21\",\"rule_count\":0,\"rules\":[]}],\"total\":1}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/sites",
+    "url": "/v2/sites",
+    "status": 200,
+    "body": "{\"items\":[{\"id\":1,\"site_key\":\"site_default\",\"app_id\":1,\"app_name\":\"默认应用\",\"name\":\"默认站点\",\"domain\":\"localhost\",\"alt_domains\":[],\"access_mode\":\"adapter\",\"sdk_version\":null,\"gateway_url\":null,\"is_active\":true,\"clock_stats_enabled\":true,\"log_retention_days\":30,\"remark\":null,\"created_at\":\"2026-08-08T11:19:21\",\"updated_at\":\"2026-08-08T11:19:21\",\"rule_count\":0,\"rules\":[]}],\"total\":1,\"page\":1,\"page_size\":20}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/sites/{site_id}",
+    "url": "/v2/sites/1",
+    "status": 200,
+    "body": "{\"id\":1,\"site_key\":\"site_default\",\"app_id\":1,\"app_name\":\"默认应用\",\"name\":\"默认站点\",\"domain\":\"localhost\",\"alt_domains\":[],\"access_mode\":\"adapter\",\"sdk_version\":null,\"gateway_url\":null,\"is_active\":true,\"clock_stats_enabled\":true,\"log_retention_days\":30,\"remark\":null,\"created_at\":\"2026-08-08T11:19:21\",\"updated_at\":\"2026-08-08T11:19:21\",\"rule_count\":0,\"rules\":[],\"site_secret\":null}"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/sites/{site_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/sites/{site_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/batch-delete",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/batch-toggle",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/batch-update",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/batch-publish",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/{site_id}/publish",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/{site_id}/rotate-secret",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/sites/{site_id}/integration-diagnostics",
+    "url": "/v2/sites/1/integration-diagnostics",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"site_id\":1,\"site_name\":\"默认站点\",\"domain\":\"localhost\",\"is_active\":true,\"configured_access_mode\":\"adapter\",\"configured_sdk_version\":null,\"gateway_url\":null,\"window_hours\":24,\"total_requests\":0,\"last_seen_at\":null,\"status\":\"no_data\",\"ingress_stats\":[],\"findings\":[{\"level\":\"error\",\"code\":\"no_traffic\",\"title\":\"近 24 小时无任何决策记录\",\"detail\":\"该站点没有产生任何决策事件。可能是埋码未生效，也可能是请求在网关鉴权阶段就被拒绝——验签失败的请求不会落库，因此这里无法区分。\",\"suggestion\":\"依次核对：① 埋码/适配器是否已部署上线；② X-App-Key 是否为该站点的 site_id；③ App Secret 是否与站点一致；④ 服务器时钟是否与网关相差超过 5 分钟；⑤ 网关地址是否可达。可查看网关日志中的 request_signature_rejected 记录定位具体原因。\"}]},\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/sites/{site_id}/rules",
+    "url": "/v2/sites/1/rules",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"items\":[],\"total\":0,\"page\":1,\"pageSize\":50},\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/{site_id}/rules",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/sites/{site_id}/rules/{rule_id}",
+    "url": "/v2/sites/1/rules/1",
+    "status": 404,
+    "body": "{\"code\":\"RES_NOT_FOUND\",\"message\":\"规则不存在: 1\",\"details\":{},\"request_id\":null}"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/sites/{site_id}/rules/{rule_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/sites/{site_id}/rules/{rule_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/{site_id}/rules/{rule_id}/publish",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/{site_id}/rules/{rule_id}/shadow",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/{site_id}/rules/{rule_id}/disable",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/{site_id}/rules/{rule_id}/archive",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/{site_id}/rules/{rule_id}/unarchive",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/sites/{site_id}/rules/{rule_id}/versions",
+    "url": "/v2/sites/1/rules/1/versions",
+    "status": 404,
+    "body": "{\"code\":\"RES_NOT_FOUND\",\"message\":\"规则不存在: 1\",\"details\":{},\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/{site_id}/rules/{rule_id}/rollback",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/{site_id}/rules/sync-cache",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/rules",
+    "url": "/v2/rules",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"items\":[],\"total\":0,\"page\":1,\"pageSize\":50},\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/rules",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/rules/{rule_id}/set-sites",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/rules/bind-to-site/{site_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/api/v2/sites/{site_id}/rule-groups",
+    "url": "/v2/api/v2/sites/1/rule-groups",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[],\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/api/v2/sites/{site_id}/rule-groups",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/api/v2/rule-groups/{group_id}",
+    "url": "/v2/api/v2/rule-groups/{group_id}",
+    "status": 422,
+    "body": "{\"code\":\"VALID_FAILED\",\"message\":\"请求参数不合法\",\"details\":{\"errors\":[{\"type\":\"int_parsing\",\"loc\":[\"path\",\"group_id\"],\"msg\":\"Input should be a valid integer, unable to parse string as an integer\",\"input\":\"{group_id}\"}]},\"request_id\":null}"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/api/v2/rule-groups/{group_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/api/v2/rule-groups/{group_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/api/v2/sites/{site_id}/rule-groups/sync",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/rules/templates",
+    "url": "/v2/rules/templates",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[{\"id\":\"block-country\",\"name\":\"国家/地区阻断\",\"description\":\"命中指定国家或地区后执行阻断。国家码为 ISO 3166-1 alpha-2。\",\"priority\":\"high\",\"kind\":\"decision\",\"conditions\":[{\"field\":\"ip.country\",\"op\":\"in_ci\",\"value\":[\"RU\",\"KP\"]}],\"disposition\":{\"verdict\":\"hostile\",\"mechanism\":\"deny\",\"target\":{\"kind\":\"origin\",\"url\":null,\"urls\":null,\"rotation\":null,\"httpStatus\":null},\"challengeKind\":null,\"ttlSeconds\":900},\"weight\":null},{\"id\":\"allow-country-only\",\"name\":\"仅放行指定国家\",\"description\":\"业务只面向特定市场时，非目标国家一律阻断。第一条件排除地理数据缺失的情况：MMDB 未加载或内网地址时 ip.country 为空，否定类操作符会命中，若不排除则退化为全站阻断。\",\"priority\":\"critical\",\"kind\":\"decision\",\"conditions\":[{\"field\":\"ip.country\",\"op\":\"neq\",\"value\":null},{\"field\":\"ip.country\",\"op\":\"not_in_ci\",\"value\":[\"CN\",\"HK\",\"MO\",\"TW\"]}],\"disposition\":{\"verdict\":\"hostile\",\"mechanism\":\"deny\",\"target\":{\"kind\":\"origin\",\"url\":null,\"urls\":null,\"rotation\":null,\"httpStatus\":null},\"challengeKind\":null,\"ttlSeconds\":900},\"weight\":null},{\"id\":\"challenge-new-device\",\"name\":\"新设备挑战\",\"description\":\"对首次出现的设备执行验证码挑战。以累计请求数为判据，与 scorer 的新设备识别口径一致。\",\"priority\":\"normal\",\"kind\":\"decision\",\"conditions\":[{\"field\":\"device.totalRequests\",\"op\":\"eq\",\"value\":0}],\"disposition\":{\"verdict\":\"suspect\",\"mechanism\":\"challenge\",\"target\":{\"kind\":\"origin\",\"url\":null,\"urls\":null,\"rotation\":null,\"httpStatus\":null},\"challengeKind\":\"captcha\",\"ttlSeconds\":300},\"weight\":null},{\"id\":\"path-block\",\"name\":\"敏感路径阻断\",\"description\":\"命中敏感路径前缀后执行阻断。用 regex 而非 in：in 是精确相等，只能挡住 /admin 本身，挡不住 /admin/users。\",\"priority\":\"critical\",\""
+  },
+  {
+    "method": "POST",
+    "path": "/v2/rules/preview",
+    "url": "/v2/rules/preview",
+    "status": 422,
+    "body": "{\"code\":\"VALID_FAILED\",\"message\":\"请求参数不合法\",\"details\":{\"errors\":[{\"type\":\"missing\",\"loc\":[\"body\",\"rule\"],\"msg\":\"Field required\",\"input\":{\"conditions\":{\"op\":\"and\",\"children\":[]},\"sample\":{\"ip\":\"203.0.113.1\",\"user_agent\":\"probe/1.0\"}}}]},\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/threat-intel",
+    "url": "/v2/threat-intel",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"items\":[{\"id\":18898,\"ip\":\"45.83.28.88\",\"category\":\"malicious\",\"severity\":\"high\",\"source\":\"urlhaus\",\"confidence\":85,\"description\":\"URLhaus: malware_download\",\"is_active\":true,\"expires_at\":null,\"extra\":null,\"created_at\":\"2026-08-07T08:27:59\",\"updated_at\":\"2026-08-07T08:31:05\"},{\"id\":18897,\"ip\":\"217.217.97.53\",\"category\":\"malicious\",\"severity\":\"high\",\"source\":\"urlhaus\",\"confidence\":85,\"description\":\"URLhaus: malware_download\",\"is_active\":true,\"expires_at\":null,\"extra\":null,\"created_at\":\"2026-08-07T08:27:59\",\"updated_at\":\"2026-08-07T08:31:05\"},{\"id\":18895,\"ip\":\"94.154.32.252\",\"category\":\"malicious\",\"severity\":\"high\",\"source\":\"urlhaus\",\"confidence\":85,\"description\":\"URLhaus: malware_download\",\"is_active\":true,\"expires_at\":null,\"extra\":null,\"created_at\":\"2026-08-07T08:27:59\",\"updated_at\":\"2026-08-07T08:31:05\"},{\"id\":18894,\"ip\":\"182.116.36.147\",\"category\":\"malicious\",\"severity\":\"high\",\"source\":\"urlhaus\",\"confidence\":85,\"description\":\"URLhaus: malware_download\",\"is_active\":true,\"expires_at\":null,\"extra\":null,\"created_at\":\"2026-08-07T08:27:59\",\"updated_at\":\"2026-08-07T08:31:05\"},{\"id\":18893,\"ip\":\"195.177.94.112\",\"category\":\"malicious\",\"severity\":\"high\",\"source\":\"urlhaus\",\"confidence\":85,\"description\":\"URLhaus: malware_download\",\"is_active\":true,\"expires_at\":null,\"extra\":null,\"created_at\":\"2026-08-07T08:27:59\",\"updated_at\":\"2026-08-07T08:31:05\"},{\"id\":18892,\"ip\":\"195.177.94.91\",\"category\":\"malicious\",\"severity\":\"high\",\"source\":\"urlhaus\",\"confidence\":85"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/threat-intel",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/threat-intel/{ip}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/threat-intel/bulk-import",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/threat-intel/sync-redis",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/threat-intel/sync",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/threat-intel/sync-external",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/threat-intel/external-sources",
+    "url": "/v2/threat-intel/external-sources",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"sources\":[{\"id\":\"tor_project\",\"name\":\"Tor Project\",\"url\":\"https://check.torproject.org/torbulkexitlist\",\"enabled\":true,\"requiresApiKey\":false,\"entry_count\":1430,\"description\":\"Tor 出口节点列表，更新频率约每小时\"},{\"id\":\"urlhaus\",\"name\":\"URLhaus (abuse.ch)\",\"url\":\"https://urlhaus.abuse.ch/downloads/csv_recent/\",\"enabled\":true,\"requiresApiKey\":false,\"entry_count\":4963,\"description\":\"恶意 URL 主机 IP，实时更新\"},{\"id\":\"abuseipdb\",\"name\":\"AbuseIPDB\",\"url\":\"https://api.abuseipdb.com/api/v2/blacklist\",\"enabled\":false,\"requiresApiKey\":true,\"configured\":false,\"entry_count\":0,\"description\":\"社区举报黑名单，需要 API Key（环境变量 ABUSEIPDB_API_KEY）\"},{\"id\":\"manual\",\"name\":\"手工录入 / 导入\",\"url\":\"\",\"enabled\":true,\"requiresApiKey\":false,\"entry_count\":0,\"description\":\"通过页面新增或 JSON 批量导入的条目\"}]},\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/threat-intel/stats/redis",
+    "url": "/v2/threat-intel/stats/redis",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"total\":6393,\"key\":\"fangyu:threat_intel:all\"},\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/intelligence/overview",
+    "url": "/v2/intelligence/overview",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"total_entries\":12214,\"profile_field_count\":11965,\"last_sync_time\":\"2026-08-08T15:35:10.643550+00:00\",\"counts\":{\"asn\":115,\"crawler\":134,\"fingerprint\":0,\"geo_ip\":0,\"ip_profile\":11965}},\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/intelligence/{intel_type}/presets",
+    "url": "/v2/intelligence/ip/presets",
+    "status": 422,
+    "body": "{\"code\":\"VALID_FAILED\",\"message\":\"请求参数不合法\",\"details\":{\"errors\":[{\"type\":\"enum\",\"loc\":[\"path\",\"intel_type\"],\"msg\":\"Input should be 'asn', 'crawler', 'fingerprint', 'geo_ip' or 'ip_profile'\",\"ctx\":{\"expected\":\"'asn', 'crawler', 'fingerprint', 'geo_ip' or 'ip_profile'\"},\"input\":\"ip\"}]},\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/intelligence/{intel_type}/external-sources",
+    "url": "/v2/intelligence/ip/external-sources",
+    "status": 422,
+    "body": "{\"code\":\"VALID_FAILED\",\"message\":\"请求参数不合法\",\"details\":{\"errors\":[{\"type\":\"enum\",\"loc\":[\"path\",\"intel_type\"],\"msg\":\"Input should be 'asn', 'crawler', 'fingerprint', 'geo_ip' or 'ip_profile'\",\"ctx\":{\"expected\":\"'asn', 'crawler', 'fingerprint', 'geo_ip' or 'ip_profile'\"},\"input\":\"ip\"}]},\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/intelligence/{intel_type}/sync-external",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/intelligence/{intel_type}",
+    "url": "/v2/intelligence/ip",
+    "status": 422,
+    "body": "{\"code\":\"VALID_FAILED\",\"message\":\"请求参数不合法\",\"details\":{\"errors\":[{\"type\":\"enum\",\"loc\":[\"path\",\"intel_type\"],\"msg\":\"Input should be 'asn', 'crawler', 'fingerprint', 'geo_ip' or 'ip_profile'\",\"ctx\":{\"expected\":\"'asn', 'crawler', 'fingerprint', 'geo_ip' or 'ip_profile'\"},\"input\":\"ip\"}]},\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/intelligence/{intel_type}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/intelligence/{intel_type}/{row_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/intelligence/{intel_type}/{row_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/intelligence/{intel_type}/import",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/intelligence/{intel_type}/export",
+    "url": "/v2/intelligence/ip/export",
+    "status": 422,
+    "body": "{\"code\":\"VALID_FAILED\",\"message\":\"请求参数不合法\",\"details\":{\"errors\":[{\"type\":\"enum\",\"loc\":[\"path\",\"intel_type\"],\"msg\":\"Input should be 'asn', 'crawler', 'fingerprint', 'geo_ip' or 'ip_profile'\",\"ctx\":{\"expected\":\"'asn', 'crawler', 'fingerprint', 'geo_ip' or 'ip_profile'\"},\"input\":\"ip\"}]},\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/intelligence/{intel_type}/preset/{preset_name}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/sites/{site_id}/clock/limits",
+    "url": "/v2/sites/1/clock/limits",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"siteId\":1,\"enabled\":true,\"windows\":{},\"banSeconds\":900,\"banEnabled\":true},\"request_id\":null}"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/sites/{site_id}/clock/limits",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/sites/{site_id}/clock/limits",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/sites/{site_id}/clock/windows",
+    "url": "/v2/sites/1/clock/windows",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[{\"name\":\"burst\",\"seconds\":10},{\"name\":\"short\",\"seconds\":60},{\"name\":\"hour\",\"seconds\":3600}],\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/{site_id}/clock/bans",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/sites/{site_id}/clock/bans",
+    "url": "/v2/sites/1/clock/bans",
+    "status": 422,
+    "body": "{\"code\":\"VALID_FAILED\",\"message\":\"请求参数不合法\",\"details\":{\"errors\":[{\"type\":\"enum\",\"loc\":[\"query\",\"dimension\"],\"msg\":\"Input should be 'ip' or 'fp'\",\"ctx\":{\"expected\":\"'ip' or 'fp'\"},\"input\":\"probe\"}]},\"request_id\":null}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/sites/{site_id}/clock/bans",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/{site_id}/clock/limits/resync",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/clock/limits",
+    "url": "/v2/clock/limits",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"siteId\":0,\"enabled\":true,\"windows\":{},\"banSeconds\":900,\"banEnabled\":true},\"request_id\":null}"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/clock/limits",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/clock/limits",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/clock/windows",
+    "url": "/v2/clock/windows",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[{\"name\":\"burst\",\"seconds\":10},{\"name\":\"short\",\"seconds\":60},{\"name\":\"hour\",\"seconds\":3600}],\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/clock/bans",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/clock/bans",
+    "url": "/v2/clock/bans",
+    "status": 422,
+    "body": "{\"code\":\"VALID_FAILED\",\"message\":\"请求参数不合法\",\"details\":{\"errors\":[{\"type\":\"enum\",\"loc\":[\"query\",\"dimension\"],\"msg\":\"Input should be 'ip' or 'fp'\",\"ctx\":{\"expected\":\"'ip' or 'fp'\"},\"input\":\"probe\"}]},\"request_id\":null}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/clock/bans",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/clock/limits/resync",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/sites/{site_id}/bans",
+    "url": "/v2/sites/1/bans",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"items\":[],\"nextCursor\":0,\"hasMore\":false},\"request_id\":null}"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/sites/{site_id}/bans",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/{site_id}/bans/batch-unban",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/sites/{site_id}/whitelist",
+    "url": "/v2/sites/1/whitelist",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[],\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/{site_id}/whitelist",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/sites/{site_id}/whitelist",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/sites/{site_id}/whitelist/all",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/whitelist",
+    "url": "/v2/whitelist",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[],\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/whitelist",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/whitelist",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/whitelist/all",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/analytics/timeline",
+    "url": "/v2/analytics/timeline",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[{\"bucket\":\"2026-08-01T20:00:00\",\"verdict\":\"suspect\",\"mechanism\":\"challenge\",\"count\":2},{\"bucket\":\"2026-08-02T16:00:00\",\"verdict\":\"suspect\",\"mechanism\":\"challenge\",\"count\":5},{\"bucket\":\"2026-08-02T17:00:00\",\"verdict\":\"suspect\",\"mechanism\":\"challenge\",\"count\":18},{\"bucket\":\"2026-08-02T17:00:00\",\"verdict\":\"suspect\",\"mechanism\":\"redirect\",\"count\":4},{\"bucket\":\"2026-08-02T18:00:00\",\"verdict\":\"suspect\",\"mechanism\":\"redirect\",\"count\":21},{\"bucket\":\"2026-08-02T19:00:00\",\"verdict\":\"suspect\",\"mechanism\":\"redirect\",\"count\":63},{\"bucket\":\"2026-08-02T19:00:00\",\"verdict\":\"trusted\",\"mechanism\":\"pass\",\"count\":1}],\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/analytics/disposition-breakdown",
+    "url": "/v2/analytics/disposition-breakdown",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[{\"disposition\":\"suspect/redirect\",\"verdict\":\"suspect\",\"mechanism\":\"redirect\",\"count\":88},{\"disposition\":\"suspect/challenge\",\"verdict\":\"suspect\",\"mechanism\":\"challenge\",\"count\":25},{\"disposition\":\"trusted/pass\",\"verdict\":\"trusted\",\"mechanism\":\"pass\",\"count\":1}],\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/analytics/top-entities",
+    "url": "/v2/analytics/top-entities",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[{\"entity\":\"1.2.3.4\",\"count\":54},{\"entity\":\"127.0.0.1\",\"count\":39},{\"entity\":\"34.102.136.180\",\"count\":21}],\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/analytics/rule-hit-rate",
+    "url": "/v2/analytics/rule-hit-rate",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[],\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/access-logs/stats/summary",
+    "url": "/v2/access-logs/stats/summary",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[],\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/access-logs",
+    "url": "/v2/access-logs",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"items\":[],\"total\":0,\"page\":1,\"pageSize\":50},\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/access-logs/{request_id}",
+    "url": "/v2/access-logs/probe-nonexistent-request-id",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":null,\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/access-logs/{request_id}/traces",
+    "url": "/v2/access-logs/probe-nonexistent-request-id/traces",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[],\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/access-logs/shadow/impact",
+    "url": "/v2/access-logs/shadow/impact",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[],\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/access-logs/pool/distribution",
+    "url": "/v2/access-logs/pool/distribution",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[],\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/access-logs/crawler/overview",
+    "url": "/v2/access-logs/crawler/overview",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"total_requests\":0,\"crawler_requests\":0,\"non_crawler_requests\":0,\"unique_crawlers\":0,\"hostile_crawler_requests\":0},\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/access-logs/crawler/vendor-distribution",
+    "url": "/v2/access-logs/crawler/vendor-distribution",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[],\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/access-logs/crawler/category-distribution",
+    "url": "/v2/access-logs/crawler/category-distribution",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[],\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/access-logs/crawler/top-list",
+    "url": "/v2/access-logs/crawler/top-list",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[],\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/access-logs/crawler/timeline",
+    "url": "/v2/access-logs/crawler/timeline",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[],\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/audit-logs",
+    "url": "/v2/audit-logs",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"items\":[{\"id\":6019,\"occurredAt\":\"2026-08-08T15:35:33\",\"userId\":1,\"username\":\"\",\"method\":\"POST\",\"path\":\"/v2/analytics/rule-hit-rate\",\"resource\":\"analytics\",\"resourceId\":\"\",\"action\":\"create\",\"statusCode\":200,\"ip\":\"127.0.0.1\",\"userAgent\":\"python-httpx/0.27.0\",\"requestId\":\"\",\"detail\":null},{\"id\":6018,\"occurredAt\":\"2026-08-08T15:35:33\",\"userId\":1,\"username\":\"\",\"method\":\"POST\",\"path\":\"/v2/analytics/top-entities\",\"resource\":\"analytics\",\"resourceId\":\"\",\"action\":\"create\",\"statusCode\":200,\"ip\":\"127.0.0.1\",\"userAgent\":\"python-httpx/0.27.0\",\"requestId\":\"\",\"detail\":null},{\"id\":6017,\"occurredAt\":\"2026-08-08T15:35:33\",\"userId\":1,\"username\":\"\",\"method\":\"POST\",\"path\":\"/v2/analytics/disposition-breakdown\",\"resource\":\"analytics\",\"resourceId\":\"\",\"action\":\"create\",\"statusCode\":200,\"ip\":\"127.0.0.1\",\"userAgent\":\"python-httpx/0.27.0\",\"requestId\":\"\",\"detail\":null},{\"id\":6016,\"occurredAt\":\"2026-08-08T15:35:33\",\"userId\":1,\"username\":\"\",\"method\":\"POST\",\"path\":\"/v2/analytics/timeline\",\"resource\":\"analytics\",\"resourceId\":\"\",\"action\":\"create\",\"statusCode\":200,\"ip\":\"127.0.0.1\",\"userAgent\":\"python-httpx/0.27.0\",\"requestId\":\"\",\"detail\":null},{\"id\":6015,\"occurredAt\":\"2026-08-08T15:35:33\",\"userId\":1,\"username\":\"\",\"method\":\"POST\",\"path\":\"/v2/rules/preview\",\"resource\":\"rules\",\"resourceId\":\"\",\"action\":\"create\",\"statusCode\":422,\"ip\":\"127.0.0.1\",\"userAgent\":\"python-httpx/0.27.0\",\"requestId\":\"\",\"detail\":null},{\"id\":6014,\"occurredAt\":\"2026-08-08T15:35:32\",\"userId\":null,\"username\":\"\",\""
+  },
+  {
+    "method": "GET",
+    "path": "/v2/page-resources/templates",
+    "url": "/v2/page-resources/templates",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[{\"id\":\"maintenance\",\"name\":\"维护页\",\"description\":\"中性的维护提示，不暴露访客已被识别。适合对可疑流量降级投放——访客看到的是业务状态说明，而非拦截告知。\",\"kind\":\"landing\",\"suggested_name\":\"maintenance\",\"content_type\":\"text/html; charset=utf-8\",\"content\":\"<!doctype html>\\n<html lang=\\\"zh-CN\\\">\\n<head>\\n<meta charset=\\\"utf-8\\\">\\n<meta name=\\\"viewport\\\" content=\\\"width=device-width,initial-scale=1\\\">\\n<title>系统维护中</title>\\n<style>\\n  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;\\n       font-family:system-ui,-apple-system,\\\"Segoe UI\\\",sans-serif;background:#f7f8fa;color:#303133}\\n  .box{max-width:420px;padding:32px;text-align:center}\\n  h1{margin:0 0 12px;font-size:20px;font-weight:600}\\n  p{margin:0;font-size:14px;line-height:1.7;color:#606266}\\n</style>\\n</head>\\n<body>\\n  <div class=\\\"box\\\">\\n    <h1>系统维护中</h1>\\n    <p>我们正在进行例行维护，请稍后再访问。感谢您的耐心等待。</p>\\n  </div>\\n</body>\\n</html>\"},{\"id\":\"not-found\",\"name\":\"404 伪装页\",\"description\":\"以 404 外观静默阻断。相比 403，它不告知访客「存在但被拒」，可降低对方针对性调整的动机。注意 serve_alt 下发时状态码仍是 200，需要真 404 状态码请改用 not_found 机制。\",\"kind\":\"landing\",\"suggested_name\":\"fake_404\",\"content_type\":\"text/html; charset=utf-8\",\"content\":\"<!doctype html>\\n<html lang=\\\"zh-CN\\\">\\n<head>\\n<meta charset=\\\"utf-8\\\">\\n<meta name=\\\"viewport\\\" content=\\\"width=device-width,initial-scale=1\\\">\\n<title>404 - 页面不存在</title>\\n<style>\\n  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;\\n       font-family:system-ui,-apple-system,\\\"Segoe UI\\\",sans"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/sites/{site_id}/page-resources",
+    "url": "/v2/sites/1/page-resources",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"items\":[],\"total\":0,\"page\":1,\"pageSize\":20},\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/{site_id}/page-resources",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/sites/{site_id}/page-resources/{resource_id}",
+    "url": "/v2/sites/1/page-resources/1",
+    "status": 404,
+    "body": "{\"code\":\"RES_NOT_FOUND\",\"message\":\"页面资源不存在: 1\",\"details\":{},\"request_id\":null}"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/sites/{site_id}/page-resources/{resource_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/sites/{site_id}/page-resources/{resource_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/sites/{site_id}/page-resources/sync",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/page-resources",
+    "url": "/v2/page-resources",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"items\":[{\"id\":2,\"siteId\":0,\"appId\":0,\"name\":\"maintenance\",\"kind\":\"landing\",\"content\":\"<!doctype html>\\n<html lang=\\\"zh-CN\\\">\\n<head>\\n<meta charset=\\\"utf-8\\\">\\n<meta name=\\\"viewport\\\" content=\\\"width=device-width,initial-scale=1\\\">\\n<title>系统维护中</title>\\n<style>\\n  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;\\n       font-family:system-ui,-apple-system,\\\"Segoe UI\\\",sans-serif;background:#f7f8fa;color:#303133}\\n  .box{max-width:420px;padding:32px;text-align:center}\\n  h1{margin:0 0 12px;font-size:20px;font-weight:600}\\n  p{margin:0;font-size:14px;line-height:1.7;color:#606266}\\n</style>\\n</head>\\n<body>\\n  <div class=\\\"box\\\">\\n    <h1>系统维护中</h1>\\n    <p>我们正在进行例行维护，请稍后再访问。感谢您的耐心等待。</p>\\n  </div>\\n</body>\\n</html>\",\"contentType\":\"text/html; charset=utf-8\",\"enabled\":true,\"createdAt\":\"2026-08-03T19:45:45.000Z\",\"updatedAt\":\"2026-08-03T19:45:45.000Z\"}],\"total\":1,\"page\":1,\"pageSize\":20},\"request_id\":null}"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/page-resources",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/page-resources/{resource_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/page-resources/{resource_id}",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/page-resources/sync",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/scoring/global",
+    "url": "/v2/scoring/global",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"id\":2,\"site_id\":0,\"name\":\"\",\"enabled\":false,\"threshold_suspect\":40,\"threshold_hostile\":70,\"weights\":{\"crawler\":30,\"headless\":30,\"proxy_vpn\":30,\"datacenter\":30,\"new_device\":30,\"threat_intel\":30,\"ip_reputation\":30,\"fingerprint_reputation\":30},\"disposition_suspect\":null,\"disposition_hostile\":null,\"created_at\":\"2026-08-02T21:32:19.000Z\",\"updated_at\":\"2026-08-02T21:32:19.000Z\"},\"request_id\":null}"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/scoring/global",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/scoring/global",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/sites/{site_id}/scoring",
+    "url": "/v2/sites/1/scoring",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":null,\"request_id\":null}"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/sites/{site_id}/scoring",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/sites/{site_id}/scoring",
+    "status": null,
+    "note": "skipped: 写操作"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/scoring/dimensions",
+    "url": "/v2/scoring/dimensions",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":[{\"key\":\"ip_reputation\",\"label\":\"IP 声誉\",\"description\":\"worker 回写的 IP 历史信誉。无信誉数据时不参与判定，不贡献基线分\",\"defaultWeight\":12},{\"key\":\"proxy\",\"label\":\"代理 / VPN / 数据中心\",\"description\":\"Tor、VPN、代理、机房 IDC 与网络类型综合判定。移动网络出口会额外降权，避免 CGNAT 误杀\",\"defaultWeight\":15},{\"key\":\"user_agent\",\"label\":\"UA 与爬虫特征\",\"description\":\"UA 结构化解析：空 UA、无法解析、爬虫类别。搜索引擎爬虫计 0 分，交由白名单处理\",\"defaultWeight\":8},{\"key\":\"device\",\"label\":\"设备历史\",\"description\":\"设备指纹的历史拦截率与信誉分。首次出现的新设备计 25 分\",\"defaultWeight\":10},{\"key\":\"behavior\",\"label\":\"请求异常\",\"description\":\"非常规 HTTP method、超长路径等请求层异常特征。只看 HTTP 请求属性，不含浏览器行为时序\",\"defaultWeight\":10},{\"key\":\"interaction\",\"label\":\"人机交互特征\",\"description\":\"浏览器 SDK 采集的行为时序：零交互停留、事件间隔过于规律（脚本回放）、按键长按异常。服务端接入（Adapter）无行为数据，不参与判定\",\"defaultWeight\":8},{\"key\":\"intel\",\"label\":\"维度情报\",\"description\":\"后台维护的六类维度情报。未命中情报库时不参与判定\",\"defaultWeight\":10}],\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/healthz",
+    "url": "/v2/healthz",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"service\":\"fangyu-v2\",\"status\":\"ok\",\"version\":\"2.0.0\",\"checked_at\":\"2026-08-08T15:35:33.757Z\",\"dependencies\":{}},\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/readyz",
+    "url": "/v2/readyz",
+    "status": 200,
+    "body": "{\"code\":0,\"message\":\"ok\",\"data\":{\"service\":\"fangyu-v2\",\"status\":\"ok\",\"version\":\"2.0.0\",\"checked_at\":\"2026-08-08T15:35:33.837Z\",\"dependencies\":{\"redis\":\"ok\",\"mysql\":\"ok\",\"clickhouse\":\"ok\"}},\"request_id\":null}"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/metrics",
+    "url": "/v2/metrics",
+    "status": 200,
+    "body": "# HELP python_gc_objects_collected_total Objects collected during gc\n# TYPE python_gc_objects_collected_total counter\npython_gc_objects_collected_total{generation=\"0\"} 8410.0\npython_gc_objects_collected_total{generation=\"1\"} 2957.0\npython_gc_objects_collected_total{generation=\"2\"} 64.0\n# HELP python_gc_objects_uncollectable_total Uncollectable objects found during GC\n# TYPE python_gc_objects_uncollectable_total counter\npython_gc_objects_uncollectable_total{generation=\"0\"} 0.0\npython_gc_objects_uncollectable_total{generation=\"1\"} 0.0\npython_gc_objects_uncollectable_total{generation=\"2\"} 0.0\n# HELP python_gc_collections_total Number of times this generation was collected\n# TYPE python_gc_collections_total counter\npython_gc_collections_total{generation=\"0\"} 340.0\npython_gc_collections_total{generation=\"1\"} 30.0\npython_gc_collections_total{generation=\"2\"} 2.0\n# HELP python_info Python platform information\n# TYPE python_info gauge\npython_info{implementation=\"CPython\",major=\"3\",minor=\"14\",patchlevel=\"6\",version=\"3.14.6\"} 1.0\n# HELP fangyu_http_requests_total HTTP 请求总数\n# TYPE fangyu_http_requests_total counter\nfangyu_http_requests_total{method=\"POST\",path=\"/v2/auth/login\",service=\"fangyu-v2\",status=\"200\"} 1.0\nfangyu_http_requests_total{method=\"GET\",path=\"/v2/sites\",service=\"fangyu-v2\",status=\"200\"} 2.0\nfangyu_http_requests_total{method=\"GET\",path=\"/v2/applications\",service=\"fangyu-v2\",status=\"200\"} 2.0\nfangyu_http_requests_total{method=\"GET\",path=\"/openapi.json\",service=\"fangyu-v2\","
+  }
+]

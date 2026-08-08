@@ -57,6 +57,9 @@ class Fangyu_Client {
 	/** @var string 实际运行的决策路由（计划文档有笔误写成 /v2/decisions）。 */
 	const DECIDE_PATH = '/v2/decide';
 
+	/** @var string SDK 心跳路由。 */
+	const HEARTBEAT_PATH = '/v2/sdk/heartbeat';
+
 	/** @var int 超时秒数（wp_remote_post timeout 参数）。 */
 	const TIMEOUT_SECONDS = 3;
 
@@ -75,12 +78,12 @@ class Fangyu_Client {
 	 * @return Fangyu_Decision_Result
 	 */
 	public static function decide( array $context ) {
-		$gateway_url = Fangyu_Config::gateway_url();
-		$site_id     = Fangyu_Config::site_id();
-		$app_secret  = Fangyu_Config::app_secret();
-		$fail_mode   = Fangyu_Config::fail_mode();
+		$gateway_url  = Fangyu_Config::gateway_url();
+		$site_key     = Fangyu_Config::site_key();
+		$site_secret  = Fangyu_Config::site_secret();
+		$fail_mode    = Fangyu_Config::fail_mode();
 
-		if ( ! $gateway_url || ! $site_id || ! $app_secret ) {
+		if ( ! $gateway_url || ! $site_key || ! $site_secret ) {
 			return self::fallback( $fail_mode );
 		}
 
@@ -93,7 +96,7 @@ class Fangyu_Client {
 			'context'        => $context,
 			'requireDetails' => false,
 		);
-		$signed = Fangyu_Signer::sign_body( $body, $app_secret );
+		$signed = Fangyu_Signer::sign_body( $body, $site_secret );
 
 		$url      = $gateway_url . self::DECIDE_PATH;
 		$response = wp_remote_post(
@@ -102,7 +105,7 @@ class Fangyu_Client {
 				'timeout'     => self::TIMEOUT_SECONDS,
 				'headers'     => array(
 					'Content-Type' => 'application/json; charset=utf-8',
-					'X-App-Key'    => $site_id,
+					'X-App-Key'    => $site_key,
 				),
 				'body'        => wp_json_encode( $signed ),
 				'data_format' => 'body',
@@ -111,6 +114,7 @@ class Fangyu_Client {
 
 		if ( is_wp_error( $response ) ) {
 			// 连接失败、超时等。
+			error_log( sprintf( '[fangyu] decide failed: %s', $response->get_error_message() ) );
 			return self::fallback( $fail_mode );
 		}
 
@@ -118,6 +122,9 @@ class Fangyu_Client {
 		if ( $status < 200 || $status >= 300 ) {
 			// 4xx/5xx：网关返回可解析响应但请求有问题；fail-open 时放行，
 			// fail-closed 时拦截。不区分 4xx vs 5xx，两者都超出客户端控制范围。
+			// 记录响应体前 512 字节，便于定位签名/字段错误。
+			$body_preview = substr( (string) wp_remote_retrieve_body( $response ), 0, 512 );
+			error_log( sprintf( '[fangyu] decide rejected: HTTP %d, body=%s', $status, $body_preview ) );
 			return self::fallback( $fail_mode );
 		}
 
@@ -135,6 +142,79 @@ class Fangyu_Client {
 		$result               = self::parse_response( $payload );
 		$result->server_token = $server_token;
 		return $result;
+	}
+
+	/**
+	 * 向网关上报心跳（含行为事件）。
+	 *
+	 * PHP 侧无法像浏览器 SDK 那样持续采集交互事件，故这里只上报一次「页面访问」
+	 * 事件：既让网关的时钟校验有数据可依，也让服务端能感知适配器仍在工作。
+	 * 失败不抛异常——心跳丢失不应影响页面渲染。
+	 *
+	 * @param string $fingerprint 访客指纹（与 decide 请求同源）。
+	 * @param array  $events      行为事件列表，缺省时自动生成一条 page_view。
+	 * @return int 网关接受的事件数；失败返回 0。
+	 */
+	public static function heartbeat( $fingerprint, array $events = array() ) {
+		$gateway_url = Fangyu_Config::gateway_url();
+		$site_key    = Fangyu_Config::site_key();
+		$site_secret = Fangyu_Config::site_secret();
+
+		if ( ! $gateway_url || ! $site_key || ! $site_secret || ! $fingerprint ) {
+			return 0;
+		}
+
+		if ( empty( $events ) ) {
+			// 服务端渲染只能观测到「这次请求发生了」，时间戳用毫秒对齐 SDK 契约。
+			$events = array(
+				array(
+					'kind'     => 'page_view',
+					'ts'       => (int) round( microtime( true ) * 1000 ),
+					'value'    => 1,
+				),
+			);
+		}
+
+		$body = array(
+			'siteId'         => Fangyu_Config::site_id(),
+			'fingerprint'    => $fingerprint,
+			'sdkVersion'     => FANGYU_DEFENSE_VERSION,
+			'behaviorEvents' => $events,
+		);
+		$signed = Fangyu_Signer::sign_body( $body, $site_secret );
+
+		$response = wp_remote_post(
+			$gateway_url . self::HEARTBEAT_PATH,
+			array(
+				'timeout'     => self::TIMEOUT_SECONDS,
+				'headers'     => array(
+					'Content-Type' => 'application/json; charset=utf-8',
+					'X-App-Key'    => $site_key,
+				),
+				'body'        => wp_json_encode( $signed ),
+				'data_format' => 'body',
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			error_log( sprintf( '[fangyu] heartbeat failed: %s', $response->get_error_message() ) );
+			return 0;
+		}
+
+		$status = (int) wp_remote_retrieve_response_code( $response );
+		if ( $status < 200 || $status >= 300 ) {
+			// 记录响应体前 512 字节，便于定位签名/字段错误
+			$raw = substr( (string) wp_remote_retrieve_body( $response ), 0, 512 );
+			error_log( sprintf( '[fangyu] heartbeat rejected: HTTP %d, body=%s', $status, $raw ) );
+			return 0;
+		}
+
+		$data = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+		if ( ! is_array( $data ) ) {
+			return 0;
+		}
+		$payload = isset( $data['data'] ) && is_array( $data['data'] ) ? $data['data'] : $data;
+		return isset( $payload['accepted'] ) ? (int) $payload['accepted'] : 0;
 	}
 
 	// ── 私有辅助 ────────────────────────────────────────────────────────────

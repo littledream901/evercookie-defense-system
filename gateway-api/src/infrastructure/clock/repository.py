@@ -90,7 +90,7 @@ class ClockRepository:
 
     async def touch_and_read(
         self,
-        app_id: int,
+        site_id: int,
         *,
         ip_hash: str,
         fingerprint: str,
@@ -113,7 +113,7 @@ class ClockRepository:
         try:
             pipe = self._redis.pipeline()
             for dimension, value in dims:
-                key = rate_key(app_id, dimension, value)
+                key = rate_key(site_id, dimension, value)
                 # member 必须全局唯一：同一毫秒内的并发请求应各计一次。旧版用
                 # 「毫秒取模」当序号，同毫秒的两次访问 member 相同而被 ZSet 静默
                 # 去重，直接导致突发流量少计。这里用 uuid 片段保证唯一。
@@ -122,13 +122,13 @@ class ClockRepository:
                 for window in ALL_WINDOWS:
                     pipe.zcount(key, now_sec - window.seconds, now_sec)
                 pipe.expire(key, RETENTION_SECONDS)
-                pipe.get(ban_key(app_id, dimension, value))
-                pipe.ttl(ban_key(app_id, dimension, value))
+                pipe.get(ban_key(site_id, dimension, value))
+                pipe.ttl(ban_key(site_id, dimension, value))
             results = await pipe.execute()
             return self._parse(dims, results, now_ms)
         except Exception as exc:
             # 频控不可用时放行而非拦截：Redis 故障不应升级为全站不可访问。
-            _logger.error("clock_touch_failed", error=str(exc), app_id=app_id)
+            _logger.error("clock_touch_failed", error=str(exc), site_id=site_id)
             return self._empty_reading(ip_hash, fingerprint, now_ms)
 
     @staticmethod
@@ -198,7 +198,7 @@ class ClockRepository:
 
     async def ban(
         self,
-        app_id: int,
+        site_id: int,
         dimension: ClockDimension,
         value: str,
         *,
@@ -212,42 +212,42 @@ class ClockRepository:
         """
         if seconds <= 0:
             return
-        key = ban_key(app_id, dimension, value)
+        key = ban_key(site_id, dimension, value)
         payload = orjson.dumps({"reason": reason, "dimension": dimension.value})
         try:
             await self._redis.set(key, payload, ex=seconds)
         except Exception as exc:
-            _logger.error("clock_ban_failed", error=str(exc), app_id=app_id)
+            _logger.error("clock_ban_failed", error=str(exc), site_id=site_id)
 
-    async def unban(self, app_id: int, dimension: ClockDimension, value: str) -> None:
+    async def unban(self, site_id: int, dimension: ClockDimension, value: str) -> None:
         try:
-            await self._redis.delete(ban_key(app_id, dimension, value))
+            await self._redis.delete(ban_key(site_id, dimension, value))
         except Exception as exc:
-            _logger.error("clock_unban_failed", error=str(exc), app_id=app_id)
+            _logger.error("clock_unban_failed", error=str(exc), site_id=site_id)
 
-    async def get_limits(self, app_id: int) -> ClockLimits:
+    async def get_limits(self, site_id: int) -> ClockLimits:
         """读取站点频控阈值，未配置则用默认值。
 
-        ``app_id`` 是必需参数，调用方无法「忘记传」——旧版正是因为两个调用点
-        都没传 app_id，站点自定义阈值链路彻底失效。
+        ``site_id`` 是必需参数，调用方无法「忘记传」——旧版正是因为两个调用点
+        都没传 site_id，站点自定义阈值链路彻底失效。
         """
         try:
-            raw = await self._redis.get(limits_key(app_id))
+            raw = await self._redis.get(limits_key(site_id))
         except Exception as exc:
-            _logger.error("clock_limits_read_failed", error=str(exc), app_id=app_id)
-            return default_limits(app_id)
+            _logger.error("clock_limits_read_failed", error=str(exc), site_id=site_id)
+            return default_limits(site_id)
 
         if not raw:
-            return default_limits(app_id)
+            return default_limits(site_id)
         try:
             return ClockLimits.model_validate(orjson.loads(raw))
         except (orjson.JSONDecodeError, ValueError) as exc:
-            _logger.warning("clock_limits_invalid", error=str(exc), app_id=app_id)
-            return default_limits(app_id)
+            _logger.warning("clock_limits_invalid", error=str(exc), site_id=site_id)
+            return default_limits(site_id)
 
     async def store_behavior(
         self,
-        app_id: int,
+        site_id: int,
         fingerprint: str,
         events: list[BehaviorEvent],
         *,
@@ -262,7 +262,7 @@ class ClockRepository:
         if not events:
             return 0
 
-        key = behavior_key(app_id, fingerprint)
+        key = behavior_key(site_id, fingerprint)
         mapping: dict[str, float] = {}
         for event in events:
             event_ts = normalize_event_time(event.client_ts_ms, server_now_ms=now_ms)
@@ -285,23 +285,23 @@ class ClockRepository:
             await pipe.execute()
         except Exception as exc:
             # 行为落库失败不影响决策：它当前不参与判定，只是分析素材。
-            _logger.error("clock_behavior_store_failed", error=str(exc), app_id=app_id)
+            _logger.error("clock_behavior_store_failed", error=str(exc), site_id=site_id)
             return 0
         return len(mapping)
 
     async def read_behavior(
-        self, app_id: int, fingerprint: str, *, limit: int = 200
+        self, site_id: int, fingerprint: str, *, limit: int = 200
     ) -> list[dict]:
         """按时序读回行为事件。
 
         供后续分析与排障使用。当前决策链路不调用它——但它必须是可用的，
         否则就会重演旧版「只写不读」的死代码。
         """
-        key = behavior_key(app_id, fingerprint)
+        key = behavior_key(site_id, fingerprint)
         try:
             members = await self._redis.zrange(key, -limit, -1)
         except Exception as exc:
-            _logger.error("clock_behavior_read_failed", error=str(exc), app_id=app_id)
+            _logger.error("clock_behavior_read_failed", error=str(exc), site_id=site_id)
             return []
 
         out: list[dict] = []

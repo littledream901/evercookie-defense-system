@@ -291,7 +291,7 @@
   import { fetchArchiveRule, fetchCreateGlobalRule, fetchDeleteRule, fetchDisableRule, fetchPublishRule, fetchShadowRule, fetchUnarchiveRule, fetchUpdateRule, fetchSetRuleSites, fetchGetAllRules } from '@/api/rules'
   import SmartValueInput from '@/components/SmartValueInput.vue'
   import { getFieldType } from '@/constants/fieldMetadata'
-  import { fetchGetAppList } from '@/api/apps'
+  import { fetchGetSiteList } from '@/api/apps'
   import { RULE_PRIORITY_OPTIONS, RULE_STATUS_TAGS, RULE_STATUS_LABELS, pruneParams } from '@/constants/fangyu'
   import {
     MECHANISM_OPTIONS, CHALLENGE_KIND_OPTIONS,
@@ -620,7 +620,7 @@
   const loadApps = async () => {
     appLoading.value = true
     try {
-      const res = await fetchGetAppList({ page: 1, pageSize: 100 })
+      const res = await fetchGetSiteList({ page: 1, pageSize: 100 })
       appOptions.value = (res.items || []).map((i: any) => ({ label: i.name, value: i.id }))
     } finally { appLoading.value = false }
   }

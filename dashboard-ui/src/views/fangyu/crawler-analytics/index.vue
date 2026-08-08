@@ -3,7 +3,13 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Icon } from '@iconify/vue'
-import { getAccessLogCrawlerOverview, getAccessLogCrawlerVendorDistribution, getAccessLogCrawlerCategoryDistribution, getAccessLogCrawlerTopList, getAccessLogCrawlerTimeline } from '@/api/fangyu/access-logs'
+import {
+  fetchGetCrawlerOverview,
+  fetchGetCrawlerVendorDistribution,
+  fetchGetCrawlerCategoryDistribution,
+  fetchGetCrawlerTopList,
+  fetchGetCrawlerTimeline
+} from '@/api/logs'
 import { getCrawlerDetail, getSubcategoryLabel } from '@/constants/crawlerDetails'
 import * as echarts from 'echarts'
 
@@ -58,12 +64,12 @@ async function loadOverview() {
   if (!dateRange.value) return
   overviewLoading.value = true
   try {
-    const resp = await getAccessLogCrawlerOverview({
+    const resp = await fetchGetCrawlerOverview({
       siteId: siteId.value,
       start: dateRange.value[0],
       end: dateRange.value[1]
     })
-    overviewData.value = resp.data || {}
+    overviewData.value = resp || {}
   } catch (err: any) {
     ElMessage.error(err.message || '加载概览数据失败')
   } finally {
@@ -75,13 +81,13 @@ async function loadTimeline() {
   if (!dateRange.value) return
   timelineLoading.value = true
   try {
-    const resp = await getAccessLogCrawlerTimeline({
+    const resp = await fetchGetCrawlerTimeline({
       siteId: siteId.value,
       start: dateRange.value[0],
       end: dateRange.value[1],
       granularity: granularity.value
     })
-    timelineData.value = resp.data || []
+    timelineData.value = resp || []
     renderTimeline()
   } catch (err: any) {
     ElMessage.error(err.message || '加载趋势数据失败')
@@ -94,12 +100,12 @@ async function loadVendorDistribution() {
   if (!dateRange.value) return
   vendorLoading.value = true
   try {
-    const resp = await getAccessLogCrawlerVendorDistribution({
+    const resp = await fetchGetCrawlerVendorDistribution({
       siteId: siteId.value,
       start: dateRange.value[0],
       end: dateRange.value[1]
     })
-    vendorData.value = resp.data || []
+    vendorData.value = resp || []
     renderVendorChart()
   } catch (err: any) {
     ElMessage.error(err.message || '加载厂商分布失败')
@@ -112,12 +118,12 @@ async function loadCategoryDistribution() {
   if (!dateRange.value) return
   categoryLoading.value = true
   try {
-    const resp = await getAccessLogCrawlerCategoryDistribution({
+    const resp = await fetchGetCrawlerCategoryDistribution({
       siteId: siteId.value,
       start: dateRange.value[0],
       end: dateRange.value[1]
     })
-    categoryData.value = resp.data || []
+    categoryData.value = resp || []
     renderCategoryChart()
   } catch (err: any) {
     ElMessage.error(err.message || '加载分类分布失败')
@@ -130,13 +136,13 @@ async function loadTopList() {
   if (!dateRange.value) return
   topLoading.value = true
   try {
-    const resp = await getAccessLogCrawlerTopList({
+    const resp = await fetchGetCrawlerTopList({
       siteId: siteId.value,
       start: dateRange.value[0],
       end: dateRange.value[1],
       limit: 20
     })
-    topListData.value = resp.data || []
+    topListData.value = resp || []
   } catch (err: any) {
     ElMessage.error(err.message || '加载Top列表失败')
   } finally {

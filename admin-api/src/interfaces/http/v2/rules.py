@@ -34,7 +34,7 @@ def _to_domain(site_id: int | None, payload: RuleUpsertRequest) -> AnyRule:
     """DTO → 领域对象。字段互斥性已由 RuleUpsertRequest 校验器保证。"""
     common = {
         "id": None,
-        "appId": site_id if site_id is not None else 0,
+        "siteId": site_id if site_id is not None else 0,
         "name": payload.name,
         "description": payload.description,
         "status": RuleStatus.DRAFT,
@@ -58,8 +58,8 @@ def _to_domain(site_id: int | None, payload: RuleUpsertRequest) -> AnyRule:
 
 
 def _check_rule_access(rule: AnyRule, site_id: int) -> None:
-    """校验规则是否对当前站点可见。全局规则（app_id=0）对所有站点可见。"""
-    if rule.app_id == 0:
+    """校验规则是否对当前站点可见。全局规则（site_id=0）对所有站点可见。"""
+    if rule.site_id == 0:
         return
     if site_id not in rule.site_ids:
         raise HTTPException(status_code=404, detail="规则不存在")

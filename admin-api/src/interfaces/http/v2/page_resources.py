@@ -67,7 +67,7 @@ async def create_page_resource(
 ):
     resource = PageResource(
         id=None,
-        app_id=site_id,
+        site_id=site_id,
         name=req.name,
         kind=req.kind,
         content=req.content,
@@ -89,7 +89,7 @@ async def get_page_resource(
     service: PageResourceService = Depends(get_page_resource_service),
 ):
     resource = await service.get(resource_id)
-    if resource.app_id != site_id:
+    if resource.site_id != site_id:
         raise ResourceNotFoundException(f"页面资源不存在: {resource_id}")
     return SuccessResponse(data=_to_detail_response(resource))
 
@@ -106,11 +106,11 @@ async def update_page_resource(
     service: PageResourceService = Depends(get_page_resource_service),
 ):
     current = await service.get(resource_id)
-    if current.app_id != site_id:
+    if current.site_id != site_id:
         raise ResourceNotFoundException(f"页面资源不存在: {resource_id}")
     patch = PageResource(
         id=resource_id,
-        app_id=site_id,
+        site_id=site_id,
         name=req.name,
         kind=req.kind,
         content=req.content,
@@ -132,7 +132,7 @@ async def delete_page_resource(
     service: PageResourceService = Depends(get_page_resource_service),
 ):
     current = await service.get(resource_id)
-    if current.app_id != site_id:
+    if current.site_id != site_id:
         raise ResourceNotFoundException(f"页面资源不存在: {resource_id}")
     await service.delete(resource_id)
 
@@ -154,7 +154,8 @@ async def sync_page_resources_cache(
 def _to_detail_response(r: PageResource) -> PageResourceDetailResponse:
     return PageResourceDetailResponse(
         id=r.id,
-        app_id=r.app_id,
+        site_id=r.site_id,
+        app_id=r.site_id,  # 兼容旧字段，值与 site_id 相同
         name=r.name,
         kind=r.kind,
         content=r.content,
@@ -207,7 +208,7 @@ async def create_global_page_resource(
 ):
     resource = PageResource(
         id=None,
-        app_id=_GLOBAL_SITE,
+        site_id=_GLOBAL_SITE,
         name=req.name,
         kind=req.kind,
         content=req.content,
@@ -230,7 +231,7 @@ async def update_global_page_resource(
 ):
     patch = PageResource(
         id=resource_id,
-        app_id=_GLOBAL_SITE,
+        site_id=_GLOBAL_SITE,
         name=req.name,
         kind=req.kind,
         content=req.content,

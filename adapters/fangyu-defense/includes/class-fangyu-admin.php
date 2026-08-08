@@ -4,7 +4,7 @@
  *
  * 注册在「设置」菜单下（Settings > Fangyu Defense）。
  * 提供两个功能：
- *   1. 持久化网关连接参数（gateway_url / app_id / api_key / app_secret / fail_mode）。
+ *   1. 持久化网关连接参数（gateway_url / site_key / site_id / site_secret / fail_mode）。
  *   2. 「连通性自检」AJAX 按钮：向网关发一个签名完整的 `/v2/decide` 请求并
  *      展示返回码，用于确认密钥和地址填写正确。
  *
@@ -127,39 +127,39 @@ class Fangyu_Admin {
 						</td>
 					</tr>
 					<tr>
-					<th scope="row">
-						<label for="site_id"><?php esc_html_e( 'Site ID', 'fangyu-defense' ); ?></label>
-					</th>
-					<td>
-						<input type="text" id="site_id" name="site_id"
-							value="<?php echo esc_attr( Fangyu_Config::site_id() ); ?>"
-							class="regular-text" autocomplete="off"
-							placeholder="site_xxxxxxxx" />
-						<p class="description">
-							<?php esc_html_e( 'Your site identifier (format: site_<hex8>). Also used as the X-App-Key request header. Copy from the Fangyu admin dashboard → Sites.', 'fangyu-defense' ); ?>
-						</p>
-					</td>
-				</tr>
-					<tr>
 						<th scope="row">
-							<label for="app_id"><?php esc_html_e( 'App ID', 'fangyu-defense' ); ?></label>
+							<label for="site_key"><?php esc_html_e( 'Site Key', 'fangyu-defense' ); ?></label>
 						</th>
 						<td>
-							<input type="number" id="app_id" name="app_id" min="0" step="1"
-								value="<?php echo esc_attr( (string) Fangyu_Config::app_id() ); ?>"
-								class="regular-text" placeholder="1001" />
+							<input type="text" id="site_key" name="site_key"
+								value="<?php echo esc_attr( Fangyu_Config::site_key() ); ?>"
+								class="regular-text" autocomplete="off"
+								placeholder="site_xxxxxxxx" />
 							<p class="description">
-								<?php esc_html_e( 'Numeric application ID. Required for challenge verification; copy from the Fangyu admin dashboard → Sites.', 'fangyu-defense' ); ?>
+								<?php esc_html_e( 'Site key (format: site_<hex8>). Sent as the X-App-Key request header. Copy from the Fangyu admin dashboard → Sites.', 'fangyu-defense' ); ?>
 							</p>
 						</td>
 					</tr>
 					<tr>
 						<th scope="row">
-							<label for="app_secret"><?php esc_html_e( 'App Secret', 'fangyu-defense' ); ?></label>
+							<label for="site_id"><?php esc_html_e( 'Site ID', 'fangyu-defense' ); ?></label>
 						</th>
 						<td>
-							<input type="password" id="app_secret" name="app_secret"
-								value="<?php echo esc_attr( Fangyu_Config::app_secret() ); ?>"
+							<input type="number" id="site_id" name="site_id" min="1" step="1"
+								value="<?php echo esc_attr( (string) Fangyu_Config::site_id() ); ?>"
+								class="regular-text" autocomplete="off" placeholder="1001" />
+							<p class="description">
+								<?php esc_html_e( 'Numeric site ID (e.g., 1001). Used as the SDK siteId parameter and in decision context. Copy from the Fangyu admin dashboard → Sites.', 'fangyu-defense' ); ?>
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row">
+							<label for="site_secret"><?php esc_html_e( 'Site Secret', 'fangyu-defense' ); ?></label>
+						</th>
+						<td>
+							<input type="password" id="site_secret" name="site_secret"
+								value="<?php echo esc_attr( Fangyu_Config::site_secret() ); ?>"
 								class="regular-text" autocomplete="new-password" />
 							<p class="description">
 								<?php esc_html_e( 'Used to sign requests (HMAC-SHA256). Never transmitted to the gateway.', 'fangyu-defense' ); ?>
@@ -217,7 +217,7 @@ class Fangyu_Admin {
 		}
 
 		// 构造一个最小的 adapter 风格请求，仅用于测试可达性与签名。
-		// appId 由 gateway 根据 X-App-Key（site_id）自动解析，无需显式传递。
+		// appId 由 gateway 根据 X-App-Key（site_key）自动解析，无需显式传递。
 		$context = array(
 			'ingress' => 'adapter',
 			'ip'      => '127.0.0.1',

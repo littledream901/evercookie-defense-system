@@ -1,6 +1,6 @@
-"""评分配置的 Redis 写入面，供 gateway 侧按 app 读取阈值与权重。
+"""评分配置的 Redis 写入面，供 gateway 侧按站点读取阈值与权重。
 
-键格式：``fangyu:scoring:{app_id}``
+键格式：``fangyu:scoring:{site_id}``
 序列化形状与 ClockSync 保持一致：JSON camelCase，**刻意不设 TTL**。
 评分配置是安全策略，过期后无人重建会让阈值静默退回宽松默认值。
 """
@@ -26,12 +26,12 @@ class ScoringSync:
         self._redis = redis
 
     @staticmethod
-    def _key(app_id: int) -> str:
-        return f"{_KEY_PREFIX}:{app_id}"
+    def _key(site_id: int) -> str:
+        return f"{_KEY_PREFIX}:{site_id}"
 
     async def put(
         self,
-        app_id: int,
+        site_id: int,
         *,
         enabled: bool,
         threshold_suspect: int,
@@ -43,7 +43,7 @@ class ScoringSync:
         """写入或覆盖站点评分配置。"""
         payload = orjson.dumps(
             {
-                "appId": app_id,
+                "appId": site_id,
                 "enabled": enabled,
                 "thresholdSuspect": threshold_suspect,
                 "thresholdHostile": threshold_hostile,
@@ -52,8 +52,8 @@ class ScoringSync:
                 "dispositionHostile": disposition_hostile,
             }
         )
-        await self._redis.set(self._key(app_id), payload)
+        await self._redis.set(self._key(site_id), payload)
 
-    async def delete(self, app_id: int) -> None:
+    async def delete(self, site_id: int) -> None:
         """删除站点配置，gateway 随即回退到全局默认阈值。"""
-        await self._redis.delete(self._key(app_id))
+        await self._redis.delete(self._key(site_id))

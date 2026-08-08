@@ -30,7 +30,7 @@ class _RecordingClock:
 
     async def store_behavior(
         self,
-        app_id: int,
+        site_id: int,
         fingerprint: str,
         events: list[BehaviorEvent],
         *,
@@ -40,7 +40,7 @@ class _RecordingClock:
             raise RuntimeError("redis down")
         self.calls.append(
             {
-                "app_id": app_id,
+                "site_id": site_id,
                 "fingerprint": fingerprint,
                 "events": events,
                 "now_ms": now_ms,
@@ -58,7 +58,7 @@ class _Harness:
 
 def _build(
     *,
-    app_id: int = 7,
+    site_id: int = 7,
     clock: _RecordingClock | None = None,
     settings: _StubSettings | None = None,
 ) -> _Harness:
@@ -67,7 +67,7 @@ def _build(
     app.include_router(sdk_router, prefix="/v2")
 
     app.dependency_overrides[require_app_key] = lambda: ResolvedAppKey(
-        app_id=app_id, api_key="k"
+        site_id=site_id, api_key="k"
     )
     app.dependency_overrides[sdk_module.get_gateway_settings] = lambda: resolved_settings
     app.dependency_overrides[sdk_module.get_clock_repository] = lambda: clock
@@ -86,11 +86,11 @@ async def _client(app: FastAPI) -> AsyncClient:
 async def test_init_returns_config_and_server_time() -> None:
     harness = _build()
     async with await _client(harness.app) as client:
-        resp = await client.post("/v2/sdk/init", json={"appId": 7, "sdkVersion": "2.0.0"})
+        resp = await client.post("/v2/sdk/init", json={"siteId": 7, "sdkVersion": "2.0.0"})
 
     assert resp.status_code == 200
     data = resp.json()["data"]
-    assert data["appId"] == 7
+    assert data["siteId"] == 7
     assert data["sdkVersion"] == SDK_VERSION
     assert data["serverTimeMs"] > 0
     assert data["configVersion"]
@@ -104,7 +104,7 @@ async def test_init_behavior_policy_matches_gateway_limit() -> None:
 
     harness = _build()
     async with await _client(harness.app) as client:
-        resp = await client.post("/v2/sdk/init", json={"appId": 7})
+        resp = await client.post("/v2/sdk/init", json={"siteId": 7})
 
     assert resp.json()["data"]["behavior"]["maxEvents"] == MAX_BEHAVIOR_EVENTS_PER_REQUEST
 
@@ -113,7 +113,7 @@ async def test_init_behavior_policy_matches_gateway_limit() -> None:
 async def test_init_disables_behavior_when_clock_off() -> None:
     harness = _build(settings=_StubSettings(clock_enabled=False))
     async with await _client(harness.app) as client:
-        resp = await client.post("/v2/sdk/init", json={"appId": 7})
+        resp = await client.post("/v2/sdk/init", json={"siteId": 7})
 
     data = resp.json()["data"]
     assert data["collectBehavior"] is False
@@ -121,22 +121,22 @@ async def test_init_disables_behavior_when_clock_off() -> None:
 
 
 @pytest.mark.asyncio
-async def test_init_accepts_omitted_app_id() -> None:
-    """SDK 未自报 appId 时以 API Key 派生值为准。"""
-    harness = _build(app_id=42)
+async def test_init_accepts_omitted_site_id() -> None:
+    """SDK 未自报 siteId 时以 API Key 派生值为准。"""
+    harness = _build(site_id=42)
     async with await _client(harness.app) as client:
         resp = await client.post("/v2/sdk/init", json={})
 
-    assert resp.json()["data"]["appId"] == 42
+    assert resp.json()["data"]["siteId"] == 42
 
 
 @pytest.mark.asyncio
-async def test_init_rejects_app_id_mismatch() -> None:
+async def test_init_rejects_site_id_mismatch() -> None:
     """持有 A 站点 Key 不能冒充 B 站点。"""
-    harness = _build(app_id=7)
+    harness = _build(site_id=7)
     async with await _client(harness.app) as client:
         with pytest.raises(AuthenticationException):
-            await client.post("/v2/sdk/init", json={"appId": 999})
+            await client.post("/v2/sdk/init", json={"siteId": 999})
 
 
 @pytest.mark.asyncio
@@ -144,7 +144,7 @@ async def test_init_tolerates_client_version_mismatch() -> None:
     """旧版 SDK 仍然服务：硬拒会直接打断线上流量。"""
     harness = _build()
     async with await _client(harness.app) as client:
-        resp = await client.post("/v2/sdk/init", json={"appId": 7, "sdkVersion": "1.0.0"})
+        resp = await client.post("/v2/sdk/init", json={"siteId": 7, "sdkVersion": "1.0.0"})
 
     assert resp.status_code == 200
     assert resp.json()["data"]["sdkVersion"] == SDK_VERSION
@@ -158,7 +158,8 @@ async def test_status_returns_same_config_version_as_init() -> None:
     """两个端点的版本口径必须一致，否则 SDK 会陷入无限重新 init。"""
     harness = _build()
     async with await _client(harness.app) as client:
-        init = await client.post("/v2/sdk/init", json={"appId": 7})
+        init = await client.post("/v2/sdk/init", json={"siteId": 7})
+        # /status 的 query 别名仍是 appId（保持已发布 SDK 兼容），故此处不改
         status = await client.get("/v2/sdk/status", params={"appId": 7})
 
     assert status.status_code == 200
@@ -171,11 +172,11 @@ async def test_status_version_changes_when_flags_change() -> None:
     off = _build(settings=_StubSettings(clock_enabled=False))
 
     async with await _client(on.app) as client:
-        version_on = (await client.get("/v2/sdk/status", params={"appId": 7})).json()["data"][
+        version_on = (await client.get("/v2/sdk/status", params={"siteId": 7})).json()["data"][
             "configVersion"
         ]
     async with await _client(off.app) as client:
-        version_off = (await client.get("/v2/sdk/status", params={"appId": 7})).json()["data"][
+        version_off = (await client.get("/v2/sdk/status", params={"siteId": 7})).json()["data"][
             "configVersion"
         ]
 
@@ -183,11 +184,11 @@ async def test_status_version_changes_when_flags_change() -> None:
 
 
 @pytest.mark.asyncio
-async def test_status_rejects_app_id_mismatch() -> None:
-    harness = _build(app_id=7)
+async def test_status_rejects_site_id_mismatch() -> None:
+    harness = _build(site_id=7)
     async with await _client(harness.app) as client:
         with pytest.raises(AuthenticationException):
-            await client.get("/v2/sdk/status", params={"appId": 999})
+            await client.get("/v2/sdk/status", params={"siteId": 999})
 
 
 # ── /sdk/heartbeat ──
@@ -205,22 +206,22 @@ async def test_heartbeat_persists_behavior_events() -> None:
     async with await _client(harness.app) as client:
         resp = await client.post(
             "/v2/sdk/heartbeat",
-            json={"appId": 7, "fingerprint": "fp_abc", "behaviorEvents": [_event(), _event("scroll")]},
+            json={"siteId": 7, "fingerprint": "fp_abc", "behaviorEvents": [_event(), _event("scroll")]},
         )
 
     assert resp.status_code == 200
     assert resp.json()["data"]["accepted"] == 2
     assert len(clock.calls) == 1
-    assert clock.calls[0]["app_id"] == 7
+    assert clock.calls[0]["site_id"] == 7
     assert clock.calls[0]["fingerprint"] == "fp_abc"
     assert len(clock.calls[0]["events"]) == 2
 
 
 @pytest.mark.asyncio
-async def test_heartbeat_uses_key_derived_app_id_not_claimed() -> None:
-    """入库用的 app_id 必须来自 API Key，不能采信请求体。"""
+async def test_heartbeat_uses_key_derived_site_id_not_claimed() -> None:
+    """入库用的 site_id 必须来自 API Key，不能采信请求体。"""
     clock = _RecordingClock()
-    harness = _build(app_id=7, clock=clock)
+    harness = _build(site_id=7, clock=clock)
 
     async with await _client(harness.app) as client:
         await client.post(
@@ -228,7 +229,7 @@ async def test_heartbeat_uses_key_derived_app_id_not_claimed() -> None:
             json={"fingerprint": "fp_abc", "behaviorEvents": [_event()]},
         )
 
-    assert clock.calls[0]["app_id"] == 7
+    assert clock.calls[0]["site_id"] == 7
 
 
 @pytest.mark.asyncio
@@ -240,7 +241,7 @@ async def test_heartbeat_drops_events_without_fingerprint() -> None:
     async with await _client(harness.app) as client:
         resp = await client.post(
             "/v2/sdk/heartbeat",
-            json={"appId": 7, "fingerprint": "", "behaviorEvents": [_event()]},
+            json={"siteId": 7, "fingerprint": "", "behaviorEvents": [_event()]},
         )
 
     assert resp.status_code == 200
@@ -255,7 +256,7 @@ async def test_heartbeat_succeeds_without_events() -> None:
     harness = _build(clock=clock)
 
     async with await _client(harness.app) as client:
-        resp = await client.post("/v2/sdk/heartbeat", json={"appId": 7, "fingerprint": "fp"})
+        resp = await client.post("/v2/sdk/heartbeat", json={"siteId": 7, "fingerprint": "fp"})
 
     assert resp.status_code == 200
     data = resp.json()["data"]
@@ -273,7 +274,7 @@ async def test_heartbeat_survives_clock_failure() -> None:
     async with await _client(harness.app) as client:
         resp = await client.post(
             "/v2/sdk/heartbeat",
-            json={"appId": 7, "fingerprint": "fp", "behaviorEvents": [_event()]},
+            json={"siteId": 7, "fingerprint": "fp", "behaviorEvents": [_event()]},
         )
 
     assert resp.status_code == 200
@@ -288,7 +289,7 @@ async def test_heartbeat_noop_when_clock_disabled() -> None:
     async with await _client(harness.app) as client:
         resp = await client.post(
             "/v2/sdk/heartbeat",
-            json={"appId": 7, "fingerprint": "fp", "behaviorEvents": [_event()]},
+            json={"siteId": 7, "fingerprint": "fp", "behaviorEvents": [_event()]},
         )
 
     assert resp.status_code == 200
@@ -307,7 +308,7 @@ async def test_heartbeat_rejects_oversized_batch() -> None:
     async with await _client(harness.app) as client:
         resp = await client.post(
             "/v2/sdk/heartbeat",
-            json={"appId": 7, "fingerprint": "fp", "behaviorEvents": events},
+            json={"siteId": 7, "fingerprint": "fp", "behaviorEvents": events},
         )
 
     assert resp.status_code == 422
@@ -324,7 +325,7 @@ async def test_heartbeat_rejects_unknown_behavior_kind() -> None:
         resp = await client.post(
             "/v2/sdk/heartbeat",
             json={
-                "appId": 7,
+                "siteId": 7,
                 "fingerprint": "fp",
                 "behaviorEvents": [{"kind": "keylogger_dump", "clientTsMs": 1, "data": {}}],
             },
@@ -335,15 +336,15 @@ async def test_heartbeat_rejects_unknown_behavior_kind() -> None:
 
 
 @pytest.mark.asyncio
-async def test_heartbeat_rejects_app_id_mismatch() -> None:
+async def test_heartbeat_rejects_site_id_mismatch() -> None:
     clock = _RecordingClock()
-    harness = _build(app_id=7, clock=clock)
+    harness = _build(site_id=7, clock=clock)
 
     async with await _client(harness.app) as client:
         with pytest.raises(AuthenticationException):
             await client.post(
                 "/v2/sdk/heartbeat",
-                json={"appId": 999, "fingerprint": "fp", "behaviorEvents": [_event()]},
+                json={"siteId": 999, "fingerprint": "fp", "behaviorEvents": [_event()]},
             )
 
     assert clock.calls == []

@@ -39,7 +39,7 @@
     const sdk = new SdSdk({
       apiBase: '/api',        // 反代到 gateway；直连则填 http://host:8000
       apiKey: 'YOUR_API_KEY', // 走 X-App-Key header
-      appId: 1,
+      siteId: 1,
       debug: true,
       // 示例页手动执行处置，避免自动跳转打断演示
       autoApply: false,
@@ -70,7 +70,7 @@
     };
 
     // 一行接入的写法（自动执行处置）：
-    // SdSdk.protect({ apiBase: '/api', apiKey: 'YOUR_API_KEY', appId: 1 });
+    // SdSdk.protect({ apiBase: '/api', apiKey: 'YOUR_API_KEY', siteId: 1 });
   </script>
 </body>
 </html>

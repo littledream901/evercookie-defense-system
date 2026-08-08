@@ -49,7 +49,7 @@ class Fangyu_Config {
 	}
 
 	/**
-	 * 读取站点数字主键（用于 SDK 配置的 appId 参数）。
+	 * 读取站点数字主键（用于 SDK 配置的 siteId 参数）。
 	 *
 	 * 格式为整数（例如 1001），从 Fangyu 管理后台「站点管理」页面获取。
 	 *
@@ -57,26 +57,6 @@ class Fangyu_Config {
 	 */
 	public static function site_id() {
 		return (int) get_option( self::PREFIX . 'site_id', 0 );
-	}
-
-	/**
-	 * @deprecated 使用 site_key() 替代
-	 * @return string
-	 */
-	public static function api_key() {
-		// 兼容旧选项；新安装写的是 site_key，升级时两者可能都存在。
-		$legacy = (string) get_option( self::PREFIX . 'api_key', '' );
-		return $legacy ?: self::site_key();
-	}
-
-	/**
-	 * @deprecated 使用 site_id() 替代
-	 * @return int
-	 */
-	public static function app_id() {
-		// 兼容旧选项
-		$legacy = (int) get_option( self::PREFIX . 'app_id', 0 );
-		return $legacy ?: self::site_id();
 	}
 
 	/**
@@ -88,16 +68,6 @@ class Fangyu_Config {
 	 */
 	public static function site_secret() {
 		return (string) get_option( self::PREFIX . 'site_secret', '' );
-	}
-
-	/**
-	 * @deprecated 使用 site_secret() 替代
-	 * @return string
-	 */
-	public static function app_secret() {
-		// 兼容旧选项
-		$legacy = (string) get_option( self::PREFIX . 'app_secret', '' );
-		return $legacy ?: self::site_secret();
 	}
 
 	/**
@@ -120,8 +90,9 @@ class Fangyu_Config {
 	 */
 	public static function is_configured() {
 		return self::gateway_url() !== ''
-			&& self::site_id() !== ''
-			&& self::app_secret() !== '';
+			&& self::site_key() !== ''
+			&& self::site_id() > 0
+			&& self::site_secret() !== '';
 	}
 
 	/**
@@ -132,11 +103,11 @@ class Fangyu_Config {
 	 */
 	public static function save( array $raw ) {
 		$fields = array(
-			'gateway_url' => 'esc_url_raw',
-			'site_id'     => 'sanitize_text_field',
-			'app_id'      => 'absint',
-			'app_secret'  => 'sanitize_text_field',
-			'fail_mode'   => 'sanitize_text_field',
+			'gateway_url'  => 'esc_url_raw',
+			'site_key'     => 'sanitize_text_field',
+			'site_id'      => 'absint',
+			'site_secret'  => 'sanitize_text_field',
+			'fail_mode'    => 'sanitize_text_field',
 		);
 		foreach ( $fields as $key => $sanitizer ) {
 			if ( ! isset( $raw[ $key ] ) ) {
@@ -159,7 +130,7 @@ class Fangyu_Config {
 	 * @return void
 	 */
 	public static function delete_all() {
-		foreach ( array( 'gateway_url', 'site_id', 'app_id', 'app_secret', 'fail_mode', 'api_key' ) as $key ) {
+		foreach ( array( 'gateway_url', 'site_key', 'site_id', 'site_secret', 'fail_mode' ) as $key ) {
 			delete_option( self::PREFIX . $key );
 		}
 	}

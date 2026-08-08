@@ -331,6 +331,7 @@
 
   interface Props {
     visible: boolean
+    /** 站点行数据；列表接口不返回 site_secret，故用 Partial 接收 */
     app?: Partial<Api.Fangyu.Site> | null
   }
   interface Emits {
@@ -358,19 +359,20 @@
     isPlaceholder ? '' : rawGatewayUrl,
   )
 
-  const siteId = computed(() => props.app?.site_id ?? 'YOUR_SITE_ID')
-  const appSecret = computed(() => props.app?.app_secret ?? 'YOUR_APP_SECRET')
+  const siteId = computed(() => props.app?.site_key ?? 'YOUR_SITE_KEY')
+  // Site Secret 仅在创建/轮换时一次性返回，列表接口不含该字段，
+  // 因此接入示例里始终用占位符，提示用户从创建弹窗或轮换结果中获取。
+  const appSecret = computed(() => 'YOUR_SITE_SECRET')
   const gw = computed(() => gatewayUrl.value.replace(/\/$/, ''))
   const isGatewayMissing = computed(() => !gatewayUrl.value.trim())
-  // SDK 的 appId 要的是数字主键（Site.id），不是 site_id 那个 site_<hex8> 字符串。
-  // 两者用途不同：site_id 走 X-App-Key header 做身份识别，id 是租户维度。
+  // SDK 的 appId 要的是数字主键（Site.id），不是 site_key 那个 site_<hex8> 字符串。
+  // 两者用途不同：site_key 走 X-App-Key header 做身份识别，id 是租户维度。
   const numericAppId = computed(() => props.app?.id ?? 0)
 
   // Liquid 的双花括号会被 Vue 模板编译器当成插值解析，必须拆开拼接后再输出
   const LB = '{{'
   const RB = '}}'
   const LIQUID_HEADER = `${LB} content_for_header ${RB}`
-  const LIQUID_FAVICON = `${LB} settings.favicon | image_url: width: 32, height: 32 ${RB}`
 
   const REDIRECT_VARS = [
     { ph: '{url}',             desc: '访客原始 URL（明文）' },

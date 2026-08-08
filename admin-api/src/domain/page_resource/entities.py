@@ -21,7 +21,8 @@ class PageResource:
     """页面资源：serve_alt 机制的内容来源。"""
 
     id: int | None
-    app_id: int
+    site_id: int
+    """所属站点 ID。0 表示全局资源（不绑定具体站点）。"""
     name: str
     """资源标识符，对应 serve_alt(page=...) 的 page 参数。"""
     kind: PageResourceKind

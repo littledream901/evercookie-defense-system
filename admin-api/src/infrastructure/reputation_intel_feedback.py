@@ -145,6 +145,9 @@ class ReputationIntelFeedback:
             # risk_score 与 IntelScorer 的量纲一致（0-100），直接取
             # 100 - 声誉分，即观测到的拦截率百分比。
             "risk_score": round(100.0 - row.score),
+            # TODO(V3 改名): row 是 shared 的 IpReputationRow，其字段名仍为 app_id
+            # （对应 ClickHouse mv 的 app_id 列，实际承载站点维度）。等 ClickHouse
+            # 列名与 shared dataclass 一并改名为 site_id 后，这里同步改为 row.site_id。
             "note": f"{_NOTE_SOURCE} score={row.score} samples={row.total} app={row.app_id}",
         }
 

@@ -89,7 +89,7 @@ class _NoopBatchWriter:
 
 def _bad_msg(mid: str) -> StreamMessage:
     # 缺 eventId → transform 阶段判为 invalid → 走 DLQ 路径
-    return StreamMessage(stream="s", message_id=mid, payload={"appId": 1})
+    return StreamMessage(stream="s", message_id=mid, payload={"siteId": 1})
 
 
 @pytest.mark.asyncio

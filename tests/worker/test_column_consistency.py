@@ -41,7 +41,7 @@ def _ch_row_keys() -> set[str]:
         message_id="0-0",
         payload={
             "eventId": "test",
-            "appId": 1,
+            "siteId": 1,
             "fingerprint": "fp",
             "ip": "1.2.3.4",
             "occurredAt": "2026-07-31T00:00:00Z",

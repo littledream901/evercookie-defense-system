@@ -147,7 +147,7 @@ function fangyu_defense_check() {
 		: 'GET';
 
 	$context = array(
-		'appId'        => Fangyu_Config::app_id(),
+		'siteId'       => Fangyu_Config::site_id(),
 		'ingress'      => 'adapter',
 		'ip'           => $ip,
 		'fingerprint'  => $fingerprint ?: null,
@@ -170,6 +170,19 @@ function fangyu_defense_check() {
 	);
 
 	$result = Fangyu_Client::decide( $context );
+
+	// 决策完成后立即上报心跳（异步不阻塞渲染）
+	if ( $fingerprint && ! $result->is_fallback ) {
+		// 仅在有指纹且网关参与决策时上报；fallback 时网关不可达，跳过心跳。
+		// 使用 wp_remote_post 的异步选项（blocking=false）避免阻塞页面渲染。
+		// 心跳失败不影响决策结果，错误日志已在 heartbeat() 内记录。
+		add_action(
+			'shutdown',
+			static function () use ( $fingerprint ) {
+				Fangyu_Client::heartbeat( $fingerprint );
+			}
+		);
+	}
 
 	// 第一层已拦截：直接执行处置，SDK 不加载
 	if ( Fangyu_Executor::execute( $result ) ) {

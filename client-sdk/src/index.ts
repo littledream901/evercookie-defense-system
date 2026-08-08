@@ -2,11 +2,11 @@
  *
  * 用法：
  *   import { SdSdk } from '@fangyu/sd-sdk';
- *   const sdk = new SdSdk({ apiBase: '/api', apiKey: '...', appId: 1 });
+ *   const sdk = new SdSdk({ apiBase: '/api', apiKey: '...', siteId: 1 });
  *   const decision = await sdk.decide();   // 自动执行处置
  *
  * 或一行接入：
- *   SdSdk.protect({ apiBase: '/api', apiKey: '...', appId: 1 });
+ *   SdSdk.protect({ apiBase: '/api', apiKey: '...', siteId: 1 });
  *
  * UMD：<script src="sd-sdk.min.js"></script> → window.SdSdk
  */
@@ -119,6 +119,7 @@ const FAIL_OPEN: DecisionResponse = {
   ttlSeconds: 0,
   details: [],
   shadow: [],
+  powDifficulty: 4,
 };
 
 export interface DecideOptions {
@@ -227,7 +228,7 @@ export class SdSdk {
 
     const response = await this.postWithRetry<SuccessEnvelope<SdkInitPayload>>(
       this.url(ENDPOINTS.sdkInit),
-      { appId: this.config.appId, sdkVersion: this.config.sdkVersion },
+      { siteId: this.config.siteId, sdkVersion: this.config.sdkVersion },
     );
 
     const payload = unwrap(response);
@@ -311,8 +312,14 @@ export class SdSdk {
       ? applyDecision(decision, options.hooks ?? {}, {
           apiBase: this.config.apiBase,
           apiKey: this.config.apiKey,
-          appId: this.config.appId,
+          appSecret: this.config.appSecret,
+          siteId: this.config.siteId,
           fingerprint: context.fingerprint,
+          clockSkewMs: this.clockSkewMs,
+          onChallengePassed: async () => {
+            // 挑战通过后重新决策，不刷新页面（避免竞态）
+            await this.decide({ autoApply: true });
+          },
           debug: this.config.debug,
         })
       : null;
@@ -364,7 +371,7 @@ export class SdSdk {
     const response = await post<SuccessEnvelope<SdkHeartbeatPayload>>(
       this.url(ENDPOINTS.sdkHeartbeat),
       await this.signBody({
-        appId: this.config.appId,
+        siteId: this.config.siteId,
         fingerprint: this.fingerprintId,
         sdkVersion: this.config.sdkVersion,
         behaviorEvents: this.alignEventTimes(events),
@@ -411,8 +418,8 @@ export class SdSdk {
     if (!this.config.apiKey) {
       throw new Error('apiKey 不能为空');
     }
-    if (!Number.isInteger(this.config.appId) || this.config.appId <= 0) {
-      throw new Error('appId 必须是正整数');
+    if (!Number.isInteger(this.config.siteId) || this.config.siteId <= 0) {
+      throw new Error('siteId 必须是正整数');
     }
   }
 
@@ -477,7 +484,7 @@ export class SdSdk {
     const events = this.behavior?.drain() ?? [];
 
     return {
-      appId: this.config.appId,
+      siteId: this.config.siteId,
       ingress: 'sdk',
       // 指纹为空时网关会拒（ingress=sdk 强制要求）。关闭采集就必须自己给值，
       // 这里退化到 repeat 值派生，保证请求仍然合法。
@@ -604,8 +611,13 @@ export class SdSdk {
     return applyDecision(decision, options.hooks ?? {}, {
       apiBase: this.config.apiBase,
       apiKey: this.config.apiKey,
-      appId: this.config.appId,
+      appSecret: this.config.appSecret,
+      siteId: this.config.siteId,
       fingerprint: this.fingerprintId,
+      clockSkewMs: this.clockSkewMs,
+      onChallengePassed: async () => {
+        await this.decide({ autoApply: true });
+      },
       debug: this.config.debug,
     });
   }
@@ -689,7 +701,7 @@ export class SdSdk {
     await this.set(
       INIT_CONFIG_META,
       JSON.stringify({
-        appId: payload.appId ?? this.config.appId,
+        siteId: payload.siteId ?? this.config.siteId,
         sdkVersion: payload.sdkVersion ?? this.config.sdkVersion,
         configVersion: payload.configVersion ?? '',
         collectBehavior: payload.collectBehavior !== false,
@@ -749,7 +761,7 @@ export class SdSdk {
 
   private async syncConfigVersion(): Promise<void> {
     const response = await get<SuccessEnvelope<SdkStatusPayload>>(
-      `${this.url(ENDPOINTS.sdkStatus)}?appId=${encodeURIComponent(String(this.config.appId))}`,
+      `${this.url(ENDPOINTS.sdkStatus)}?siteId=${encodeURIComponent(String(this.config.siteId))}`,
       { timeout: this.config.apiTimeout, apiKey: this.config.apiKey },
     );
     const payload = unwrap(response);
@@ -787,6 +799,9 @@ export class SdSdk {
   }
 
   private log(...args: unknown[]): void {
+    // rule-exception: [LOG-004] 原因: client-sdk 是浏览器端独立发布包，不能依赖
+    // dashboard-ui 的 @/utils/logger（会把 Vue 运行时打进 SDK 产物）。此处已由
+    // config.debug 开关保护，默认关闭，生产构建不产生输出。
     if (this.config.debug) {
       console.log('[SdSdk]', ...args);
     }
@@ -862,16 +877,16 @@ function autoMountWordPressChallenge(): void {
   if (!el || el.dataset.claimed) return;
 
   const token = el.dataset.token;
-  const appId = el.dataset.appId;
+  const siteId = el.dataset.siteId;
   const apiKey = el.dataset.apiKey;
   const gateway = el.dataset.gateway;
   const kind = el.dataset.kind as 'captcha' | 'js' | undefined;
   const returnUrl = el.dataset.return;
 
-  if (!token || !appId || !apiKey || !gateway) {
+  if (!token || !siteId || !apiKey || !gateway) {
     console.warn('[fangyu] #fangyu-challenge 数据属性不完整，跳过自动挂载', {
       token: !!token,
-      appId: !!appId,
+      siteId: !!siteId,
       apiKey: !!apiKey,
       gateway: !!gateway,
     });
@@ -902,9 +917,14 @@ function autoMountWordPressChallenge(): void {
   const context: ChallengeContext = {
     apiBase: normalizeApiBase(gateway),
     apiKey,
-    appId: parseInt(appId, 10),
+    appSecret: el.dataset.appSecret,
+    siteId: parseInt(siteId, 10),
     // 必须与服务端 decide 时所用值一致，否则 token 校验的指纹比对会失败
     fingerprint: el.dataset.fingerprint || '',
+    challengeKind: (kind as 'captcha' | 'js') || 'captcha',
+    challengeToken: token,
+    powDifficulty: el.dataset.powDifficulty ? parseInt(el.dataset.powDifficulty, 10) : undefined,
+    clockSkewMs: 0,
     debug: false,
   };
 

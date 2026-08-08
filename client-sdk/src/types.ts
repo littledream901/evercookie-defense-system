@@ -57,7 +57,7 @@ export interface BehaviorEvent {
 
 /** 决策上下文。对应 Python `DecisionContext`。 */
 export interface DecisionContext {
-  appId: number;
+  siteId: number;
   ingress: IngressKind;
   fingerprint: string;
   fingerprintIsDerived?: boolean;
@@ -116,6 +116,7 @@ export interface DecisionResponse {
   httpStatus: number;
   challengeKind?: ChallengeKind | null;
   challengeToken?: string | null;
+  powDifficulty?: number;
   score: number;
   ruleIds: number[];
   reason?: string | null;
@@ -139,7 +140,7 @@ export interface SuccessEnvelope<T> {
 
 /** /v2/sdk/init 响应载荷。 */
 export interface SdkInitPayload {
-  appId: number;
+  siteId: number;
   sdkVersion: string;
   /** 服务端当前毫秒时间，用于校正客户端时钟偏移。 */
   serverTimeMs: number;
@@ -160,7 +161,7 @@ export interface SdkBehaviorPolicy {
 
 /** /v2/sdk/status 响应载荷。 */
 export interface SdkStatusPayload {
-  appId: number;
+  siteId: number;
   configVersion: string;
   serverTimeMs: number;
 }

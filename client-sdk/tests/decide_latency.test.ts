@@ -20,7 +20,7 @@ import { SdSdk } from '../src/index';
 const baseConfig = {
   apiBase: 'https://gw.example.com',
   apiKey: 'site_abc12345',
-  appId: 7,
+  siteId: 7,
   // 关掉指纹采集以隔离网络时序：jsdom 里 canvas/webgl 不可用，
   // 采集耗时不具代表性，另有专门的 collector 测试覆盖探针耗时。
   collectFingerprint: false,
@@ -40,7 +40,7 @@ function stubFetch(opts: { initDelay?: number; decideDelay?: number } = {}) {
     const delay = isInit ? (opts.initDelay ?? 0) : (opts.decideDelay ?? 0);
 
     const body = isInit
-      ? { code: 0, message: 'ok', data: { appId: 7, serverTimeMs: Date.now(), configVersion: 'v1' } }
+      ? { code: 0, message: 'ok', data: { siteId: 7, serverTimeMs: Date.now(), configVersion: 'v1' } }
       : {
           code: 0,
           message: 'ok',

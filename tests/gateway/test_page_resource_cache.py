@@ -89,7 +89,7 @@ async def test_enrich_serve_alt_injects_content() -> None:
         decidedStage="decision_rule",
     )
 
-    enriched = await svc._enrich_serve_alt(response, disposition, app_id=1)
+    enriched = await svc._enrich_serve_alt(response, disposition, site_id=1)
     assert enriched.page_content == "<h1>safe content</h1>"
     cache.get.assert_awaited_once_with(1, "my_page")
 
@@ -112,7 +112,7 @@ async def test_enrich_non_serve_alt_untouched() -> None:
         decidedBy="default",
         decidedStage="default",
     )
-    enriched = await svc._enrich_serve_alt(response, disposition, app_id=1)
+    enriched = await svc._enrich_serve_alt(response, disposition, site_id=1)
     assert enriched.page_content is None
     deps.page_resource_cache.get.assert_not_called()
 
@@ -135,7 +135,7 @@ async def test_enrich_no_cache_configured_returns_unchanged() -> None:
         decidedBy="rule",
         decidedStage="decision_rule",
     )
-    enriched = await svc._enrich_serve_alt(response, disposition, app_id=1)
+    enriched = await svc._enrich_serve_alt(response, disposition, site_id=1)
     assert enriched.page_content is None
 
 
@@ -160,5 +160,5 @@ async def test_enrich_cache_miss_returns_unchanged() -> None:
         decidedBy="rule",
         decidedStage="decision_rule",
     )
-    enriched = await svc._enrich_serve_alt(response, disposition, app_id=1)
+    enriched = await svc._enrich_serve_alt(response, disposition, site_id=1)
     assert enriched.page_content is None

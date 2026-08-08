@@ -1,9 +1,10 @@
 /** SDK 配置。
  *
- * 与 V1 的差异：
- * - 去掉 `siteId`（V2 只有 `appId` 一个租户维度）。
- * - `appSecret` 取代 `apiKey` 作为签名密钥；`apiKey` 只走 header 做身份识别。
- * - 路径前缀由 `/v1` 变为 `/v2`。
+ * V3 双层架构下的租户维度：
+ * - `apiKey` 是站点密钥（`site_xxxxxxxx` 字符串），走 `X-App-Key` header 做身份识别。
+ * - `siteId` 是 `Site.id` 整数，作为规则/频控/画像的租户隔离维度。
+ * - `appSecret` 是签名密钥，只在站点开启 `signature_required` 时需要。
+ * - 路径前缀为 `/v2`。
  */
 
 export interface SdkConfig {
@@ -21,8 +22,8 @@ export interface SdkConfig {
    * 真正需要保密签名的接入应走 Adapter 路径（服务端签名）。
    */
   appSecret: string;
-  /** 应用 ID，必填。 */
-  appId: number;
+  /** 站点 ID（`Site.id`），必填。 */
+  siteId: number;
   /**
    * Hybrid 双层接入的第一层会话令牌。
    *
@@ -103,7 +104,7 @@ export const defaultConfig: SdkConfig = {
   apiTimeout: 5000,
   apiKey: '',
   appSecret: '',
-  appId: 0,
+  siteId: 0,
   serverToken: '',
   sdkVersion: '2.0.0',
   retryCount: 3,

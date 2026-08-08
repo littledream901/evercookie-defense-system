@@ -10,7 +10,7 @@
 --      user_agent 原文无法在 SQL 里做正则，只留作排障参考。
 --   2. scorer_scores 用 Map 而非 JSON String，可直接过滤聚合：
 --        WHERE scorer_scores['proxy'] > 20
---   3. ORDER BY 以 app_id 前置，匹配多租户查询模式；event_id 留在末位仍满足
+--   3. ORDER BY 以 site_id 前置，匹配多租户查询模式；event_id 留在末位仍满足
 --      ReplacingMergeTree 去重（去重作用于完整排序键）。
 --   4. 枚举列统一 LowCardinality，显著降低存储与扫描成本。
 -- =============================================================================
@@ -21,7 +21,7 @@ CREATE DATABASE IF NOT EXISTS fangyu;
 CREATE TABLE IF NOT EXISTS fangyu.decision_events
 (
     event_id        String,
-    app_id          UInt64,
+    site_id         UInt64,
     fingerprint     String,
     device_id       String DEFAULT '',
     ip              String,
@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS fangyu.decision_events
 )
 ENGINE = ReplacingMergeTree(event_version)
 PARTITION BY toYYYYMMDD(occurred_at)
-ORDER BY (app_id, occurred_at, event_id)
+ORDER BY (site_id, occurred_at, event_id)
 TTL toDateTime(occurred_at) + INTERVAL 90 DAY
 SETTINGS index_granularity = 8192;
 
@@ -126,7 +126,7 @@ ALTER TABLE fangyu.decision_events
 CREATE TABLE IF NOT EXISTS fangyu.decision_traces
 (
     request_id  String,
-    app_id      UInt64,
+    site_id     UInt64,
     rule_id     UInt64 DEFAULT 0,
     rule_name   String DEFAULT '',
     field       String DEFAULT '',
@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS fangyu.decision_traces
 )
 ENGINE = MergeTree()
 PARTITION BY toYYYYMMDD(occurred_at)
-ORDER BY (app_id, request_id, rule_id)
+ORDER BY (site_id, request_id, rule_id)
 TTL toDateTime(occurred_at) + INTERVAL 7 DAY
 SETTINGS index_granularity = 8192;
 
@@ -161,24 +161,24 @@ TTL dead_at + INTERVAL 30 DAY;
 CREATE MATERIALIZED VIEW IF NOT EXISTS fangyu.mv_disposition_hourly
 ENGINE = SummingMergeTree()
 PARTITION BY toYYYYMMDD(hour)
-ORDER BY (hour, app_id, verdict, mechanism)
+ORDER BY (hour, site_id, verdict, mechanism)
 AS SELECT
     toStartOfHour(occurred_at) AS hour,
-    app_id,
+    site_id,
     verdict,
     mechanism,
     count() AS event_count
 FROM fangyu.decision_events
-GROUP BY hour, app_id, verdict, mechanism;
+GROUP BY hour, site_id, verdict, mechanism;
 
 -- ==================== 物化视图：规则命中统计 ====================
 CREATE MATERIALIZED VIEW IF NOT EXISTS fangyu.mv_rule_hits_daily
 ENGINE = SummingMergeTree()
 PARTITION BY toYYYYMM(log_date)
-ORDER BY (log_date, app_id, rule_id)
+ORDER BY (log_date, site_id, rule_id)
 AS SELECT
     toDate(occurred_at) AS log_date,
-    app_id,
+    site_id,
     arrayJoin(rule_ids) AS rule_id,
     count() AS hit_count,
     countIf(verdict = 'hostile') AS hostile_count,
@@ -187,38 +187,38 @@ AS SELECT
     avg(score) AS avg_score
 FROM fangyu.decision_events
 WHERE notEmpty(rule_ids)
-GROUP BY log_date, app_id, rule_id;
+GROUP BY log_date, site_id, rule_id;
 
 -- ==================== 物化视图：影子规则影响面 ====================
 -- 支撑「这条草稿规则发布后会多拦多少流量」的发布前评估
 CREATE MATERIALIZED VIEW IF NOT EXISTS fangyu.mv_shadow_impact_daily
 ENGINE = SummingMergeTree()
 PARTITION BY toYYYYMM(log_date)
-ORDER BY (log_date, app_id, shadow_rule_id)
+ORDER BY (log_date, site_id, shadow_rule_id)
 AS SELECT
     toDate(occurred_at) AS log_date,
-    app_id,
+    site_id,
     arrayJoin(shadow_rule_ids) AS shadow_rule_id,
     count() AS would_hit_count,
     countIf(mechanism = 'pass') AS currently_passed_count
 FROM fangyu.decision_events
 WHERE notEmpty(shadow_rule_ids)
-GROUP BY log_date, app_id, shadow_rule_id;
+GROUP BY log_date, site_id, shadow_rule_id;
 
 -- ==================== 物化视图：设备维度分布 ====================
 -- 依赖落库的 UA 解析结果；旧版只存 user_agent 原文，此类聚合无法实现
 CREATE MATERIALIZED VIEW IF NOT EXISTS fangyu.mv_device_hourly
 ENGINE = SummingMergeTree()
 PARTITION BY toYYYYMMDD(hour)
-ORDER BY (hour, app_id, device_type, verdict)
+ORDER BY (hour, site_id, device_type, verdict)
 AS SELECT
     toStartOfHour(occurred_at) AS hour,
-    app_id,
+    site_id,
     device_type,
     verdict,
     count() AS event_count
 FROM fangyu.decision_events
-GROUP BY hour, app_id, device_type, verdict;
+GROUP BY hour, site_id, device_type, verdict;
 
 -- ==================== 物化视图：频控拦截小时分布 ====================
 -- 频控是最容易造成大面积误伤的手段，必须能按小时看到拦截量的突变。
@@ -226,17 +226,17 @@ GROUP BY hour, app_id, device_type, verdict;
 CREATE MATERIALIZED VIEW IF NOT EXISTS fangyu.mv_clock_block_hourly
 ENGINE = SummingMergeTree()
 PARTITION BY toYYYYMMDD(hour)
-ORDER BY (hour, app_id, decided_by, ingress)
+ORDER BY (hour, site_id, decided_by, ingress)
 AS SELECT
     toStartOfHour(occurred_at) AS hour,
-    app_id,
+    site_id,
     decided_by,
     ingress,
     count() AS block_count,
     countIf(clock_banned = 1) AS ban_count
 FROM fangyu.decision_events
 WHERE decided_by IN ('clock_rate_limit', 'clock_ban')
-GROUP BY hour, app_id, decided_by, ingress;
+GROUP BY hour, site_id, decided_by, ingress;
 
 -- ==================== 物化视图：IP 声誉（每日） ====================
 -- 为 IpReputationScorer 提供数据源；reputation_writer / admin /sync 读此 MV。
@@ -246,16 +246,16 @@ GROUP BY hour, app_id, decided_by, ingress;
 CREATE MATERIALIZED VIEW IF NOT EXISTS fangyu.mv_ip_reputation_daily
 ENGINE = SummingMergeTree()
 PARTITION BY toYYYYMM(log_date)
-ORDER BY (log_date, app_id, ip)
+ORDER BY (log_date, site_id, ip)
 AS SELECT
     toDate(occurred_at)                                              AS log_date,
-    app_id,
+    site_id,
     ip,
     count()                                                          AS total_count,
     countIf(mechanism IN ('deny', 'not_found', 'challenge'))         AS blocked_count
 FROM fangyu.decision_events
 WHERE ip != ''
-GROUP BY log_date, app_id, ip;
+GROUP BY log_date, site_id, ip;
 
 -- ==================== 物化视图：设备指纹声誉（每日） ====================
 -- 现有 mv_device_hourly 按 device_type 聚合，不含单个 fingerprint，
@@ -263,13 +263,13 @@ GROUP BY log_date, app_id, ip;
 CREATE MATERIALIZED VIEW IF NOT EXISTS fangyu.mv_fingerprint_reputation_daily
 ENGINE = SummingMergeTree()
 PARTITION BY toYYYYMM(log_date)
-ORDER BY (log_date, app_id, fingerprint)
+ORDER BY (log_date, site_id, fingerprint)
 AS SELECT
     toDate(occurred_at)                                              AS log_date,
-    app_id,
+    site_id,
     fingerprint,
     count()                                                          AS total_count,
     countIf(mechanism IN ('deny', 'not_found', 'challenge'))         AS blocked_count
 FROM fangyu.decision_events
 WHERE fingerprint != ''
-GROUP BY log_date, app_id, fingerprint;
+GROUP BY log_date, site_id, fingerprint;

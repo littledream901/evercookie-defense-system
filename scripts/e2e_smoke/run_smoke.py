@@ -203,7 +203,7 @@ async def stage_config(redis: FakeRedis, rpt: Report) -> None:
 
     rpt.section("③ 配置面：绑定规则到网站并原子下发 Redis")
     await RuleCache(redis).replace_site(APP_ID, rules)
-    snapshot = redis.hashes.get(f"fangyu:rules:{APP_ID}", {})
+    snapshot = redis.hashes.get(f"fangyu:rules:site:{APP_ID}", {})
     rpt.check(
         "快照含 4 条规则 + 版本标记",
         len(snapshot) == 5 and "__version__" in snapshot,

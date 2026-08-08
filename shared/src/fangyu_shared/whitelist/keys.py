@@ -2,7 +2,7 @@
 
 数据结构：单个 Hash
 ------------------
-``fangyu:whitelist:{app_id}`` 是一个 Hash，field 形如 ``ip:1.2.3.4`` /
+``fangyu:whitelist:{site_id}`` 是一个 Hash，field 形如 ``ip:1.2.3.4`` /
 ``fp:abc123``，value 是 JSON 元信息（备注、创建人、创建时间）。
 
 为什么用 Hash 而不是两个 Set
@@ -52,9 +52,9 @@ class WhitelistDimension(str, Enum):
     FINGERPRINT = "fp"
 
 
-def whitelist_key(app_id: int) -> str:
+def whitelist_key(site_id: int) -> str:
     """某 app 的白名单 Hash 键。"""
-    return f"{_KEY_PREFIX}:{app_id}"
+    return f"{_KEY_PREFIX}:{site_id}"
 
 
 def field_name(dimension: WhitelistDimension, value: str) -> str:

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from src.domain.app.entities import Application
 from src.domain.rbac.entities import Permission, Role
 from src.domain.user.entities import User
 
-from .schemas import AppSchema, AppCreateResponse, PermissionSchema, RoleSchema, UserBriefSchema
+from .schemas import PermissionSchema, RoleSchema, UserBriefSchema
 
 
 def user_to_brief(user: User) -> UserBriefSchema:
@@ -39,32 +38,4 @@ def permission_to_schema(perm: Permission) -> PermissionSchema:
     return PermissionSchema(code=perm.code, description=perm.description)
 
 
-def app_to_schema(app: Application, *, rules: list[tuple[str, str]] | None = None) -> AppSchema:
-    from .schemas import RuleBrief
-    
-    rule_list = [RuleBrief(name=name, status=status) for name, status in (rules or [])]
-    return AppSchema(
-        id=app.id,
-        site_id=app.site_id,
-        app_secret=app.app_secret,
-        name=app.name,
-        domain=app.domain,
-        alt_domains=app.alt_domains,
-        access_mode=app.access_mode,
-        status=app.status,
-        sdk_version=app.sdk_version,
-        gateway_url=app.gateway_url,
-        is_active=app.is_active,
-        owner_user_id=app.owner_user_id,
-        clock_stats_enabled=app.clock_stats_enabled,
-        log_retention_days=app.log_retention_days,
-        remark=app.remark,
-        created_at=app.created_at,
-        updated_at=app.updated_at,
-        rules=rule_list,
-    )
 
-
-def app_to_schema_with_secret(app: Application) -> AppSchema:
-    """等同于 app_to_schema —— app_secret 已在基础序列化中明文回显。"""
-    return app_to_schema(app)

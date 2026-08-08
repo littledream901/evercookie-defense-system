@@ -1,6 +1,6 @@
 """页面资源 Redis 缓存。
 
-HASH 结构: fangyu:page_resources:{app_id}
+HASH 结构: fangyu:page_resources:{site_id}
   field = resource.name
   value = JSON {"id": int, "kind": str, "content": str, "contentType": str}
 """
@@ -20,10 +20,10 @@ class PageResourceCache:
         self._redis = redis
 
     async def sync_app_resources(
-        self, app_id: int, resources: list[PageResource]
+        self, site_id: int, resources: list[PageResource]
     ) -> None:
-        """替换整个 app 的页面资源缓存（同步 publish 时调用）。"""
-        key = f"{_KEY_PREFIX}:{app_id}"
+        """替换整个站点的页面资源缓存（同步 publish 时调用）。"""
+        key = f"{_KEY_PREFIX}:{site_id}"
         pipe = self._redis.pipeline()
         pipe.delete(key)
         if resources:
@@ -44,7 +44,7 @@ class PageResourceCache:
 
     async def upsert(self, resource: PageResource) -> None:
         """单个资源 upsert（create/update 时调用）。"""
-        key = f"{_KEY_PREFIX}:{resource.app_id}"
+        key = f"{_KEY_PREFIX}:{resource.site_id}"
         value = orjson.dumps(
             {
                 "id": resource.id,
@@ -55,7 +55,7 @@ class PageResourceCache:
         )
         await self._redis.hset(key, resource.name, value)
 
-    async def remove(self, app_id: int, name: str) -> None:
+    async def remove(self, site_id: int, name: str) -> None:
         """单个资源删除。"""
-        key = f"{_KEY_PREFIX}:{app_id}"
+        key = f"{_KEY_PREFIX}:{site_id}"
         await self._redis.hdel(key, name)

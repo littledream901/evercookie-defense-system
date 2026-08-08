@@ -40,9 +40,9 @@ export function fetchDeleteApplication(id: number) {
   })
 }
 
-/** 轮换应用密钥（响应含一次性 app_secret） */
+/** 轮换应用密钥（响应含一次性 app_secret 明文） */
 export function fetchRotateApplicationSecret(id: number) {
-  return request.post<Api.Fangyu.ApplicationDetail>({
+  return request.post<Api.Fangyu.AppSecretRotateResult>({
     url: `/api/v2/applications/${id}/rotate-secret`
   })
 }
@@ -94,86 +94,40 @@ export function fetchDeleteSite(id: number) {
   })
 }
 
-/** 轮换站点密钥（响应含一次性 site_secret） */
+/** 轮换站点密钥（响应含一次性 site_secret 明文） */
 export function fetchRotateSiteSecret(id: number) {
-  return request.post<Api.Fangyu.SiteDetail>({
+  return request.post<Api.Fangyu.SiteSecretRotateResult>({
     url: `/api/v2/sites/${id}/rotate-secret`
   })
 }
 
-// ==================== V2 兼容 API（旧站点管理）====================
-
-/** @deprecated V2 站点列表（兼容旧代码） */
-export function fetchGetAppList(params?: Api.Fangyu.SiteListParams) {
-  return request.get<Api.Common.PageResponse<Api.Fangyu.SiteLegacy>>({
-    url: '/api/v2/sites',
-    params
-  })
-}
-
-/** @deprecated V2 站点详情 */
-export function fetchGetApp(id: number) {
-  return request.get<Api.Fangyu.SiteLegacy>({
-    url: `/api/v2/sites/${id}`
-  })
-}
-
-/** @deprecated V2 新建站点 */
-export function fetchCreateApp(data: Api.Fangyu.SiteCreatePayload) {
-  return request.post<Api.Fangyu.SiteDetail>({
-    url: '/api/v2/sites',
-    data
-  })
-}
-
-/** @deprecated V2 更新站点 */
-export function fetchUpdateApp(id: number, data: Api.Fangyu.SiteUpdatePayload) {
-  return request.request<Api.Fangyu.Site>({
-    url: `/api/v2/sites/${id}`,
-    method: 'PATCH',
-    data
-  })
-}
-
-/** @deprecated V2 删除站点 */
-export function fetchDeleteApp(id: number) {
-  return request.del<null>({
-    url: `/api/v2/sites/${id}`
-  })
-}
-
-/** @deprecated V2 轮换密钥 */
-export function fetchRotateAppKey(id: number) {
-  return request.post<Api.Fangyu.SiteDetail>({
-    url: `/api/v2/sites/${id}/rotate-key`
-  })
-}
-
-/** @deprecated V2 发布快照 */
-export function fetchPublishSnapshot(id: number) {
-  return request.post<{ ok: boolean; published_at: string }>({
+/** 把站点已发布规则全量重建到 Redis 分片 */
+export function fetchPublishSiteRules(id: number) {
+  return request.post<{ site_id: number; synced: number }>({
     url: `/api/v2/sites/${id}/publish`
   })
 }
 
-/** @deprecated V2 批量删除站点 */
-export function fetchBatchDeleteApps(ids: number[]) {
+// ==================== 站点批量操作 ====================
+
+/** 批量删除站点（需先停用） */
+export function fetchBatchDeleteSites(ids: number[]) {
   return request.post<Api.Fangyu.SiteBatchResult>({
     url: '/api/v2/sites/batch-delete',
     data: { ids }
   })
 }
 
-/** @deprecated V2 批量启用 / 停用站点 */
-export function fetchBatchToggleApps(ids: number[], isActive: boolean) {
+/** 批量启用 / 停用站点 */
+export function fetchBatchToggleSites(ids: number[], isActive: boolean) {
   return request.post<Api.Fangyu.SiteBatchResult>({
     url: '/api/v2/sites/batch-toggle',
     data: { ids, is_active: isActive }
   })
 }
 
-/** @deprecated V2 批量发布 */
-export function fetchBatchPublishApps(ids: number[]) {
+/** 批量重建站点规则缓存 */
+export function fetchBatchPublishSites(ids: number[]) {
   return request.post<Api.Fangyu.SiteBatchResult>({
     url: '/api/v2/sites/batch-publish',
     data: { ids }
@@ -181,7 +135,7 @@ export function fetchBatchPublishApps(ids: number[]) {
 }
 
 /** 批量修改站点通用配置（未传字段保持原值） */
-export function fetchBatchUpdateApps(data: Api.Fangyu.SiteBatchUpdatePayload) {
+export function fetchBatchUpdateSites(data: Api.Fangyu.SiteBatchUpdatePayload) {
   return request.post<Api.Fangyu.SiteBatchResult>({
     url: '/api/v2/sites/batch-update',
     data

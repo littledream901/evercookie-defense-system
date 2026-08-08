@@ -47,7 +47,7 @@ async def test_insert_sql_has_no_percent_placeholders():
 async def test_insert_sql_ends_with_values():
     """aiochclient 要求 SQL 以 VALUES 结尾。"""
     client, rec = _make_client()
-    await client.insert("fangyu.decision_events", [{"event_id": "e1", "app_id": 1}])
+    await client.insert("fangyu.decision_events", [{"event_id": "e1", "site_id": 1}])
     assert rec.sql is not None
     assert rec.sql.rstrip().endswith("VALUES"), f"SQL 应以 VALUES 结尾: {rec.sql}"
 
@@ -57,8 +57,8 @@ async def test_insert_passes_rows_as_positional_tuples():
     """行数据必须作为位置参数传入，每行一个 tuple。"""
     client, rec = _make_client()
     rows = [
-        {"event_id": "e1", "app_id": 1},
-        {"event_id": "e2", "app_id": 2},
+        {"event_id": "e1", "site_id": 1},
+        {"event_id": "e2", "site_id": 2},
     ]
     await client.insert("fangyu.decision_events", rows)
     assert len(rec.args) == 2, "两行应产生两个位置参数"
@@ -72,10 +72,10 @@ async def test_insert_column_order_matches_values():
     client, rec = _make_client()
     await client.insert(
         "fangyu.decision_events",
-        [{"event_id": "e1", "app_id": 7, "ip": "1.2.3.4"}],
+        [{"event_id": "e1", "site_id": 7, "ip": "1.2.3.4"}],
     )
     assert rec.sql is not None
-    assert "(event_id, app_id, ip)" in rec.sql
+    assert "(event_id, site_id, ip)" in rec.sql
     assert rec.args[0] == ("e1", 7, "1.2.3.4")
 
 
@@ -84,8 +84,8 @@ async def test_insert_missing_key_becomes_none():
     """后续行缺列时补 None，不能错位。"""
     client, rec = _make_client()
     rows = [
-        {"event_id": "e1", "app_id": 1, "ip": "1.1.1.1"},
-        {"event_id": "e2", "app_id": 2},
+        {"event_id": "e1", "site_id": 1, "ip": "1.1.1.1"},
+        {"event_id": "e2", "site_id": 2},
     ]
     await client.insert("fangyu.decision_events", rows)
     assert rec.args[1] == ("e2", 2, None)

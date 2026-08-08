@@ -13,18 +13,29 @@ import type { DecisionResponse } from '../types';
 import { ENDPOINTS } from '../config';
 import { post } from '../utils/http';
 import { sha256 } from '../utils/crypto';
+import { generateNonce, signParams } from './signer';
 
 export interface ChallengeContext {
   /** Gateway API 基址。 */
   apiBase: string;
   /** API Key，走 X-App-Key header。 */
   apiKey: string;
-  /** 应用 ID。 */
-  appId: number;
+  /** App Secret，用于签名计算。 */
+  appSecret?: string;
+  /** 站点 ID（`Site.id`）。 */
+  siteId: number;
   /** 访客指纹。 */
   fingerprint: string;
+  /** 挑战类型。 */
+  challengeKind?: 'captcha' | 'js';
+  /** 挑战令牌。 */
+  challengeToken?: string;
   /** 调试日志。 */
   debug?: boolean;
+  /** PoW 挑战难度（前导零位数）。 */
+  powDifficulty?: number;
+  /** 时钟偏移（毫秒）。 */
+  clockSkewMs?: number;
 }
 
 export interface ChallengeOptions {
@@ -35,7 +46,7 @@ export interface ChallengeOptions {
 }
 
 interface VerifyPayload {
-  appId: number;
+  siteId: number;
   fingerprint: string;
   challengeToken: string;
   answer: string;
@@ -53,8 +64,8 @@ interface SuccessEnvelope<T> {
   data: T;
 }
 
-/** 挑战难度：要求哈希前导零的位数（十六进制）。 */
-const POW_DIFFICULTY = 4;
+/** 默认挑战难度：要求哈希前导零的位数（十六进制）。 */
+const DEFAULT_POW_DIFFICULTY = 4;
 
 /**
  * 渲染挑战界面并处理交互。
@@ -195,7 +206,8 @@ function renderJsChallenge(
 
   // 异步计算，避免阻塞 UI 渲染
   setTimeout(() => {
-    void computeProofOfWork(token, POW_DIFFICULTY, (percent) => {
+    const difficulty = context.powDifficulty ?? DEFAULT_POW_DIFFICULTY;
+    void computeProofOfWork(token, difficulty, (percent) => {
       progress.style.width = `${percent}%`;
     }).then(async (nonce) => {
       if (nonce === null) {
@@ -267,6 +279,30 @@ async function computeProofOfWork(
 }
 
 /**
+ * 为挑战载荷附加签名字段。
+ *
+ * 与 `SdSdk.signBody` 同一套算法：补 timestamp/nonce 后整体 HMAC。
+ * 这里独立实现是因为挑战组件可以脱离 SdSdk 实例运行（WordPress 挂载点场景）。
+ *
+ * @param payload     待签名的业务载荷
+ * @param appSecret   站点签名密钥
+ * @param clockSkewMs 与服务端的时钟偏移，纠正本地时间不准导致的时间戳越界
+ */
+async function signChallengePayload(
+  payload: VerifyPayload,
+  appSecret: string,
+  clockSkewMs: number,
+): Promise<Record<string, unknown>> {
+  const signable: Record<string, unknown> = {
+    ...payload,
+    timestamp: Math.floor((Date.now() + clockSkewMs) / 1000),
+    nonce: generateNonce(),
+  };
+  signable.sign = await signParams(signable, appSecret);
+  return signable;
+}
+
+/**
  * 提交挑战答案到 /v2/challenge/verify。
  *
  * @param token   challengeToken
@@ -281,15 +317,21 @@ async function submitChallenge(
 ): Promise<VerifyResponse> {
   const url = `${context.apiBase}${ENDPOINTS.challengeVerify}`;
   const payload: VerifyPayload = {
-    appId: context.appId,
+    siteId: context.siteId,
     fingerprint: context.fingerprint,
     challengeToken: token,
     answer,
   };
 
-  logDebug(context, `提交挑战答案`, { url, answerLength: answer.length });
+  // 站点开启 signature_required 时必须签名，否则中间件直接 401。
+  // 未配置 appSecret 视为未开启验签，原样提交。
+  const requestBody = context.appSecret
+    ? await signChallengePayload(payload, context.appSecret, context.clockSkewMs ?? 0)
+    : payload;
 
-  const response = await post<SuccessEnvelope<VerifyResponse>>(url, payload, {
+  logDebug(context, `提交挑战答案`, { url, answerLength: answer.length, signed: !!context.appSecret });
+
+  const response = await post<SuccessEnvelope<VerifyResponse>>(url, requestBody, {
     timeout: 10000,
     apiKey: context.apiKey,
   });
@@ -332,6 +374,8 @@ function createOverlay(): HTMLElement {
 }
 
 function logDebug(context: ChallengeContext, message: string, data?: unknown): void {
+  // rule-exception: [LOG-004] 原因: challenge.ts 可在非 SDK 场景独立使用（WordPress
+  // 直接挂载挑战页），无法依赖外部日志工具。此处由 debug 开关保护，默认关闭。
   if (context.debug) {
     console.log(`[fangyu-challenge] ${message}`, data ?? '');
   }

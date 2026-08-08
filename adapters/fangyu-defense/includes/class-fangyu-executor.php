@@ -120,15 +120,13 @@ class Fangyu_Executor {
 		$blocked_url   = '/blocked';
 		$challenge_url = '/challenge';
 
-		// 键名必须与 client-sdk 的 SdkConfig 对齐：apiBase / apiKey / appId。
-		// 旧的 gatewayUrl / siteId 在 SDK 中不存在，validateConfig() 会直接抛错，
-		// 导致第二层（浏览器指纹 + 决策）完全无法启动。
+		// 键名必须与 client-sdk 的 SdkConfig 对齐：apiBase / apiKey / siteId。
 		$ctx = wp_json_encode(
 			array_filter(
 				array(
 					'apiBase'       => $gateway_url,
-					'apiKey'        => $site_id,
-					'appId'         => $app_id,
+					'apiKey'        => Fangyu_Config::site_key(),
+					'siteId'        => Fangyu_Config::site_id(),
 					'serverVerdict' => $server_verdict,
 					'serverToken'   => $server_token,   // null 时被 array_filter 剔除，JS 侧兜底
 					'blockedUrl'    => $blocked_url,
@@ -362,8 +360,8 @@ HTML;
 			array_filter(
 				array(
 					'apiBase'       => Fangyu_Config::gateway_url(),
-					'apiKey'        => Fangyu_Config::site_id(),
-					'appId'         => Fangyu_Config::app_id(),
+					'apiKey'        => Fangyu_Config::site_key(),
+					'siteId'        => Fangyu_Config::site_id(),
 					'serverVerdict' => $result->verdict,
 					'serverToken'   => $result->server_token,
 					'blockedUrl'    => '/blocked',
@@ -409,8 +407,8 @@ HTML;
 		// data-fingerprint 必须与 decide 请求所用值一致——网关签发 token 时把它
 		// 写进了载荷，校验端点会比对，不一致直接判失败。
 		$token       = esc_attr( (string) $result->challenge_token );
-		$app_id      = esc_attr( (string) Fangyu_Config::app_id() );
-		$api_key     = esc_attr( Fangyu_Config::site_id() );
+		$site_id     = esc_attr( (string) Fangyu_Config::site_id() );
+		$api_key     = esc_attr( Fangyu_Config::site_key() );
 		$gateway_url = esc_attr( Fangyu_Config::gateway_url() );
 		$fingerprint = esc_attr( Fangyu_Visitor::get_repeat_value() );
 		return <<<HTML
@@ -433,7 +431,7 @@ h1{font-size:1.2rem;margin:0 0 .5rem}p{color:#555;margin:0}
   <h1>{$title}</h1>
   <p>{$desc}</p>
   <div id="fangyu-challenge" data-kind="{$kind}" data-return="{$return_url}"
-       data-token="{$token}" data-app-id="{$app_id}" data-api-key="{$api_key}"
+       data-token="{$token}" data-site-id="{$site_id}" data-api-key="{$api_key}"
        data-gateway="{$gateway_url}" data-fingerprint="{$fingerprint}"></div>
 </div>
 {$sdk_tag}

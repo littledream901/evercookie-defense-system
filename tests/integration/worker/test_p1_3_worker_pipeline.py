@@ -15,7 +15,7 @@ async def test_worker_event_writer_persists_decision_event(worker_runtime: dict)
 
     payload = {
         "eventId": "evt-p1-3-1",
-        "appId": 9001,
+        "siteId": 9001,
         "fingerprint": "fp-worker-1",
         "deviceId": "dev-worker-1",
         "ip": "1.1.1.1",
@@ -60,7 +60,7 @@ async def test_worker_event_writer_persists_decision_event(worker_runtime: dict)
 
     rows = await worker_runtime["clickhouse"].fetch(
         """
-        SELECT event_id, app_id, fingerprint, verdict, mechanism, decided_by,
+        SELECT event_id, site_id, fingerprint, verdict, mechanism, decided_by,
                country, asn, device_type, scorer_scores, request_id, score, rule_ids
         FROM fangyu.decision_events
         WHERE request_id = %(request_id)s
@@ -72,7 +72,7 @@ async def test_worker_event_writer_persists_decision_event(worker_runtime: dict)
     assert len(rows) == 1
     row = rows[0]
     assert row["event_id"] == "evt-p1-3-1"
-    assert int(row["app_id"]) == 9001
+    assert int(row["site_id"]) == 9001
     assert row["fingerprint"] == "fp-worker-1"
     assert row["verdict"] == "hostile"
     assert row["mechanism"] == "deny"

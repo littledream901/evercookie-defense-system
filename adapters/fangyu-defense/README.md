@@ -31,9 +31,9 @@ Then: **Plugins → Activate → Settings → Fangyu Defense**.
 | Field | Description |
 |-------|-------------|
 | Gateway URL | Base URL, no trailing slash — e.g. `https://defense.example.com` |
-| App ID | Numeric ID from the gateway admin |
+| Site ID | Numeric ID from the gateway admin |
 | API Key | Sent as `X-App-Key`; authenticates the adapter to the gateway |
-| App Secret | Used **locally** for HMAC-SHA256 signing; never transmitted |
+| Site Secret | Used **locally** for HMAC-SHA256 signing; never transmitted |
 | Fail Mode | `open` (allow on gateway error) or `closed` (deny on gateway error) |
 
 Click **Run Check** to send a signed test request and verify credentials.
@@ -46,7 +46,7 @@ Every request to `/v2/decide` carries three top-level fields alongside `context`
 
 ```json
 {
-  "context": { "appId": 1, "ingress": "adapter", ... },
+  "context": { "siteId": 1, "ingress": "adapter", ... },
   "requireDetails": false,
   "timestamp": 1700000000,
   "nonce": "0123456789abcdef0123456789abcdef",

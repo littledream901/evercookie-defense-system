@@ -29,7 +29,7 @@ class PageResourceService:
 
     async def list_by_app(
         self,
-        app_id: int,
+        site_id: int,
         *,
         kind: PageResourceKind | None = None,
         enabled: bool | None = None,
@@ -38,7 +38,7 @@ class PageResourceService:
     ) -> tuple[list[PageResource], int]:
         offset = max(0, (page - 1) * page_size)
         return await self._repo.list_by_app(
-            app_id,
+            site_id,
             kind=kind,
             enabled=enabled,
             offset=offset,
@@ -53,10 +53,10 @@ class PageResourceService:
 
     async def create(self, resource: PageResource) -> PageResource:
         # 检查名称冲突
-        existing = await self._repo.get_by_name(resource.app_id, resource.name)
+        existing = await self._repo.get_by_name(resource.site_id, resource.name)
         if existing is not None:
             raise BusinessRuleException(
-                f"资源名称已存在: {resource.name} (app={resource.app_id})"
+                f"资源名称已存在: {resource.name} (site={resource.site_id})"
             )
         created = await self._repo.create(resource)
         if created.enabled:
@@ -64,7 +64,7 @@ class PageResourceService:
         _logger.info(
             "page_resource_created",
             resource_id=created.id,
-            app_id=created.app_id,
+            site_id=created.site_id,
             name=created.name,
         )
         return created
@@ -75,10 +75,10 @@ class PageResourceService:
             raise ResourceNotFoundException(f"页面资源不存在: {resource_id}")
         # 如果改名，检查新名称是否冲突
         if patch.name != current.name:
-            existing = await self._repo.get_by_name(current.app_id, patch.name)
+            existing = await self._repo.get_by_name(current.site_id, patch.name)
             if existing is not None and existing.id != resource_id:
                 raise BusinessRuleException(
-                    f"资源名称已存在: {patch.name} (app={current.app_id})"
+                    f"资源名称已存在: {patch.name} (site={current.site_id})"
                 )
         current.name = patch.name
         current.kind = patch.kind
@@ -90,7 +90,7 @@ class PageResourceService:
             await self._cache.upsert(updated)
         else:
             # disabled → 从缓存移除
-            await self._cache.remove(updated.app_id, updated.name)
+            await self._cache.remove(updated.site_id, updated.name)
         _logger.info(
             "page_resource_updated",
             resource_id=resource_id,
@@ -104,19 +104,19 @@ class PageResourceService:
         if resource is None:
             raise ResourceNotFoundException(f"页面资源不存在: {resource_id}")
         await self._repo.delete(resource_id)
-        await self._cache.remove(resource.app_id, resource.name)
+        await self._cache.remove(resource.site_id, resource.name)
         _logger.info(
             "page_resource_deleted",
             resource_id=resource_id,
-            app_id=resource.app_id,
+            site_id=resource.site_id,
             name=resource.name,
         )
 
-    async def sync_enabled_to_cache(self, app_id: int) -> int:
-        """同步 app 的所有已启用资源到 Redis（admin 端批量 publish 时）。"""
-        resources, _ = await self._repo.list_by_app(app_id, enabled=True, limit=9999)
-        await self._cache.sync_app_resources(app_id, resources)
+    async def sync_enabled_to_cache(self, site_id: int) -> int:
+        """同步站点的所有已启用资源到 Redis（admin 端批量 publish 时）。"""
+        resources, _ = await self._repo.list_by_app(site_id, enabled=True, limit=9999)
+        await self._cache.sync_app_resources(site_id, resources)
         _logger.info(
-            "page_resource_cache_synced", app_id=app_id, count=len(resources)
+            "page_resource_cache_synced", site_id=site_id, count=len(resources)
         )
         return len(resources)

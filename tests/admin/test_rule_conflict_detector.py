@@ -18,6 +18,7 @@ def _rule(
     """创建测试用决策规则"""
     return DecisionRule(
         id=rid,
+        siteId=0,
         name=name,
         status=status,
         priority=priority,
