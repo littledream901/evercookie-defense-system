@@ -742,7 +742,7 @@
     refreshCreate,
     refreshUpdate,
     refreshRemove
-  } = useTable({
+  } = useTable<typeof fetchGetSiteList>({
     core: {
       apiFn: fetchGetSiteList,
       apiParams: { page: 1, pageSize: 20, ...(searchForm.value.appId ? { appId: searchForm.value.appId } : {}) },
