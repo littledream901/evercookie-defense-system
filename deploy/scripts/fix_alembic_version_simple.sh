@@ -20,9 +20,13 @@ if [ -f "$ENV_FILE" ]; then
     set -a
     source "$ENV_FILE"
     set +a
+else
+    echo -e "${RED}[ERROR]${NC} 环境配置文件不存在: $ENV_FILE"
+    exit 1
 fi
 
 TARGET_VERSION="20260809_0001"
+DB_NAME="${MYSQL_DATABASE:-fangyu_v2}"
 
 echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
 echo -e "${CYAN}  Alembic 版本号快速修复${NC}"
@@ -41,12 +45,13 @@ if [ -z "$MYSQL_CONTAINER" ]; then
 fi
 
 echo -e "${GREEN}✓${NC} MySQL 容器: $MYSQL_CONTAINER"
+echo -e "${GREEN}✓${NC} 数据库名: $DB_NAME"
 echo ""
 
 # 显示当前版本
 echo -e "${YELLOW}当前版本信息：${NC}"
 docker exec "$MYSQL_CONTAINER" mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" \
-    -D fangyu_defense -e "SELECT * FROM alembic_version;" 2>/dev/null || echo "  无版本记录"
+    -D "$DB_NAME" -e "SELECT * FROM alembic_version;" 2>/dev/null || echo "  无版本记录"
 echo ""
 
 # 确认操作
@@ -67,7 +72,7 @@ echo ""
 echo -e "${CYAN}执行修复...${NC}"
 
 docker exec "$MYSQL_CONTAINER" mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" \
-    -D fangyu_defense <<EOF
+    -D "$DB_NAME" <<EOF
 DELETE FROM alembic_version;
 INSERT INTO alembic_version (version_num) VALUES ('$TARGET_VERSION');
 SELECT version_num AS '修复后版本' FROM alembic_version;
