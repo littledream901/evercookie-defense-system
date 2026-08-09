@@ -21,3 +21,11 @@ export function testSiteConnection(siteId: number) {
     url: `/api/v2/sites/${siteId}/test-connection`
   })
 }
+
+/** 批量诊断站点接入健康度 */
+export function fetchBatchDiagnostics(siteIds: number[], hours = 24) {
+  return request.post<Api.Fangyu.SiteDiagnosticsSummary[]>({
+    url: '/api/v2/sites/batch-diagnostics',
+    data: { site_ids: siteIds, hours }
+  })
+}

@@ -195,6 +195,24 @@
           </ElTag>
         </template>
 
+        <!-- 接入健康度状态列 -->
+        <template #health_status="{ row }">
+          <ElTooltip 
+            :content="row.health_issue || getHealthStatusTooltip(row.health_status)" 
+            placement="top"
+            :disabled="!row.health_issue"
+          >
+            <ElTag
+              :type="getHealthStatusType(row.health_status)"
+              size="small"
+              class="cursor-pointer"
+              @click="showHealthDetail(row)"
+            >
+              {{ getHealthStatusLabel(row.health_status) }}
+            </ElTag>
+          </ElTooltip>
+        </template>
+
         <!-- 启用状态开关列 -->
         <template #is_active="{ row }">
           <ElSwitch
@@ -251,6 +269,12 @@
     <AppIntegrationDrawer
       v-model:visible="integrationVisible"
       :app="integrationSite"
+    />
+
+    <IntegrationDiagnosticsDrawer
+      v-model:visible="diagnosticsVisible"
+      :site="diagnosticsSite"
+      @open-integration-guide="openIntegrationFromDiagnostics"
     />
 
     <!-- 批量编辑：仅提交勾选了的字段，其余保持原值 -->
@@ -314,22 +338,13 @@
 <script setup lang="ts">
   import { useTable } from '@/hooks/core/useTable'
   import { formatTime } from '@/utils/format'
-  import {
-    fetchGetSiteList,
-    fetchDeleteSite,
-    fetchPublishSiteRules,
-    fetchBatchPublishSites,
-    fetchRotateSiteSecret,
-    fetchUpdateSite,
-    fetchBatchDeleteSites,
-    fetchBatchToggleSites,
-    fetchBatchUpdateSites,
-    fetchSiteSecret
-  } from '@/api/apps'
+  import { fetchGetSiteList, fetchDeleteSite, fetchPublishSiteRules, fetchBatchPublishSites, fetchRotateSiteSecret, fetchUpdateSite, fetchBatchDeleteSites, fetchBatchToggleSites, fetchBatchUpdateSites, fetchSiteSecret } from '@/api/apps'
+  import { fetchBatchDiagnostics } from '@/api/diagnostics'
   import { pruneParams, RULE_STATUS_TAGS, RULE_STATUS_LABELS } from '@/constants/fangyu'
   import AppSearch from './modules/app-search.vue'
   import AppDialog from './modules/app-dialog.vue'
   import AppIntegrationDrawer from './modules/app-integration-drawer.vue'
+  import IntegrationDiagnosticsDrawer from './modules/integration-diagnostics-drawer.vue'
   import SecretRevealModal from './modules/secret-reveal-modal.vue'
   import { ElTag, ElButton, ElMessage, ElMessageBox, ElSpace } from 'element-plus'
   import {
@@ -357,6 +372,8 @@
   const secretRevealMode = ref<'create' | 'rotate'>('create')
   const integrationVisible = ref(false)
   const integrationSite = ref<Partial<SiteItem> | null>(null)
+  const diagnosticsVisible = ref(false)
+  const diagnosticsSite = ref<{ id: number; name: string; domain: string } | null>(null)
 
   const router = useRouter()
   const route = useRoute()
@@ -364,6 +381,76 @@
   const goToApplication = (appId?: number) => {
     if (!appId) return
     router.push({ path: '/defense/applications', query: { appId: String(appId) } })
+  }
+
+  // 健康度状态相关
+  const getHealthStatusType = (status?: string) => {
+    const map: Record<string, any> = {
+      ok: 'success',
+      warning: 'warning',
+      error: 'danger',
+      no_data: 'info'
+    }
+    return map[status || 'no_data'] || 'info'
+  }
+
+  const getHealthStatusLabel = (status?: string) => {
+    const map: Record<string, string> = {
+      ok: '✓ 正常',
+      warning: '⚠ 警告',
+      error: '✗ 异常',
+      no_data: '未检测'
+    }
+    return map[status || 'no_data'] || '未知'
+  }
+
+  const getHealthStatusTooltip = (status?: string) => {
+    const map: Record<string, string> = {
+      ok: '接入正常，近24小时有流量且无异常',
+      warning: '接入存在警告，建议检查配置',
+      error: '接入异常，请立即处理',
+      no_data: '近24小时无流量数据'
+    }
+    return map[status || 'no_data'] || '未知状态'
+  }
+
+  const showHealthDetail = (row: SiteItem) => {
+    diagnosticsSite.value = {
+      id: row.id,
+      name: row.name,
+      domain: row.domain
+    }
+    diagnosticsVisible.value = true
+  }
+
+  const openIntegrationFromDiagnostics = () => {
+    if (diagnosticsSite.value) {
+      const site = data.value.find(s => s.id === diagnosticsSite.value!.id)
+      if (site) {
+        integrationSite.value = site
+        integrationVisible.value = true
+      }
+    }
+  }
+
+  // 加载站点健康度
+  const loadHealthStatus = async () => {
+    if (!data.value.length) return
+    
+    try {
+      const siteIds = data.value.map(site => site.id)
+      const healthData = await fetchBatchDiagnostics(siteIds, 24)
+      
+      const healthMap = new Map(healthData.map(item => [item.site_id, item]))
+      
+      data.value = data.value.map(site => ({
+        ...site,
+        health_status: healthMap.get(site.id)?.status || 'no_data',
+        health_issue: healthMap.get(site.id)?.primary_issue || null
+      }))
+    } catch (error) {
+      console.error('加载健康度失败:', error)
+    }
   }
 
   // 支持从应用管理页带 ?appId= 下钻，直接按应用过滤
@@ -699,6 +786,12 @@
           useSlot: true
         },
         {
+          prop: 'health_status',
+          label: '接入状态',
+          width: 110,
+          useSlot: true
+        },
+        {
           prop: 'is_active',
           label: '启用状态',
           width: 100,
@@ -737,6 +830,19 @@
     secretRevealVisible.value = true
     refreshCreate()
   }
+
+  // 页面加载时获取数据并加载健康度
+  onMounted(async () => {
+    await getData()
+    await loadHealthStatus()
+  })
+
+  // 数据刷新后重新加载健康度
+  watch(() => data.value.length, async (newLen) => {
+    if (newLen > 0) {
+      await loadHealthStatus()
+    }
+  })
 
 </script>
 

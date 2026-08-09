@@ -30,9 +30,11 @@ from src.application.services.site_service import SiteService
 from src.infrastructure.clickhouse.access_log_query import AccessLogQueryService
 from src.interfaces.http.dependencies import get_site_service, require_permission
 from .schemas import (
+    BatchDiagnosticsRequest,
     IngressStatSchema,
     IntegrationDiagnosticsSchema,
     IntegrationFindingSchema,
+    SiteDiagnosticsSummarySchema,
 )
 
 router = APIRouter(prefix="/sites", tags=["diagnostics"])
@@ -57,6 +59,90 @@ def _finding(
 
 def _ratio(part: int, whole: int) -> float:
     return round(part / whole, 4) if whole else 0.0
+
+
+def _check_traffic_gap(stats: list[IngressStatSchema], hours: int) -> IntegrationFindingSchema | None:
+    """检测流量是否存在长时间断档（> 2 小时无请求）。"""
+    if not stats:
+        return None
+    
+    last_seen = max((s.last_seen_at for s in stats if s.last_seen_at), default=None)
+    if last_seen:
+        gap_hours = (datetime.utcnow() - last_seen).total_seconds() / 3600
+        if gap_hours > 2 and hours >= 3:  # 只在查询窗口 >= 3h 时检测断档
+            return _finding(
+                "warning",
+                "traffic_gap",
+                f"流量已中断 {int(gap_hours)} 小时",
+                f"最后一次决策请求在 {last_seen.strftime('%Y-%m-%d %H:%M')} UTC，"
+                "之后再无新流量。可能是站点下线、埋码被移除或网关不可达。",
+                "确认站点是否正常运营；若已下线建议停用站点；"
+                "若仍在运行则检查埋码与网关连通性。"
+            )
+    return None
+
+
+def _check_high_error_rate(stats: list[IngressStatSchema]) -> IntegrationFindingSchema | None:
+    """检测 hostile + suspicious 占比过高（> 80%）。"""
+    for stat in stats:
+        if stat.total > 50:  # 只在样本量足够时才判断
+            hostile_ratio = (stat.hostile_count + stat.suspicious_count) / stat.total
+            if hostile_ratio > 0.8:
+                return _finding(
+                    "warning",
+                    "high_risk_ratio",
+                    f"{stat.ingress} 高风险流量占比异常",
+                    f"{stat.ingress} 来源的 {hostile_ratio:.1%} 流量被判为高风险（hostile/suspicious），"
+                    "可能是规则过严、测试流量污染或真实遭受攻击。",
+                    "① 检查规则配置是否合理；② 若为测试环境建议设置独立站点；"
+                    "③ 查看访问日志确认是否真实攻击。"
+                )
+    return None
+
+
+def _analyze_sdk(stat: IngressStatSchema, findings: list[IntegrationFindingSchema]) -> None:
+    """SDK 侧特有信号：真指纹与行为时序都在就算接好了。"""
+    derived_ratio = _ratio(stat.derived_count, stat.total)
+    if derived_ratio > _DERIVED_RATIO_ALERT:
+        findings.append(
+            _finding(
+                "error",
+                "sdk_derived_fingerprint",
+                "SDK 指纹由网关派生，埋码等于未生效",
+                f"{stat.derived_count} / {stat.total} 次 SDK 请求的指纹是网关按 IP+UA 派生的，"
+                "说明前端没有采集到 Evercookie 指纹。此时 SDK 的核心能力并未起作用。",
+                "确认 SdSdk.protect() 已真正执行（检查控制台报错）、脚本未被 CSP 或广告拦截器阻断、"
+                "且未给 script 标签加 defer 导致内联调用先于 SDK 加载执行。",
+            )
+        )
+    if stat.behavior_count == 0:
+        findings.append(
+            _finding(
+                "warning",
+                "sdk_no_behavior",
+                "SDK 未上报任何行为事件",
+                "所有 SDK 请求都没有带行为时序数据。行为信号是 SDK 相对适配器的主要优势，"
+                "缺失时评分维度会退化。",
+                "确认页面停留时间足够触发行为采集，且未在 onload 前就跳走；"
+                "若刻意关闭了行为采集可忽略此项。",
+            )
+        )
+
+
+def _analyze_adapter(stat: IngressStatSchema, findings: list[IntegrationFindingSchema]) -> None:
+    """Adapter 侧：派生指纹是设计预期，不构成问题。"""
+    if stat.unique_ips <= 1 and stat.total > 20:
+        findings.append(
+            _finding(
+                "warning",
+                "adapter_single_ip",
+                "适配器上报的客户端 IP 疑似未透传",
+                f"{stat.total} 次请求仅来自 {stat.unique_ips} 个 IP，很可能上报的是反向代理自身"
+                "的地址而非真实访客 IP。这会让所有基于 IP 的判定失效。",
+                "检查适配器取 IP 的逻辑是否正确读取 X-Forwarded-For / X-Real-IP，"
+                "并确认上游代理确实写入了这些头。",
+            )
+        )
 
 
 def _analyze(
@@ -145,6 +231,16 @@ def _analyze(
                     "检查上报字段是否完整：adapter 必须带 ip，sdk 必须带 fingerprint。",
                 )
             )
+
+    # 增强诊断：流量断档检测
+    traffic_gap_finding = _check_traffic_gap(stats, hours)
+    if traffic_gap_finding:
+        findings.append(traffic_gap_finding)
+
+    # 增强诊断：高错误率检测
+    error_rate_finding = _check_high_error_rate(stats)
+    if error_rate_finding:
+        findings.append(error_rate_finding)
 
     if not findings:
         findings.append(
@@ -262,22 +358,6 @@ async def integration_diagnostics(
             findings=findings,
         )
     )
-
-
-def _analyze_adapter(stat: IngressStatSchema, findings: list[IntegrationFindingSchema]) -> None:
-    """Adapter 侧：派生指纹是设计预期，不构成问题。"""
-    if stat.unique_ips <= 1 and stat.total > 20:
-        findings.append(
-            _finding(
-                "warning",
-                "adapter_single_ip",
-                "适配器上报的客户端 IP 疑似未透传",
-                f"{stat.total} 次请求仅来自 {stat.unique_ips} 个 IP，很可能上报的是反向代理自身"
-                "的地址而非真实访客 IP。这会让所有基于 IP 的判定失效。",
-                "检查适配器取 IP 的逻辑是否正确读取 X-Forwarded-For / X-Real-IP，"
-                "并确认上游代理确实写入了这些头。",
-            )
-        )
 
 
 @router.post(
@@ -414,3 +494,105 @@ async def test_site_connection(
                 "detail": f"未知错误: {str(e)}",
             }
         )
+
+
+@router.post(
+    "/batch-diagnostics",
+    response_model=SuccessResponse[list[SiteDiagnosticsSummarySchema]],
+    dependencies=[Depends(require_permission("app.read"))],
+    summary="批量诊断站点接入健康度",
+)
+async def batch_diagnostics(
+    payload: BatchDiagnosticsRequest,
+    site_service: SiteService = Depends(get_site_service),
+    log_service: AccessLogQueryService = Depends(_service),
+) -> SuccessResponse[list[SiteDiagnosticsSummarySchema]]:
+    """批量获取多个站点的接入健康度摘要（用于仪表盘）。
+    
+    对每个站点执行轻量级诊断，返回状态、流量、主要问题等关键信息。
+    最多支持一次查询 100 个站点。
+    """
+    results = []
+    
+    for site_id in payload.site_ids:
+        try:
+            site = await site_service.get(site_id)
+            end = datetime.utcnow()
+            start = end - timedelta(hours=payload.hours)
+            rows = await log_service.ingress_diagnostics(site_id=site_id, start=start, end=end)
+            
+            stats = [
+                IngressStatSchema(
+                    ingress=str(row.get("ingress") or "unknown"),
+                    host=str(row.get("host") or ""),
+                    total=int(row.get("total") or 0),
+                    derived_count=int(row.get("derived_count") or 0),
+                    behavior_count=int(row.get("behavior_count") or 0),
+                    restore_count=int(row.get("restore_count") or 0),
+                    unknown_verdict_count=int(row.get("unknown_verdict_count") or 0),
+                    hostile_count=int(row.get("hostile_count") or 0),
+                    suspicious_count=int(row.get("suspicious_count") or 0),
+                    clean_count=int(row.get("clean_count") or 0),
+                    clock_banned_count=int(row.get("clock_banned_count") or 0),
+                    unique_fingerprints=int(row.get("unique_fingerprints") or 0),
+                    unique_ips=int(row.get("unique_ips") or 0),
+                    avg_cost_ms=round(float(row.get("avg_cost_ms") or 0), 2),
+                    first_seen_at=row.get("first_seen_at"),
+                    last_seen_at=row.get("last_seen_at"),
+                )
+                for row in rows
+            ]
+            
+            status, findings = _analyze(
+                access_mode=site.access_mode,
+                is_active=site.is_active,
+                stats=stats,
+                hours=payload.hours,
+            )
+            
+            total_requests = sum(s.total for s in stats)
+            last_seen = max((s.last_seen_at for s in stats if s.last_seen_at), default=None)
+            
+            # 提取最严重的问题（error > warning > ok）
+            primary_issue = None
+            for level in ["error", "warning"]:
+                for finding in findings:
+                    if finding.level == level:
+                        primary_issue = finding.title
+                        break
+                if primary_issue:
+                    break
+            
+            # 实测接入方式
+            actual_ingress = ", ".join(s.ingress for s in stats) if stats else None
+            
+            results.append(
+                SiteDiagnosticsSummarySchema(
+                    site_id=site_id,
+                    site_name=site.name,
+                    domain=site.domain,
+                    is_active=site.is_active,
+                    status=status,
+                    total_requests=total_requests,
+                    last_seen_at=last_seen,
+                    primary_issue=primary_issue,
+                    actual_ingress=actual_ingress,
+                )
+            )
+        except Exception as e:
+            # 单个站点失败不影响整体，返回错误状态
+            results.append(
+                SiteDiagnosticsSummarySchema(
+                    site_id=site_id,
+                    site_name="Unknown",
+                    domain="",
+                    is_active=False,
+                    status="error",
+                    total_requests=0,
+                    last_seen_at=None,
+                    primary_issue=f"诊断失败: {str(e)[:100]}",
+                    actual_ingress=None,
+                )
+            )
+    
+    return SuccessResponse(data=results)

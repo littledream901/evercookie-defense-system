@@ -953,5 +953,20 @@ declare namespace Api {
       ingress_stats: IngressStat[]
       findings: IntegrationFinding[]
     }
+
+    /** 站点诊断摘要（用于批量诊断和仪表盘） */
+    interface SiteDiagnosticsSummary {
+      site_id: number
+      site_name: string
+      domain: string
+      is_active: boolean
+      status: 'ok' | 'warning' | 'error' | 'no_data'
+      total_requests: number
+      last_seen_at: string | null
+      /** 最严重的问题标题，无问题时为 null */
+      primary_issue: string | null
+      /** 实测接入方式，多种时用逗号分隔 */
+      actual_ingress: string | null
+    }
   }
 }

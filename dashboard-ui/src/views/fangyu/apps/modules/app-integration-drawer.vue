@@ -558,20 +558,37 @@ define('FANGYU_SITE_SECRET', '${appSecret.value}');`)
 }();
 <\/script>`)
 
-  const curlCode = computed(() => `curl -X POST ${gw.value}/v2/decide \\
-  -H "Content-Type" application/json" \\
+  const curlCode = computed(() => `# 步骤 1：准备请求体（JSON）
+# timestamp: Unix 时间戳（秒）
+# nonce: 唯一随机字符串（建议 UUID）
+# sign: HMAC-SHA256(请求体除 sign 字段外的 JSON, site_secret)
+
+# 步骤 2：使用 site_secret 计算签名
+# Site Secret: ${appSecret.value}
+
+# 步骤 3：发起请求
+curl -X POST ${gw.value}/v2/decide \\
+  -H "Content-Type: application/json" \\
   -H "X-App-Key: ${siteKey.value}" \\
   -d '{
     "context": {
       "ingress":   "adapter",
       "ip":        "1.2.3.4",
       "userAgent": "Mozilla/5.0 ...",
-      "visitUrl":  "https://yoursite.com/landing"
+      "visitUrl":  "https://yoursite.com/landing",
+      "siteId":    ${numericSiteId.value}
     },
     "timestamp": 1700000000,
-    "nonce":     "abc123",
-    "sign":      "<HMAC-SHA256>"
-  }'`)
+    "nonce":     "abc123-uuid-here",
+    "sign":      "<使用 ${appSecret.value} 计算 HMAC-SHA256 签名>"
+  }'
+
+# Python 签名示例：
+# import hmac, hashlib, json
+# secret = "${appSecret.value}"
+# body = {"context": {...}, "timestamp": 1700000000, "nonce": "abc123"}
+# sign = hmac.new(secret.encode(), json.dumps(body, separators=(',',':')).encode(), hashlib.sha256).hexdigest()
+# body["sign"] = sign`)
 
   // 测试连通性
   const handleTestConnection = async () => {

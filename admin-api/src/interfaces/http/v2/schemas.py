@@ -203,6 +203,29 @@ class IntegrationDiagnosticsSchema(BaseSchema):
     findings: list[IntegrationFindingSchema] = Field(default_factory=list)
 
 
+class BatchDiagnosticsRequest(BaseSchema):
+    """批量诊断请求。"""
+
+    site_ids: list[int] = Field(..., min_length=1, max_length=100)
+    hours: int = Field(default=24, ge=1, le=72)
+
+
+class SiteDiagnosticsSummarySchema(BaseSchema):
+    """站点诊断摘要（用于批量诊断和仪表盘）。"""
+
+    site_id: int
+    site_name: str
+    domain: str
+    is_active: bool
+    status: Literal["ok", "warning", "error", "no_data"]
+    total_requests: int = 0
+    last_seen_at: datetime | None = None
+    primary_issue: str | None = None
+    """最严重的问题标题，无问题时为 None。"""
+    actual_ingress: str | None = None
+    """实测接入方式，多种时用逗号分隔。"""
+
+
 # ---------- Rule ----------
 class RuleListRequest(PageRequest):
     keyword: str | None = None
