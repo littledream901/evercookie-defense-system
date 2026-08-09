@@ -787,16 +787,12 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 3px;
-  padding: 6px;
+  padding: 2px 0;
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  height: 66px;
-  min-height: 66px;
-  max-height: 66px;
-  overflow: hidden;
+  line-height: 1.5;
   box-sizing: border-box;
   cursor: default;
 }
@@ -825,25 +821,23 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 3px;
   min-width: 0;
   max-width: 100%;
   width: 100%;
-  height: 100%;
 }
 
 .crawler-icon {
-  font-size: 20px;
-  line-height: 20px;
-  height: 20px;
+  font-size: 18px;
+  line-height: 18px;
+  height: 18px;
   flex-shrink: 0;
 }
 
 /* 厂商 logo 图标（iconify） */
 .crawler-vendor-icon {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
   display: block;
 }
@@ -852,7 +846,6 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 2px;
   width: 100%;
   min-width: 0;
@@ -864,8 +857,7 @@
   font-size: 12px;
   font-weight: 600;
   color: #1d2129;
-  line-height: 18px;
-  height: 18px;
+  line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -879,8 +871,6 @@
   font-size: 11px;
   width: fit-content;
   padding: 0 8px;
-  height: 18px;
-  line-height: 16px;
 }
 
 /* 降级显示样式 */
@@ -888,13 +878,10 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 3px;
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  height: 100%;
-  overflow: hidden;
   padding: 0;
   box-sizing: border-box;
   cursor: default;
@@ -904,17 +891,15 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 3px;
   width: 100%;
-  height: 100%;
   max-width: 100%;
 }
 
 .crawler-icon-fallback {
-  font-size: 20px;
-  line-height: 20px;
-  height: 20px;
+  font-size: 18px;
+  line-height: 18px;
+  height: 18px;
   flex-shrink: 0;
   opacity: 0.7;
 }
@@ -923,7 +908,6 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 2px;
   width: 100%;
   min-width: 0;
@@ -940,8 +924,7 @@
   color: #1d2129;
   font-weight: 600;
   max-width: 100%;
-  line-height: 18px;
-  height: 18px;
+  line-height: 1.5;
   text-align: center;
 }
 
@@ -952,14 +935,11 @@
   gap: 4px;
   flex-wrap: nowrap;
   width: 100%;
-  height: 18px;
 }
 
 /* 让降级视图中的 Tag 宽度贴合内容 */
 .crawler-tags :deep(.el-tag) {
   padding: 0 8px;
-  height: 18px;
-  line-height: 16px;
   width: fit-content;
   max-width: 100%;
 }
