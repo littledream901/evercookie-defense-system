@@ -253,7 +253,7 @@ const fieldType = computed(() => metadata.value?.type || 'string')
 
 // 是否多选（in/not_in 操作符）
 const isMultiple = computed(() => {
-  const listOps = ['in', 'not_in', 'contains_all', 'contains_any']
+  const listOps = ['in', 'in_ci', 'not_in', 'not_in_ci', 'contains_all', 'contains_any']
   return listOps.includes(props.operator)
 })
 
