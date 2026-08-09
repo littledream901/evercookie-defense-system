@@ -1,12 +1,12 @@
 import { AppRouteRecord } from '@/types/router'
 
 /**
- * 防御系统业务路由（一级菜单结构，权限管理除外保留二级）
+ * 防御系统业务路由（新菜单结构）
  *
  * `meta.permission` 为后端权限码，菜单与路由访问权限由 MenuProcessor 统一按此过滤。
  */
 
-/** 数据概览 */
+/** 数据概览 - 一级菜单 */
 export const overviewRoutes: AppRouteRecord = {
   name: 'FangyuDashboard',
   path: '/overview/dashboard',
@@ -20,20 +20,41 @@ export const overviewRoutes: AppRouteRecord = {
   }
 }
 
-/** 分析看板 */
+/** 分析看板 - 一级菜单，包含二级 */
 export const analyticsRoutes: AppRouteRecord = {
-  name: 'FangyuAnalytics',
-  path: '/overview/analytics',
-  component: '/fangyu/analytics',
+  name: 'Analytics',
+  path: '/analytics',
+  component: '/index/index',
   meta: {
     title: '分析看板',
-    icon: 'ri:bar-chart-box-line',
-    permission: 'analytics.read',
-    keepAlive: true
-  }
+    icon: 'ri:bar-chart-box-line'
+  },
+  children: [
+    {
+      path: 'overview',
+      name: 'FangyuAnalytics',
+      component: '/fangyu/analytics',
+      meta: {
+        title: '分析看板',
+        permission: 'analytics.read',
+        keepAlive: true
+      }
+    },
+    {
+      path: 'crawler',
+      name: 'FangyuCrawlerAnalytics',
+      component: '/fangyu/crawler-analytics',
+      meta: {
+        title: '爬虫分析',
+        icon: 'ri:robot-line',
+        permission: 'analytics.read',
+        keepAlive: true
+      }
+    }
+  ]
 }
 
-/** 应用管理（业务分组容器） */
+/** 应用管理 - 一级菜单 */
 export const applicationsRoutes: AppRouteRecord = {
   name: 'FangyuApplications',
   path: '/defense/applications',
@@ -51,7 +72,7 @@ export const applicationsRoutes: AppRouteRecord = {
   }
 }
 
-/** 站点管理（规则与验签的挂载点） */
+/** 站点管理 - 一级菜单 */
 export const appsRoutes: AppRouteRecord = {
   name: 'FangyuApps',
   path: '/defense/apps',
@@ -69,7 +90,7 @@ export const appsRoutes: AppRouteRecord = {
   }
 }
 
-/** 风控规则 */
+/** 风控规则 - 一级菜单 */
 export const rulesRoutes: AppRouteRecord = {
   name: 'FangyuRules',
   path: '/defense/rules',
@@ -86,100 +107,7 @@ export const rulesRoutes: AppRouteRecord = {
   }
 }
 
-/** 频控配置 */
-export const clockRoutes: AppRouteRecord = {
-  name: 'FangyuClock',
-  path: '/defense/clock',
-  component: '/fangyu/clock',
-  meta: {
-    title: '频控配置',
-    icon: 'ri:time-line',
-    permission: 'clock.read',
-    keepAlive: true,
-    authList: [{ title: '保存', authMark: 'clock.write' }]
-  }
-}
-
-/** 威胁情报与画像库 */
-export const threatIntelRoutes: AppRouteRecord = {
-  name: 'FangyuThreatIntel',
-  path: '/defense/threat-intel',
-  component: '/fangyu/threat-intel',
-  meta: {
-    title: '情报与画像',
-    icon: 'ri:alert-line',
-    permission: 'threat_intel.read',
-    keepAlive: true,
-    authList: [
-      { title: '新增', authMark: 'threat_intel.write' },
-      { title: '停用', authMark: 'threat_intel.write' }
-    ]
-  }
-}
-
-/** 页面资源 */
-export const pageResourcesRoutes: AppRouteRecord = {
-  name: 'FangyuPageResources',
-  path: '/defense/page-resources',
-  component: '/fangyu/page-resources',
-  meta: {
-    title: '页面资源',
-    icon: 'ri:pages-line',
-    permission: 'app.read',
-    keepAlive: true,
-    authList: [
-      { title: '新建', authMark: 'app.write' },
-      { title: '编辑', authMark: 'app.write' },
-      { title: '删除', authMark: 'app.write' }
-    ]
-  }
-}
-
-/** IP 白名单 */
-export const whitelistRoutes: AppRouteRecord = {
-  name: 'FangyuWhitelist',
-  path: '/defense/whitelist',
-  component: '/fangyu/whitelist',
-  meta: {
-    title: 'IP 白名单',
-    icon: 'ri:list-check-3',
-    permission: 'app.read',
-    keepAlive: true,
-    authList: [
-      { title: '新增', authMark: 'app.write' },
-      { title: '删除', authMark: 'app.write' }
-    ]
-  }
-}
-
-/** 评分配置 */
-export const scoringRoutes: AppRouteRecord = {
-  name: 'FangyuScoring',
-  path: '/defense/scoring',
-  component: '/fangyu/scoring',
-  meta: {
-    title: '评分配置',
-    icon: 'ri:equalizer-line',
-    permission: 'app.read',
-    keepAlive: true,
-    authList: [{ title: '保存', authMark: 'app.write' }]
-  }
-}
-
-/** SDK 接入诊断 */
-export const sdkDiagnosticsRoutes: AppRouteRecord = {
-  name: 'FangyuSdkDiagnostics',
-  path: '/defense/sdk-diagnostics',
-  component: '/fangyu/sdk-diagnostics',
-  meta: {
-    title: '诊断',
-    icon: 'ri:stethoscope-line',
-    permission: 'app.read',
-    keepAlive: true
-  }
-}
-
-/** 访问日志 */
+/** 访问日志 - 一级菜单 */
 export const accessLogsRoutes: AppRouteRecord = {
   name: 'FangyuAccessLogs',
   path: '/logs/access',
@@ -192,33 +120,95 @@ export const accessLogsRoutes: AppRouteRecord = {
   }
 }
 
-/** 爬虫分析 */
-export const crawlerAnalyticsRoutes: AppRouteRecord = {
-  name: 'FangyuCrawlerAnalytics',
-  path: '/logs/crawler-analytics',
-  component: '/fangyu/crawler-analytics',
+/** 设置和诊断 - 一级菜单，包含二级 */
+export const settingsRoutes: AppRouteRecord = {
+  name: 'Settings',
+  path: '/settings',
+  component: '/index/index',
   meta: {
-    title: '爬虫分析',
-    icon: 'ri:robot-line',
-    permission: 'analytics.read',
-    keepAlive: true
-  }
+    title: '设置和诊断',
+    icon: 'ri:settings-3-line'
+  },
+  children: [
+    {
+      path: 'clock',
+      name: 'FangyuClock',
+      component: '/fangyu/clock',
+      meta: {
+        title: '频控配置',
+        permission: 'clock.read',
+        keepAlive: true,
+        authList: [{ title: '保存', authMark: 'clock.write' }]
+      }
+    },
+    {
+      path: 'threat-intel',
+      name: 'FangyuThreatIntel',
+      component: '/fangyu/threat-intel',
+      meta: {
+        title: '情报与画像',
+        permission: 'threat_intel.read',
+        keepAlive: true,
+        authList: [
+          { title: '新增', authMark: 'threat_intel.write' },
+          { title: '停用', authMark: 'threat_intel.write' }
+        ]
+      }
+    },
+    {
+      path: 'page-resources',
+      name: 'FangyuPageResources',
+      component: '/fangyu/page-resources',
+      meta: {
+        title: '页面资源',
+        permission: 'app.read',
+        keepAlive: true,
+        authList: [
+          { title: '新建', authMark: 'app.write' },
+          { title: '编辑', authMark: 'app.write' },
+          { title: '删除', authMark: 'app.write' }
+        ]
+      }
+    },
+    {
+      path: 'whitelist',
+      name: 'FangyuWhitelist',
+      component: '/fangyu/whitelist',
+      meta: {
+        title: 'IP 白名单',
+        permission: 'app.read',
+        keepAlive: true,
+        authList: [
+          { title: '新增', authMark: 'app.write' },
+          { title: '删除', authMark: 'app.write' }
+        ]
+      }
+    },
+    {
+      path: 'scoring',
+      name: 'FangyuScoring',
+      component: '/fangyu/scoring',
+      meta: {
+        title: '评分配置',
+        permission: 'app.read',
+        keepAlive: true,
+        authList: [{ title: '保存', authMark: 'app.write' }]
+      }
+    },
+    {
+      path: 'sdk-diagnostics',
+      name: 'FangyuSdkDiagnostics',
+      component: '/fangyu/sdk-diagnostics',
+      meta: {
+        title: '诊断',
+        permission: 'app.read',
+        keepAlive: true
+      }
+    }
+  ]
 }
 
-/** 审计日志 */
-export const auditLogsRoutes: AppRouteRecord = {
-  name: 'FangyuAuditLogs',
-  path: '/logs/audit',
-  component: '/fangyu/audit-logs',
-  meta: {
-    title: '审计日志',
-    icon: 'ri:file-search-line',
-    permission: 'audit.read',
-    keepAlive: true
-  }
-}
-
-/** 权限管理（保留二级结构） */
+/** 权限管理 - 一级菜单，包含二级 */
 export const rbacRoutes: AppRouteRecord = {
   name: 'Rbac',
   path: '/rbac',
@@ -255,6 +245,16 @@ export const rbacRoutes: AppRouteRecord = {
           { title: '新建', authMark: 'role.write' },
           { title: '编辑', authMark: 'role.write' }
         ]
+      }
+    },
+    {
+      path: 'audit',
+      name: 'FangyuAuditLogs',
+      component: '/fangyu/audit-logs',
+      meta: {
+        title: '审计日志',
+        permission: 'audit.read',
+        keepAlive: true
       }
     },
     {
