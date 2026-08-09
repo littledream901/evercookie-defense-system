@@ -10,11 +10,21 @@ import {
   fetchGetCrawlerTopList,
   fetchGetCrawlerTimeline
 } from '@/api/logs'
+import { fetchGetSiteList } from '@/api/apps'
 import { getCrawlerDetail, getSubcategoryLabel } from '@/constants/crawlerDetails'
 import * as echarts from 'echarts'
 
-// 站点 ID（TODO: 从路由参数或全局状态获取）
+// ========== 站点筛选 ==========
 const siteId = ref<number>()
+const selectedAppId = ref<number>()
+const allSites = ref<{ label: string; value: number; app_id: number; app_name: string }[]>([])
+const appGroupOptions = ref<{ label: string; value: number }[]>([])
+const siteLoading = ref(false)
+
+const filteredSiteOptions = computed(() => {
+  if (!selectedAppId.value) return allSites.value
+  return allSites.value.filter((s) => s.app_id === selectedAppId.value)
+})
 
 // ========== 筛选条件 ==========
 const dateRange = ref<[string, string]>([
@@ -28,7 +38,25 @@ const dateShortcuts = [
   { text: '最近1小时', value: () => [new Date(Date.now() - 3600 * 1000), new Date()] },
   { text: '最近6小时', value: () => [new Date(Date.now() - 6 * 3600 * 1000), new Date()] },
   { text: '最近24小时', value: () => [new Date(Date.now() - 24 * 3600 * 1000), new Date()] },
-  { text: '最近7天', value: () => [new Date(Date.now() - 7 * 24 * 3600 * 1000), new Date()] }
+  { text: '最近7天', value: () => [new Date(Date.now() - 7 * 24 * 3600 * 1000), new Date()] },
+  { 
+    text: '今天', 
+    value: () => {
+      const now = new Date()
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
+      return [start, now]
+    }
+  },
+  { 
+    text: '昨天', 
+    value: () => {
+      const now = new Date()
+      const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)
+      const start = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 0, 0, 0)
+      const end = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59, 59)
+      return [start, end]
+    }
+  }
 ]
 
 // ========== 加载状态 ==========
@@ -324,9 +352,55 @@ function renderCategoryChart() {
   categoryChart.setOption(option)
 }
 
+// ========== 站点列表加载 ==========
+async function loadSites() {
+  siteLoading.value = true
+  try {
+    const res = await fetchGetSiteList({ page: 1, pageSize: 100 })
+    const items = res.items || []
+    
+    allSites.value = items.map((i) => ({
+      label: `${i.name}${i.app_name ? ` (${i.app_name})` : ''}`,
+      value: i.id,
+      app_id: i.app_id || 0,
+      app_name: i.app_name || '未分组'
+    }))
+
+    const appMap = new Map<number, string>()
+    items.forEach((i) => {
+      if (i.app_id && !appMap.has(i.app_id)) {
+        appMap.set(i.app_id, i.app_name || `应用 ${i.app_id}`)
+      }
+    })
+    appGroupOptions.value = Array.from(appMap.entries()).map(([id, name]) => ({
+      label: name,
+      value: id
+    }))
+  } catch (err: any) {
+    ElMessage.error(err.message || '加载站点列表失败')
+  } finally {
+    siteLoading.value = false
+  }
+}
+
+function onAppChange() {
+  if (siteId.value && selectedAppId.value) {
+    const currentSite = allSites.value.find((s) => s.value === siteId.value)
+    if (currentSite && currentSite.app_id !== selectedAppId.value) {
+      siteId.value = undefined
+    }
+  }
+}
+
+function onSiteChange() {
+  if (siteId.value) {
+    loadAll()
+  }
+}
+
 // ========== 生命周期 ==========
-onMounted(() => {
-  loadAll()
+onMounted(async () => {
+  await loadSites()
   
   // 监听窗口大小变化
   window.addEventListener('resize', () => {
@@ -344,6 +418,26 @@ onMounted(() => {
       <!-- 筛选栏 -->
       <ElCard shadow="never">
         <ElSpace wrap>
+          <ElSelect
+            v-model="selectedAppId"
+            placeholder="全部应用"
+            clearable
+            style="width: 180px"
+            :loading="siteLoading"
+            @change="onAppChange"
+          >
+            <ElOption v-for="o in appGroupOptions" :key="o.value" :label="o.label" :value="o.value" />
+          </ElSelect>
+          <ElSelect
+            v-model="siteId"
+            placeholder="选择站点"
+            clearable
+            style="width: 200px"
+            :loading="siteLoading"
+            @change="onSiteChange"
+          >
+            <ElOption v-for="o in filteredSiteOptions" :key="o.value" :label="o.label" :value="o.value" />
+          </ElSelect>
           <ElDatePicker 
             v-model="dateRange" 
             type="datetimerange"
@@ -353,10 +447,10 @@ onMounted(() => {
             :shortcuts="dateShortcuts"
           />
           <ElSelect v-model="granularity" class="w-28">
-            <ElOption label="按小时" value="hour" />
-            <ElOption label="按天" value="day" />
+            <ElOption label="按小时" value="hour" label-width="80px" />
+            <ElOption label="按天" value="day" label-width="80px" />
           </ElSelect>
-          <ElButton type="primary" @click="loadAll">刷新</ElButton>
+          <ElButton type="primary" :disabled="!siteId" @click="loadAll">刷新</ElButton>
         </ElSpace>
       </ElCard>
 

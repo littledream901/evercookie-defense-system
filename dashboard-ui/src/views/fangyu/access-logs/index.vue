@@ -546,7 +546,7 @@
         { prop: 'path',            label: '访客访问网址', minWidth: 200, useSlot: true, align: 'center'  },
         { prop: 'verdict',         label: '访问状态',     width: 160,    useSlot: true, align: 'center' },
         { prop: 'mechanism',       label: '处置机制',     width: 130,    useSlot: true, align: 'center' },
-        { prop: 'crawler_info',    label: '爬虫识别',     minWidth: 220, useSlot: true, align: 'center'  },
+        { prop: 'crawler_info',    label: '爬虫识别',     width: 260, useSlot: true, align: 'left'  },
         { prop: 'referer',         label: '访问来路',     minWidth: 150, useSlot: true, align: 'center'  },
         { prop: 'ip',              label: 'IP 地址',      minWidth: 130, useSlot: true , align: 'center' },
         { prop: 'asn',             label: 'IP 详情',      width: 130,    useSlot: true, align: 'center'  },
@@ -732,15 +732,23 @@
 .text-secondary  { color: #606266; font-size: 12px; }
 .text-placeholder { color: #c9cdd4; font-size: 12px; }
 
+/* ── 爬虫识别列单元格约束（ElTable 自动生成的 .cell） ── */
+:deep(.el-table__body .cell) {
+  overflow: hidden;
+  max-width: 100%;
+}
+
 /* ── 爬虫识别增强样式 ── */
 .crawler-detail {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 4px 0;
+  padding: 6px 8px;
   width: 100%;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 .crawler-main {
@@ -748,6 +756,7 @@
   align-items: flex-start;
   gap: 8px;
   min-width: 0;
+  max-width: 100%;
   width: 100%;
 }
 
@@ -763,6 +772,7 @@
   gap: 2px;
   flex: 1;
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
 }
 
@@ -774,6 +784,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 100%;
 }
 
 .crawler-meta {
@@ -784,6 +795,7 @@
   color: #86909c;
   line-height: 1.3;
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
 }
 
@@ -795,6 +807,7 @@
   white-space: nowrap;
   flex-shrink: 1;
   min-width: 0;
+  max-width: 45%;
 }
 
 .crawler-sep {
@@ -809,6 +822,7 @@
   white-space: nowrap;
   flex-shrink: 1;
   min-width: 0;
+  max-width: 45%;
 }
 
 .crawler-purpose {
@@ -822,6 +836,7 @@
   line-clamp: 2;
   overflow: hidden;
   word-break: break-all;
+  max-width: 100%;
 }
 
 .crawler-subcategory-tag {
@@ -836,8 +851,11 @@
   flex-direction: column;
   gap: 4px;
   width: 100%;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
+  padding: 6px 8px;
+  box-sizing: border-box;
 }
 
 .crawler-name-basic {
@@ -848,6 +866,7 @@
   font-size: 12px;
   color: #1d2129;
   font-weight: 500;
+  max-width: 100%;
 }
 
 .crawler-vendor-basic {
@@ -857,6 +876,7 @@
   white-space: nowrap;
   font-size: 11px;
   color: #86909c;
+  max-width: 100%;
 }
 
 /* ── 居中列包裹器 ── */
