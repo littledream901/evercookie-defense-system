@@ -87,6 +87,23 @@ TABLE_COUNT=$(docker exec "$MYSQL_CONTAINER" mysql -uroot -p"${MYSQL_ROOT_PASSWO
 
 echo -e "  数据库表数量: $TABLE_COUNT"
 
+if [ "$TABLE_COUNT" -eq 0 ]; then
+    echo ""
+    echo -e "${RED}════════════════════════════════════════════════════════════${NC}"
+    echo -e "${RED}  数据库为空，需要执行初始化迁移而非修复版本号${NC}"
+    echo -e "${RED}════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "${YELLOW}请执行以下操作：${NC}"
+    echo ""
+    echo "  1. 直接执行部署（会自动运行迁移）："
+    echo -e "     ${CYAN}bash deploy/deploy.sh update${NC}"
+    echo ""
+    echo "  2. 或手动执行迁移："
+    echo -e "     ${CYAN}docker compose -f deploy/docker-compose.prod.yml run --rm --no-deps admin-api alembic upgrade head${NC}"
+    echo ""
+    exit 1
+fi
+
 if [ "$TABLE_COUNT" -lt 20 ]; then
     warn "表数量偏少（< 20），可能需要完整迁移而非仅修复版本号"
     echo ""
