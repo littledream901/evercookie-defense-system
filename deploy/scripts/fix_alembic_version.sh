@@ -28,7 +28,6 @@ set -a
 source "$ENV_FILE"
 set +a
 
-MYSQL_CONTAINER="${MYSQL_CONTAINER:-deploy-mysql-1}"
 TARGET_VERSION="20260809_0001"
 
 echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
@@ -36,12 +35,30 @@ echo -e "${CYAN}  Alembic 版本号修复工具${NC}"
 echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
 echo ""
 
-# 1. 检查 MySQL 容器是否运行
+# 1. 自动检测 MySQL 容器
 log "检查 MySQL 容器状态..."
-if ! docker ps --format '{{.Names}}' | grep -q "^${MYSQL_CONTAINER}$"; then
-    err "MySQL 容器未运行: $MYSQL_CONTAINER"
+
+# 优先使用环境变量指定的容器名
+if [ -n "${MYSQL_CONTAINER:-}" ]; then
+    if docker ps --format '{{.Names}}' | grep -q "^${MYSQL_CONTAINER}$"; then
+        echo -e "  ${GREEN}✓${NC} 使用指定容器: $MYSQL_CONTAINER"
+    else
+        err "指定的 MySQL 容器未运行: $MYSQL_CONTAINER"
+    fi
+else
+    # 自动检测运行中的 MySQL 容器
+    MYSQL_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E 'mysql|mariadb' | head -n1)
+    
+    if [ -z "$MYSQL_CONTAINER" ]; then
+        err "未找到运行中的 MySQL 容器。请先启动服务：
+  docker compose -f deploy/docker-compose.prod.yml up -d mysql
+  
+或设置环境变量：
+  export MYSQL_CONTAINER=<容器名称>"
+    fi
+    
+    echo -e "  ${GREEN}✓${NC} 自动检测到容器: $MYSQL_CONTAINER"
 fi
-echo -e "  ${GREEN}✓${NC} MySQL 容器运行中"
 echo ""
 
 # 2. 检查当前版本
