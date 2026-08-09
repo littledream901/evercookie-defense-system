@@ -157,10 +157,10 @@ def _parse_engine(ua: str) -> str:
 
 _BRAND_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("apple", re.compile(r"\b(?:iphone|ipad|ipod|macintosh|mac os x|apple ?tv|watchos)\b", re.I)),
-    ("huawei", re.compile(r"\b(?:huawei|honor|harmonyos|hmscore|\bhw-|ALP-|EML-|VOG-|LIO-|NOH-|ELS-)", re.I)),
+    ("huawei", re.compile(r"\b(?:huawei|harmonyos|hmscore|\bhw-|ALP-|EML-|VOG-|LIO-|NOH-|ELS-)|\bhonor(?![a-z])(?!\s+of\s+kings)", re.I)),
     ("xiaomi", re.compile(r"\b(?:xiaomi|redmi|poco|miuibrowser|\bmi \d|mix \d)\b", re.I)),
-    ("samsung", re.compile(r"\b(?:samsung|sm-[a-z]\d|gt-[a-z]\d|sch-|shv-)", re.I)),
-    ("oppo", re.compile(r"\b(?:oppo|heytapbrowser|realme|\bcph\d{4})", re.I)),
+    ("samsung", re.compile(r"\bsamsung\b|\b(?:sm-[a-z]\d|gt-[a-z]\d|sch-|shv-)", re.I)),
+    ("oppo", re.compile(r"\b(?:oppo|heytapbrowser|realme|cph\d{4})\b", re.I)),
     ("vivo", re.compile(r"\b(?:vivo|vivobrowser|\bv\d{4}[a-z]{1,2})\b", re.I)),
     ("oneplus", re.compile(r"\b(?:oneplus|\bne2\d{3}|\bkb2\d{3})\b", re.I)),
     ("meizu", re.compile(r"\b(?:meizu|m\d{3}[a-z])\b", re.I)),
@@ -225,8 +225,10 @@ def _parse_model(ua: str, os_name: str) -> str | None:
 
 _TV_RE = re.compile(r"\b(?:smart-?tv|smarttv|googletv|appletv|hbbtv|netcast|viera|roku|tizen|web ?os|crkey)\b", re.I)
 _CONSOLE_RE = re.compile(r"\b(?:playstation|xbox|nintendo)\b", re.I)
-_WEARABLE_RE = re.compile(r"\b(?:watch(?:os)?|wear ?os|galaxy watch)\b", re.I)
-_TABLET_RE = re.compile(r"\b(?:ipad|tablet|kindle|silk/|playbook|nexus (?:7|9|10)|sm-t\d)", re.I)
+# 裸词 "watch" 是常见英文词（watch later/stopwatch 等），不能单独作为可穿戴设备信号，
+# 真实 Watch UA 固定形如 "WatchOS" / "Apple Watch" / "Wear OS" / "Galaxy Watch"。
+_WEARABLE_RE = re.compile(r"\b(?:watchos|apple watch|wear ?os|galaxy watch)\b", re.I)
+_TABLET_RE = re.compile(r"\b(?:ipad|tablet|kindle|silk/|playbook|nexus (?:7|9|10)|sm-t\d)\b", re.I)
 _MOBILE_RE = re.compile(r"\b(?:mobile|iphone|ipod|windows phone|blackberry|opera mini|iemobile)\b", re.I)
 _DESKTOP_OS = frozenset({"windows", "macos", "linux", "chromeos", "ubuntu", "debian", "centos", "fedora", "freebsd"})
 

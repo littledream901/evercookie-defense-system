@@ -1393,9 +1393,12 @@ class DecisionService:
     ) -> None:
         """发布决策事件。
 
-        ``snapshot`` 为 None 表示 Clock 阶段就终止了，此时还没构建画像——
-        MMDB/UA 解析结果留空。这是有意的取舍：频控拦截要尽可能便宜，
-        为了补全日志字段而去做一次画像构建不值得。
+        ``snapshot`` 为 None 表示白名单/挑战通行/Clock/Hybrid/缓存命中等
+        短路阶段就终止了，此时还没构建完整画像——UA 解析结果留空（省下
+        画像构建里 profile_cache/intel_reader 的往返开销）。但 IP 地理/ASN
+        信息只是一次纯本地 MMDB 文件查询，开销很低，为避免日志里 IP 详情
+        大面积缺失（同一 IP 命中缓存与否导致展示不一致），短路路径这里
+        单独补一次 MMDB lookup。
         """
         # 跳过未鉴权请求的日志发布（app_key_required=False 时 site_id=0）
         if ctx.site_id <= 0:
@@ -1404,6 +1407,13 @@ class DecisionService:
             now_ms = utcnow_ms()
             ip = snapshot.ip if snapshot else None
             ua = snapshot.ua if snapshot else None
+            ip_lookup: dict[str, Any] | None = None
+            if ip is None:
+                try:
+                    ip_lookup = self._deps.mmdb_reader.lookup(str(ctx.ip))
+                except Exception as exc:  # noqa: BLE001 - 日志补全不能影响事件发布
+                    _logger.warning("publish_event_mmdb_lookup_failed", error=str(exc))
+                    ip_lookup = None
             event = DecisionEvent(
                 eventId=uuid.uuid4().hex,
                 siteId=ctx.site_id,
@@ -1430,13 +1440,14 @@ class DecisionService:
                 scorerScores=outcome.scorer_scores,
                 ruleIds=list(outcome.rule_ids),
                 reason=outcome.reason,
-                # 网络解析结果（MMDB 产物）
-                country=ip.country if ip else None,
-                asn=ip.asn if ip else None,
-                asnOrg=ip.asn_org if ip else None,
-                connectionType=ip.connection_type if ip else None,
-                isVpn=ip.is_vpn if ip else False,
-                isProxy=ip.is_proxy if ip else False,
+                # 网络解析结果（MMDB 产物）。ip 有画像时用画像字段；
+                # 短路路径没有画像时退回上面单独查的 ip_lookup。
+                country=ip.country if ip else (ip_lookup.get("country") if ip_lookup else None),
+                asn=ip.asn if ip else (ip_lookup.get("asn") if ip_lookup else None),
+                asnOrg=ip.asn_org if ip else (ip_lookup.get("asn_org") if ip_lookup else None),
+                connectionType=ip.connection_type if ip else (ip_lookup.get("connection_type") if ip_lookup else None),
+                isVpn=ip.is_vpn if ip else bool(ip_lookup.get("is_vpn")) if ip_lookup else False,
+                isProxy=ip.is_proxy if ip else bool(ip_lookup.get("is_proxy")) if ip_lookup else False,
                 # 设备解析结果（UA parser 产物）
                 deviceType=ua.device_type if ua else None,
                 osName=ua.os if ua else None,

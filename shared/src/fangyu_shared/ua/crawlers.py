@@ -53,7 +53,9 @@ _SEARCH_ENGINE: tuple[CrawlerSignature, ...] = (
     _sig("yandex", "search_engine", r"\b(?:yandexbot|yandeximages|yandexmobilebot|yandexaccessibilitybot|yandexrenderresourcesbot)\b", verifiable=True, name_pattern=r"(?:yandexrenderresourcesbot|yandexaccessibilitybot|yandexmobilebot|yandeximages|yandexbot)(?:/[\d.]+)?"),
     _sig("duckduckgo", "search_engine", r"\b(?:duckduckbot|duckduckgo-favicons-bot|duckassistbot)\b", verifiable=True),
     _sig("sogou", "search_engine", r"\bsogou\s?(?:web|inst|pic|news|video|orion)?\s?spider\b"),
-    _sig("360", "search_engine", r"\b(?:360spider|haosouspider|360spider-image)\b"),
+    # name_pattern 里更具体的 "360spider-image" 排在 "360spider" 之前，
+    # 避免 re 的最左匹配优先规则把 "-Image" 后缀截断掉。
+    _sig("360", "search_engine", r"\b(?:360spider|haosouspider|360spider-image)\b", name_pattern=r"(?:360spider-image|360spider|haosouspider)(?:/[\d.]+)?"),
     _sig("shenma", "search_engine", r"\b(?:yisouspider|shenmaspider)\b"),
     _sig("bytedance", "search_engine", r"\btoutiaospider\b"),
     _sig("naver", "search_engine", r"\b(?:yeti|naverbot)\b"),
@@ -68,7 +70,9 @@ _SEARCH_ENGINE: tuple[CrawlerSignature, ...] = (
 )
 
 _SOCIAL: tuple[CrawlerSignature, ...] = (
-    _sig("meta", "social", r"\b(?:facebookexternalhit|facebookcatalog|facebookbot|meta-externalagent|meta-externalfetcher)\b"),
+    # "facebookbot" 不在此处匹配：Meta 官方文档将其归类为 AI/语言模型训练爬虫，
+    # 已在 _AI_CRAWLER 中定义（且 _AI_CRAWLER 优先级更高），此处重复会形成死代码。
+    _sig("meta", "social", r"\b(?:facebookexternalhit|facebookcatalog|meta-externalagent|meta-externalfetcher)\b"),
     _sig("twitter", "social", r"\btwitterbot\b"),
     _sig("linkedin", "social", r"\blinkedinbot\b"),
     _sig("pinterest", "social", r"\bpinterest(?:bot|/\d)\b"),
@@ -202,7 +206,8 @@ _FEED: tuple[CrawlerSignature, ...] = (
 
 _ARCHIVE: tuple[CrawlerSignature, ...] = (
     _sig("internetarchive", "archive", r"\b(?:ia_archiver|archive\.org_bot|wayback)\b"),
-    _sig("commoncrawl", "archive", r"\bccbot\b"),
+    # "ccbot"（Common Crawl）不在此处匹配：其抓取数据主要用于 AI 训练语料，
+    # 已在 _AI_CRAWLER 中定义（且 _AI_CRAWLER 优先级更高），此处重复会形成死代码。
     _sig("heritrix", "archive", r"\bheritrix\b"),
     _sig("httrack", "archive", r"\bhttrack\b"),
     _sig("webcopier", "archive", r"\b(?:webcopier|webzip|teleport ?pro|offline explorer)\b"),

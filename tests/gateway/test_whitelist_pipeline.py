@@ -258,8 +258,13 @@ class _StubPublisher:
 
 
 class _StubMMDB:
+    def __init__(self, result: dict | None = None) -> None:
+        self._result = result or {}
+        self.lookup_calls: list[str] = []
+
     def lookup(self, ip):
-        return {}
+        self.lookup_calls.append(ip)
+        return self._result
 
 
 def _build_service(
@@ -267,11 +272,13 @@ def _build_service(
     entries: dict[str, bytes] | None = None,
     whitelist: bool = True,
     banned: bool = False,
+    mmdb: _StubMMDB | None = None,
 ):
     cache = _StubDecisionCache()
     publisher = _StubPublisher()
     clock_repo = _StubClockRepo(banned=banned)
     security = _StubSecurity()
+    mmdb_reader = mmdb or _StubMMDB()
     deps = DecisionServiceDeps(
         decision_cache=cache,  # type: ignore[arg-type]
         profile_cache=_StubProfileCache(),  # type: ignore[arg-type]
@@ -281,7 +288,7 @@ def _build_service(
         security_checker=security,  # type: ignore[arg-type]
         risk_pipeline=_StubRiskPipeline(),  # type: ignore[arg-type]
         event_publisher=publisher,  # type: ignore[arg-type]
-        mmdb_reader=_StubMMDB(),  # type: ignore[arg-type]
+        mmdb_reader=mmdb_reader,  # type: ignore[arg-type]
         clock_repository=clock_repo,  # type: ignore[arg-type]
         clock_guard=ClockGuard(),
         whitelist_reader=(
@@ -290,7 +297,7 @@ def _build_service(
             else None
         ),
     )
-    return DecisionService(deps), cache, publisher, clock_repo, security
+    return DecisionService(deps), cache, publisher, clock_repo, security, mmdb_reader
 
 
 def _request(**overrides) -> DecisionRequest:
@@ -307,7 +314,7 @@ def _request(**overrides) -> DecisionRequest:
 
 @pytest.mark.asyncio
 async def test_whitelist_allows_and_short_circuits() -> None:
-    service, cache, _, clock_repo, security = _build_service(
+    service, cache, _, clock_repo, security, _ = _build_service(
         entries={f"ip:{_IP}": _meta("办公网")}
     )
 
@@ -328,7 +335,7 @@ async def test_whitelist_rescues_banned_visitor() -> None:
     被封禁的访客连 SecurityChecker 都到不了——「在 SecurityChecker 之前查
     白名单」这个位置是不够的。
     """
-    service, _, _, _, _ = _build_service(
+    service, _, _, _, _, _ = _build_service(
         entries={f"ip:{_IP}": _meta()}, banned=True
     )
 
@@ -340,7 +347,7 @@ async def test_whitelist_rescues_banned_visitor() -> None:
 @pytest.mark.asyncio
 async def test_banned_without_whitelist_still_blocked() -> None:
     """对照组：白名单为空时封禁照常生效。"""
-    service, _, _, _, _ = _build_service(entries={}, banned=True)
+    service, _, _, _, _, _ = _build_service(entries={}, banned=True)
 
     resp = await service.decide(_request())
 
@@ -350,7 +357,7 @@ async def test_banned_without_whitelist_still_blocked() -> None:
 @pytest.mark.asyncio
 async def test_whitelist_verdict_not_cached() -> None:
     """缓存了它，删除白名单后仍有一个 TTL 周期的放行窗口。"""
-    service, cache, _, _, _ = _build_service(entries={f"ip:{_IP}": _meta()})
+    service, cache, _, _, _, _ = _build_service(entries={f"ip:{_IP}": _meta()})
 
     await service.decide(_request())
 
@@ -364,7 +371,7 @@ def test_whitelist_decided_by_is_time_sensitive() -> None:
 @pytest.mark.asyncio
 async def test_whitelist_hit_published_to_event() -> None:
     """放行也要落库，否则日志里表现为一个凭空通过的请求。"""
-    service, _, publisher, _, _ = _build_service(entries={f"ip:{_IP}": _meta()})
+    service, _, publisher, _, _, _ = _build_service(entries={f"ip:{_IP}": _meta()})
 
     await service.decide(_request())
     # 事件发布已挪出决策关键路径，响应返回时任务可能还没跑。
@@ -379,7 +386,7 @@ async def test_whitelist_hit_published_to_event() -> None:
 @pytest.mark.asyncio
 async def test_whitelist_disabled_skips_stage() -> None:
     """whitelist_reader=None 时流水线从 CLOCK 开始。"""
-    service, _, _, clock_repo, _ = _build_service(whitelist=False)
+    service, _, _, clock_repo, _, _ = _build_service(whitelist=False)
 
     await service.decide(_request())
 
@@ -388,7 +395,7 @@ async def test_whitelist_disabled_skips_stage() -> None:
 
 @pytest.mark.asyncio
 async def test_miss_falls_through_to_pipeline() -> None:
-    service, cache, _, clock_repo, security = _build_service(entries={})
+    service, cache, _, clock_repo, security, _ = _build_service(entries={})
 
     resp = await service.decide(_request())
 
@@ -396,3 +403,37 @@ async def test_miss_falls_through_to_pipeline() -> None:
     assert cache.get_calls == 1
     assert security.calls == 1
     assert resp.decided_stage != "whitelist"
+
+
+@pytest.mark.asyncio
+async def test_whitelist_hit_event_backfills_ip_details_from_mmdb() -> None:
+    """白名单命中没有画像，事件里的 IP 详情要从单独补查的 MMDB 结果回填。
+
+    回归场景：同一 IP 命中白名单（短路）与走完整流水线（有画像）时，
+    ClickHouse 里的 IP 详情字段不该因为走了哪条路径而时有时无。
+    """
+    mmdb = _StubMMDB(
+        {
+            "country": "US",
+            "asn": 13335,
+            "asn_org": "Cloudflare, Inc.",
+            "connection_type": "hosting",
+            "is_vpn": False,
+            "is_proxy": True,
+        }
+    )
+    service, _, publisher, _, _, _ = _build_service(
+        entries={f"ip:{_IP}": _meta()}, mmdb=mmdb
+    )
+
+    await service.decide(_request())
+    await service.drain_events()
+
+    assert mmdb.lookup_calls == [_IP], "短路路径必须补一次 MMDB 查询"
+    event = publisher.events[0]
+    assert event.country == "US"
+    assert event.asn == 13335
+    assert event.asn_org == "Cloudflare, Inc."
+    assert event.connection_type == "hosting"
+    assert event.is_proxy is True
+    assert event.is_vpn is False

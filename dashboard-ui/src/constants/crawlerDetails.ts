@@ -594,8 +594,12 @@ export function getCrawlerDetail(crawlerName: string | null | undefined): Crawle
   }
   
   // 模糊匹配（处理变体）
+  // 仅保留“爬虫名称包含已知特征词”这一方向的匹配，避免反向匹配导致
+  // 短词（如通用兜底提取出的 "bot"）被误判为任意包含该子串的具体厂商
+  // （例如 "bot" 会被 "googlebot" 误命中），详见访问日志爬虫识别误判问题。
+  // 同时要求已知特征词长度达到一定阈值，进一步降低短词误伤风险。
   for (const [key, detail] of Object.entries(CRAWLER_DETAILS)) {
-    if (normalized.includes(key) || key.includes(normalized)) {
+    if (key.length >= 5 && normalized.includes(key)) {
       return detail
     }
   }
