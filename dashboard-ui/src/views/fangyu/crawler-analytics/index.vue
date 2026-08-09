@@ -446,9 +446,9 @@ onMounted(async () => {
             value-format="YYYY-MM-DDTHH:mm:ss" 
             :shortcuts="dateShortcuts"
           />
-          <ElSelect v-model="granularity" class="w-28">
-            <ElOption label="按小时" value="hour" label-width="80px" />
-            <ElOption label="按天" value="day" label-width="80px" />
+          <ElSelect v-model="granularity" style="width: 90px">
+            <ElOption label="按小时" value="hour" />
+            <ElOption label="按天" value="day" />
           </ElSelect>
           <ElButton type="primary" :disabled="!siteId" @click="loadAll">刷新</ElButton>
         </ElSpace>

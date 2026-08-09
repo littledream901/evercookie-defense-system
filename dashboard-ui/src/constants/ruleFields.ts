@@ -439,6 +439,14 @@ const UA_FIELDS: FieldDef[] = [
     hint: '非爬虫请求该字段为空'
   },
   {
+    label: '爬虫名称',
+    value: 'ua.crawler_name',
+    type: 'enum',
+    ops: ENUM_OPS,
+    nullable: true,
+    hint: '如 Googlebot / Bingbot / GPTBot。非爬虫请求为空'
+  },
+  {
     label: '爬虫厂商',
     value: 'ua.crawler_vendor',
     type: 'string',
