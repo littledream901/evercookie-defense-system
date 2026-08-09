@@ -201,7 +201,7 @@ export const settingsRoutes: AppRouteRecord = {
       name: 'FangyuSdkDiagnostics',
       component: '/fangyu/sdk-diagnostics',
       meta: {
-        title: '诊断',
+        title: '接入诊断',
         permission: 'app.read',
         keepAlive: true
       }

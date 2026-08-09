@@ -10,7 +10,7 @@
           start-placeholder="开始时间" end-placeholder="结束时间"
           value-format="YYYY-MM-DDTHH:mm:ss" :shortcuts="dateShortcuts"
           @change="loadAll" />
-        <ElSelect v-model="granularity" class="w-28" @change="loadAll">
+        <ElSelect v-model="granularity" style="width: 90px" @change="loadAll">
           <ElOption label="按小时" value="hour" />
           <ElOption label="按天" value="day" />
         </ElSelect>
