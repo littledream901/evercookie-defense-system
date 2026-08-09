@@ -520,10 +520,37 @@ const saveConfig = async () => {
     dimensions.value.map(d => [d.key, configForm.weights[d.key] ?? 0])
   )
   const totalWeight = Object.values(weights).reduce((sum, w) => sum + (w || 0), 0)
-  if (totalWeight === 0) {
-    ElMessage.warning('所有维度权重均为 0，评分将恒为 0 分，请至少设置一个维度权重')
-    return
+  // 评分已关闭时跳过权重校验——网关侧会整段跳过评分阶段，权重不参与运算
+  if (configForm.enabled) {
+    if (totalWeight === 0) {
+      ElMessage.warning('所有维度权重均为 0，评分将恒为 0 分，请至少设置一个维度权重')
+      return
+    }
+    // 检查是否所有权重都为负值（会导致分数异常偏低）
+    const allNegative = Object.values(weights).every(w => w <= 0)
+    if (allNegative && totalWeight < 0) {
+      ElMessage.warning('所有维度权重均为负值，评分结果将异常偏低，建议至少保留一个正权重维度')
+      return
+    }
+    // 检查阈值配置是否合理
+    if (configForm.threshold_suspect >= configForm.threshold_hostile) {
+      ElMessage.warning('可疑阈值必须小于敌对阈值，否则可疑区间为空')
+      return
+    }
   }
+
+  // 关闭评分时不应配置处置策略（评分阶段被跳过，处置策略不会生效）
+  if (!configForm.enabled) {
+    if (configForm.disposition_suspect) {
+      ElMessage.warning('关闭评分时不应配置「可疑处置」策略，请清空后再保存')
+      return
+    }
+    if (configForm.disposition_hostile) {
+      ElMessage.warning('关闭评分时不应配置「敌对处置」策略，请清空后再保存')
+      return
+    }
+  }
+
   for (const branch of dispositionBranches.value) {
     if (!branch.form) continue
     const err = validateDisposition(branch.form)
@@ -533,8 +560,12 @@ const saveConfig = async () => {
     }
   }
 
+  const confirmMessage = configForm.enabled
+    ? `保存后新的权重与阈值将同步到网关节点并立即用于线上请求判定（可疑 ≥ ${configForm.threshold_suspect} 分，敌对 ≥ ${configForm.threshold_hostile} 分）。确认保存？`
+    : '评分已关闭：保存后网关将跳过风险评分阶段，所有未被前置阶段命中的请求直接落到默认处置（通常为放行）。确认保存？'
+
   const confirmed = await ElMessageBox.confirm(
-    `保存后新的权重与阈值将同步到网关节点并立即用于线上请求判定（可疑 ≥ ${configForm.threshold_suspect} 分，敌对 ≥ ${configForm.threshold_hostile} 分）。确认保存？`,
+    confirmMessage,
     '保存评分配置',
     { confirmButtonText: '保存', cancelButtonText: '取消', type: 'warning' }
   ).catch(() => false)

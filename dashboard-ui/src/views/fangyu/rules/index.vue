@@ -598,6 +598,7 @@
               btns.push(btn('warning', VideoPause, '停用', () => disableRule(r)))
               btns.push(btn('warning', Box, '归档', () => archiveRule(r)))
             } else if (s === 'disabled') {
+              btns.push(btn('primary', View, '影子', () => shadowRule(r)))
               btns.push(btn('success', Upload, '发布', () => publishRule(r)))
               btns.push(btn('warning', Box, '归档', () => archiveRule(r)))
             } else if (s === 'archived') {

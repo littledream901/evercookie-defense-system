@@ -357,6 +357,7 @@
     id?: number
     name?: string
     site_key?: string
+    site_secret?: string
     gateway_url?: string | null
     domain?: string
     [key: string]: any
@@ -377,14 +378,28 @@
 
   const activeTab = ref('nginx')
   const gatewayUrl = ref('')
+  const siteSecret = ref('')
   const testLoading = ref(false)
   const testResult = ref<Record<string, { ok: boolean; message: string; detail: string } | undefined>>({})
 
   // 网关地址优先级：应用配置 → 构建时环境变量 → 提示用户配置
   watch(
     () => props.app,
-    (app) => {
+    async (app) => {
       gatewayUrl.value = app?.gateway_url || import.meta.env.VITE_GATEWAY_URL || ''
+      
+      // 当抽屉打开且有站点 ID 时，获取明文 site_secret
+      if (app?.id && props.visible) {
+        try {
+          const { fetchSiteSecret } = await import('@/api/apps')
+          const res = await fetchSiteSecret(app.id)
+          siteSecret.value = res.site_secret
+        } catch {
+          siteSecret.value = ''
+        }
+      } else {
+        siteSecret.value = ''
+      }
     },
     { immediate: true },
   )
@@ -393,9 +408,8 @@
 
   const siteKey = computed(() => props.app?.site_key ?? 'YOUR_SITE_KEY')
   const numericSiteId = computed(() => props.app?.id ?? 0)
-  // Site Secret 仅在创建/轮换时一次性返回，列表接口不含该字段，
-  // 因此接入示例里始终用占位符，提示用户从创建弹窗或轮换结果中获取。
-  const appSecret = computed(() => 'YOUR_SITE_SECRET')
+  // 优先使用从 API 获取的明文 site_secret，如果没有则显示占位符
+  const appSecret = computed(() => siteSecret.value || 'YOUR_SITE_SECRET')
   const gw = computed(() => gatewayUrl.value.replace(/\/$/, ''))
 
   // Liquid 的双花括号会被 Vue 模板编译器当成插值解析，必须拆开拼接后再输出

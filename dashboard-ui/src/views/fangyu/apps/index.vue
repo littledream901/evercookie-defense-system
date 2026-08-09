@@ -137,6 +137,25 @@
           <span v-else class="text-g-400 text-[12px]">—</span>
         </template>
 
+        <!-- Site Secret 列（签名密钥，点击查看明文） -->
+        <template #site_secret="{ row }">
+          <div class="flex items-center gap-1 min-w-0">
+            <span
+              class="text-[12px] text-g-500 cursor-pointer hover:text-primary"
+              style="font-family: ui-monospace, 'Cascadia Code', monospace"
+              @click.stop="showSecretPlaintext(row)"
+            >••••••••••••••••</span>
+            <ElButton 
+              link 
+              type="primary" 
+              :icon="View" 
+              size="small" 
+              title="查看明文"
+              @click.stop="showSecretPlaintext(row)" 
+            />
+          </div>
+        </template>
+
         <!-- 绑定规则列 -->
         <template #rules="{ row }">
           <div v-if="row.rules?.length" class="flex items-center gap-1">
@@ -304,7 +323,8 @@
     fetchUpdateSite,
     fetchBatchDeleteSites,
     fetchBatchToggleSites,
-    fetchBatchUpdateSites
+    fetchBatchUpdateSites,
+    fetchSiteSecret
   } from '@/api/apps'
   import { pruneParams, RULE_STATUS_TAGS, RULE_STATUS_LABELS } from '@/constants/fangyu'
   import AppSearch from './modules/app-search.vue'
@@ -318,7 +338,8 @@
     Upload,
     RefreshRight,
     Delete,
-    CopyDocument
+    CopyDocument,
+    View
   } from '@element-plus/icons-vue'
   import type { DialogType } from '@/types'
 
@@ -342,7 +363,7 @@
 
   const goToApplication = (appId?: number) => {
     if (!appId) return
-    router.push({ path: '/fangyu/applications', query: { appId: String(appId) } })
+    router.push({ path: '/defense/applications', query: { appId: String(appId) } })
   }
 
   // 支持从应用管理页带 ?appId= 下钻，直接按应用过滤
@@ -540,6 +561,27 @@
     integrationVisible.value = true
   }
 
+  const showSecretPlaintext = async (row: SiteItem) => {
+    try {
+      const res = await fetchSiteSecret(row.id)
+      await ElMessageBox.alert(
+        `<div style="font-family: ui-monospace, 'Cascadia Code', monospace; padding: 12px; background: #f5f5f5; border-radius: 4px; word-break: break-all;">${res.site_secret}</div>`,
+        `Site Secret - ${row.name}`,
+        {
+          confirmButtonText: '复制',
+          cancelButtonText: '关闭',
+          showCancelButton: true,
+          dangerouslyUseHTMLString: true,
+          distinguishCancelAndClose: true
+        }
+      ).then(() => {
+        copyText(res.site_secret, 'Site Secret')
+      }).catch(() => {})
+    } catch {
+      ElMessage.error('获取 Site Secret 失败')
+    }
+  }
+
   const showDialog = (type: DialogType, row?: SiteItem) => {
     dialogType.value = type
     currentSiteData.value = row || {}
@@ -636,6 +678,12 @@
           prop: 'site_key',
           label: 'Site Key',
           minWidth: 150,
+          useSlot: true
+        },
+        {
+          prop: 'site_secret',
+          label: 'Site Secret',
+          minWidth: 180,
           useSlot: true
         },
         {

@@ -1,10 +1,11 @@
 <template>
   <div class="art-full-height">
     <div class="mb-3">
-      <h2 class="text-lg font-medium text-g-900">威胁情报</h2>
+      <h2 class="text-lg font-medium text-g-900">威胁情报与画像库</h2>
       <p class="mt-1 text-sm text-g-600">
-        分两类：<b>黑名单</b>（IP 威胁 / ASN 情报 / 指纹情报 / 爬虫特征）直接携带风险分参与判定；
-        <b>画像</b>（IP 画像 / GeoIP 录入）只标注网络属性，供规则条件引用。
+        本页管理两类数据源：<br>
+        <b>1. 威胁情报（黑名单）</b>：IP 威胁、ASN 情报、爬虫特征、指纹情报 → 携带风险分，规则条件中通过 <code class="text-xs bg-g-100 px-1 rounded">intel.*</code> 字段族引用<br>
+        <b>2. 网络画像</b>：IP 画像、GeoIP 录入 → 标注网络属性（代理/VPN/数据中心等），规则条件中通过 <code class="text-xs bg-g-100 px-1 rounded">ip.*</code> 字段族引用
       </p>
     </div>
 
@@ -230,8 +231,11 @@
               <ElButton size="small" :loading="testLoading" @click="handleMmdbTest">测试</ElButton>
               <ElButton v-if="testResult" size="small" link @click="testResult = null">清除</ElButton>
             </div>
-            <ElDescriptions v-if="testResult" :column="3" border size="small" class="mt-3">
-              <ElDescriptionsItem v-for="(v, k) in testResult" :key="k" :label="String(k)">{{ v ?? '-' }}</ElDescriptionsItem>
+            <ElDescriptions v-if="testResult" :column="1" border size="small" class="mt-3 mmdb-test-result">
+              <ElDescriptionsItem v-for="(v, k) in testResult" :key="k" :label="String(k)">
+                <pre v-if="v && typeof v === 'object'" class="mmdb-test-json">{{ formatTestValue(v) }}</pre>
+                <span v-else>{{ v ?? '-' }}</span>
+              </ElDescriptionsItem>
             </ElDescriptions>
           </div>
         </ElTabPane>
@@ -447,6 +451,27 @@
 .pane-scroll {
   flex: 1;
   min-height: 0;
+  overflow-y: auto;
+}
+
+/* IP 快速测试结果：country/asn 等字段本身是嵌套对象，格式化为带缩进 JSON 后
+   用等宽字体展示，允许换行，避免长内容挤成一行难以阅读 */
+.mmdb-test-result :deep(.el-descriptions__label) {
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.mmdb-test-json {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 260px;
   overflow-y: auto;
 }
 </style>
@@ -983,6 +1008,15 @@ async function handleMmdbTest() {
     ElMessage.error('测试失败')
   } finally {
     testLoading.value = false
+  }
+}
+
+/** 将 country/asn 等嵌套对象格式化为带缩进的 JSON，避免长内容挤成一行 */
+function formatTestValue(v: unknown): string {
+  try {
+    return JSON.stringify(v, null, 2)
+  } catch {
+    return String(v)
   }
 }
 

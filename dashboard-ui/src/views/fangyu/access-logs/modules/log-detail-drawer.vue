@@ -71,7 +71,7 @@
                 </ElDescriptionsItem>
                 <ElDescriptionsItem label="是否爬虫">
                   <ElTag v-if="detail.is_bot" type="warning" size="small">
-                    {{ detail.crawler_name || detail.crawler_vendor || detail.crawler_category || 'bot' }}
+                    {{ detail.crawler_vendor || detail.crawler_category || 'bot' }}
                   </ElTag>
                   <span v-else class="text-g-400">否</span>
                 </ElDescriptionsItem>
@@ -223,7 +223,7 @@
                 <div class="behavior-card" :class="detail.is_bot ? 'card-danger' : 'card-normal'">
                   <div class="card-icon">🤖</div>
                   <div class="card-label">爬虫识别</div>
-                  <div class="card-value">{{ detail.is_bot ? (detail.crawler_name || detail.crawler_vendor || detail.crawler_category || '是') : '否' }}</div>
+                  <div class="card-value">{{ detail.is_bot ? (detail.crawler_vendor || detail.crawler_category || '是') : '否' }}</div>
                 </div>
                 <div class="behavior-card" :class="detail.evercookie_restore ? 'card-danger' : 'card-normal'">
                   <div class="card-icon">🍪</div>
@@ -261,9 +261,6 @@
                   >
                     {{ detail.connection_type || '-' }}
                   </ElTag>
-                </ElDescriptionsItem>
-                <ElDescriptionsItem label="爬虫名称">
-                  {{ detail.crawler_name || '-' }}
                 </ElDescriptionsItem>
                 <ElDescriptionsItem label="爬虫类别">
                   {{ detail.crawler_category || '-' }}

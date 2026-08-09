@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 
 from fangyu_shared.schemas.common import SuccessResponse
@@ -22,6 +22,24 @@ from fangyu_shared.schemas.common import SuccessResponse
 from src.interfaces.http.dependencies import get_current_user_id
 
 router = APIRouter(prefix="/intelligence/mmdb", tags=["mmdb"])
+
+
+def _client_ip(request: Request) -> str:
+    """解析请求的真实客户端 IP。
+
+    优先取 X-Forwarded-For 的首个地址（经过反向代理时的原始客户端 IP），
+    其次取 X-Real-IP，最后回退到 TCP 连接的 peer 地址。
+    与 audit_log.py / login_rate_limit.py 保持一致的解析逻辑。
+    """
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",", 1)[0].strip()
+    real = request.headers.get("x-real-ip")
+    if real:
+        return real.strip()
+    if request.client:
+        return request.client.host
+    return ""
 
 # MMDB 文件存储目录：与 gateway 共享，通过挂载卷传递
 _MMDB_DIR = Path(os.getenv("MMDB_DIR", "/data/mmdb"))
@@ -141,12 +159,15 @@ async def compare_cidrs(
 
 @router.get("/test", summary="测试 IP 的 MMDB 画像")
 async def test_mmdb_ip(
+    request: Request,
     ip: str | None = Query(None),
     _: int = Depends(get_current_user_id),
 ) -> SuccessResponse[dict]:
     """对指定 IP 做现场 MMDB 查询，便于验证 MMDB 文件是否正确加载。
 
     直接使用 maxminddb 库，不依赖 gateway-api 的跨服务导入。
+    留空 ip 时使用当前请求的真实客户端 IP（解析 X-Forwarded-For / X-Real-IP），
+    而非固定的示例 IP，避免"测试本地 IP"却总看到 8.8.8.8 的结果。
     """
     try:
         import maxminddb  # type: ignore[import]
@@ -155,7 +176,7 @@ async def test_mmdb_ip(
 
     country_path = _MMDB_DIR / "GeoLite2-Country.mmdb"
     asn_path = _MMDB_DIR / "GeoLite2-ASN.mmdb"
-    target_ip = (ip or "8.8.8.8").strip()
+    target_ip = (ip or "").strip() or _client_ip(request) or "127.0.0.1"
 
     country_result: dict = {}
     asn_result: dict = {}

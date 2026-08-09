@@ -134,8 +134,8 @@ services:
       GATEWAY_EVENT_STREAM_NAME: ${STREAM_NAME:-fangyu:events:decision}
       GATEWAY_MMDB_COUNTRY_PATH: /data/mmdb/GeoLite2-Country.mmdb
       GATEWAY_MMDB_ASN_PATH: /data/mmdb/GeoLite2-ASN.mmdb
-      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
-      TRACE_SAMPLE_RATE: ${TRACE_SAMPLE_RATE:-0.1}
+      GATEWAY_OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
+      GATEWAY_DECISION_TRACE_SAMPLE_RATE: ${TRACE_SAMPLE_RATE:-0.1}
     volumes:
       - mmdb-data:/data/mmdb
     depends_on:

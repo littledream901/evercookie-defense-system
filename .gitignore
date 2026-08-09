@@ -70,3 +70,7 @@ Thumbs.db
 # 一次性部署脚本目录，非核心代码
 install-nginx-lua/
 install-cloudflare-worker/
+
+# 本地临时产物：调试脚本/临时数据/分析文档等，默认 7 天有效期，不入库
+tmp/
+!tmp/.gitkeep

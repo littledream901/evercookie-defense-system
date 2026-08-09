@@ -12,14 +12,20 @@ export const VERDICT_LABELS: Record<string, string> = {
   unknown: '未知'
 }
 
-/** 机制标签映射 */
+/** 机制标签映射
+ *
+ * 文案刻意与 VERDICT_LABELS 错开：两者同屏展示，若 pass 也叫「放行」
+ * 就会与裁决 trusted 的「放行」完全重叠——而稳态下绝大多数流量
+ * 正是 trusted + pass，两列文案一模一样，看上去就像机制列填错了裁决值。
+ * 机制回答「怎么做」，因此用动作词；裁决回答「为什么」，用判定词。
+ */
 export const MECHANISM_LABELS: Record<string, string> = {
-  pass: '放行',
+  pass: '不干预',
   serve_alt: '替代内容',
   redirect: '跳转',
-  challenge: '人机挑战',
-  deny: '拒绝',
-  not_found: '假装404'
+  challenge: '人机验证',
+  deny: '403',
+  not_found: '404'
 }
 
 /** 评分器名称映射 */

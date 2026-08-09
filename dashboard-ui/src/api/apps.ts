@@ -101,6 +101,13 @@ export function fetchRotateSiteSecret(id: number) {
   })
 }
 
+/** 获取站点密钥明文（需鉴权） */
+export function fetchSiteSecret(id: number) {
+  return request.get<{ site_id: number; site_key: string; site_secret: string }>({
+    url: `/api/v2/sites/${id}/secret`
+  })
+}
+
 /** 把站点已发布规则全量重建到 Redis 分片 */
 export function fetchPublishSiteRules(id: number) {
   return request.post<{ site_id: number; synced: number }>({

@@ -17,11 +17,11 @@
       </template>
     </ElAlert>
 
-    <!-- 快速筛选按钮组 - 暂时隐藏
+    <!-- 快速筛选按钮组 -->
     <div class="quick-filters mb-3">
       <ElCheckTag
         v-for="filter in quickFilters"
-        :key="filter.value"
+        :key="filter.label"
         :checked="isFilterActive(filter)"
         @change="toggleQuickFilter(filter)"
         class="quick-filter-tag"
@@ -29,7 +29,7 @@
         {{ filter.label }}
       </ElCheckTag>
     </div>
-    -->
+
 
     <AccessLogSearch
       v-show="showSearchBar"
@@ -82,9 +82,16 @@
                 {{ row.host }}
               </span>
             </ElTooltip>
-            <span v-else-if="extractDomain(row.referer)" class="cell-line cell-domain">
-              {{ extractDomain(row.referer) }}
-            </span>
+            <ElTooltip
+              v-else-if="extractDomain(row.referer)"
+              placement="top"
+              :content="extractDomain(row.referer)"
+              :show-after="300"
+            >
+              <span class="cell-line cell-domain">
+                {{ extractDomain(row.referer) }}
+              </span>
+            </ElTooltip>
             <span v-else class="cell-line text-placeholder">-</span>
             <span class="cell-line text-code">{{ row.request_id || '-' }}</span>
             <span class="cell-line cell-time">{{ fmtTime(row.occurred_at) }}</span>
@@ -108,12 +115,22 @@
           <span v-else class="text-placeholder">-</span>
         </template>
 
-        <!-- 3. 访问状态（两行，去掉第一行判定标签） -->
+        <!-- 3. 访问状态：裁决（为什么）+ 处置来源 + 原因 -->
         <template #verdict="{ row }">
           <div class="cell-center">
+            <ElTag :type="VERDICT_TAGS[row.verdict] || 'info'" size="small">
+              {{ VERDICT_LABELS[row.verdict] || row.verdict || '-' }}
+            </ElTag>
             <div class="verdict-sub">
               <span v-if="row.decided_by" class="verdict-source">{{ DECIDED_BY_LABELS[row.decided_by] || row.decided_by }}</span>
-              <span v-if="fmtReason(row.reason)" class="verdict-reason-text">{{ fmtReason(row.reason) }}</span>
+              <ElTooltip
+                v-if="fmtReason(row.reason)"
+                placement="top"
+                :content="fmtReason(row.reason)"
+                :show-after="300"
+              >
+                <span class="verdict-reason-text">{{ fmtReason(row.reason) }}</span>
+              </ElTooltip>
             </div>
           </div>
         </template>
@@ -163,8 +180,12 @@
                 <ElTag :type="getCrawlerCategoryColor(row.crawler_category) as any" size="small" effect="plain">
                   {{ getCrawlerCategoryLabel(row.crawler_category) }}
                 </ElTag>
-                <span v-if="row.crawler_name" class="crawler-name-basic">{{ row.crawler_name }}</span>
-                <span v-if="row.crawler_vendor" class="crawler-vendor-basic">{{ row.crawler_vendor }}</span>
+                <ElTooltip v-if="row.crawler_name" placement="top" :content="row.crawler_name" :show-after="300">
+                  <span class="crawler-name-basic">{{ row.crawler_name }}</span>
+                </ElTooltip>
+                <ElTooltip v-if="row.crawler_vendor" placement="top" :content="row.crawler_vendor" :show-after="300">
+                  <span class="crawler-vendor-basic">{{ row.crawler_vendor }}</span>
+                </ElTooltip>
               </div>
             </template>
           </div>
@@ -300,15 +321,11 @@
   import AccessLogSearch from './modules/access-log-search.vue'
   import LogDetailDrawer from './modules/log-detail-drawer.vue'
   import { DEVICE_TYPE_OPTIONS, pruneParams, recentLocalRange } from '@/constants/fangyu'
-  import { MECHANISM_TAGS, DECIDED_BY_LABELS } from '@/constants/disposition'
+  import { MECHANISM_TAGS, DECIDED_BY_LABELS, VERDICT_TAGS } from '@/constants/disposition'
+  import { MECHANISM_LABELS, VERDICT_LABELS } from '@/constants/accessLogDetail'
   import { getCrawlerDetail, getSubcategoryLabel, type CrawlerDetail } from '@/constants/crawlerDetails'
 
   defineOptions({ name: 'AccessLogs' })
-
-  const MECHANISM_LABELS: Record<string, string> = {
-    pass: '放行', serve_alt: '替代内容', redirect: '跳转',
-    challenge: '人机挑战', deny: '拒绝', not_found: '假装404'
-  }
 
   function fmtTime(raw?: string | null): string {
     if (!raw) return '-'
@@ -478,6 +495,33 @@
   const detailRequestId = ref('')
   const siteId          = ref<number>()
 
+  /** 快速筛选项：点击即切换搜索表单对应字段，无需展开完整搜索栏 */
+  interface QuickFilter {
+    label: string
+    key: keyof AccessLogSearchFormParams
+    value: AccessLogSearchFormParams[keyof AccessLogSearchFormParams]
+  }
+  const quickFilters: QuickFilter[] = [
+    { label: '仅爬虫', key: 'isBot', value: true },
+    { label: '仅真人', key: 'isBot', value: false },
+    { label: '可信', key: 'verdict', value: 'trusted' },
+    { label: '可疑', key: 'verdict', value: 'suspect' },
+    { label: '恶意', key: 'verdict', value: 'hostile' }
+  ]
+
+  function isFilterActive(filter: QuickFilter): boolean {
+    return searchForm.value[filter.key] === filter.value
+  }
+
+  /** 再次点击同一快筛项即取消，否则覆盖同字段的旧值 */
+  function toggleQuickFilter(filter: QuickFilter) {
+    searchForm.value = {
+      ...searchForm.value,
+      [filter.key]: isFilterActive(filter) ? undefined : filter.value
+    }
+    handleSearch(searchForm.value)
+  }
+
   function openDetail(requestId: string) {
     detailRequestId.value = requestId
     detailVisible.value   = true
@@ -502,7 +546,7 @@
         { prop: 'path',            label: '访客访问网址', minWidth: 200, useSlot: true, align: 'center'  },
         { prop: 'verdict',         label: '访问状态',     width: 160,    useSlot: true, align: 'center' },
         { prop: 'mechanism',       label: '处置机制',     width: 130,    useSlot: true, align: 'center' },
-        { prop: 'crawler_info',    label: '爬虫识别',     width: 130,    useSlot: true, align: 'center'  },
+        { prop: 'crawler_info',    label: '爬虫识别',     minWidth: 220, useSlot: true, align: 'center'  },
         { prop: 'referer',         label: '访问来路',     minWidth: 150, useSlot: true, align: 'center'  },
         { prop: 'ip',              label: 'IP 地址',      minWidth: 130, useSlot: true , align: 'center' },
         { prop: 'asn',             label: 'IP 详情',      width: 130,    useSlot: true, align: 'center'  },
@@ -570,23 +614,6 @@
       uptime_monitoring: 'info'
     }
     return typeMap[subcategory] || 'info'
-  }
-
-  function getCrawlerTypeByCategory(category?: string): string {
-    if (!category) return '未知类型'
-    const labels: Record<string, string> = {
-      search_engine: '搜索引擎',
-      social: '社交媒体',
-      ai_crawler: 'AI 抓取',
-      seo: 'SEO 工具',
-      monitoring: '监控探测',
-      security: '安全扫描',
-      library: '脚本库',
-      feed: 'RSS 订阅',
-      archive: '网页存档',
-      other: '其他爬虫'
-    }
-    return labels[category] || category
   }
 
   function getCrawlerCategoryColor(category?: string): 'success' | 'info' | 'warning' | 'danger' {
@@ -711,12 +738,17 @@
   flex-direction: column;
   gap: 6px;
   padding: 4px 0;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .crawler-main {
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  min-width: 0;
+  width: 100%;
 }
 
 .crawler-icon {
@@ -729,7 +761,9 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .crawler-name {
@@ -737,6 +771,9 @@
   font-weight: 600;
   color: #1d2129;
   line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .crawler-meta {
@@ -746,19 +783,32 @@
   font-size: 11px;
   color: #86909c;
   line-height: 1.3;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .crawler-vendor {
   color: #4e5969;
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .crawler-sep {
   color: #c9cdd4;
+  flex-shrink: 0;
 }
 
 .crawler-product {
   color: #86909c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .crawler-purpose {
@@ -766,10 +816,17 @@
   color: #86909c;
   line-height: 1.4;
   margin-top: 1px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  word-break: break-all;
 }
 
 .crawler-subcategory-tag {
   align-self: flex-start;
+  flex-shrink: 0;
   font-size: 11px;
 }
 
@@ -778,34 +835,28 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .crawler-name-basic {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
   color: #1d2129;
   font-weight: 500;
 }
 
 .crawler-vendor-basic {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   color: #86909c;
-}
-
-/* 旧版兼容样式 */
-.crawler-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 2px 0;
-}
-.crawler-name {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--el-text-color-primary);
-}
-.crawler-vendor {
-  font-size: 11px;
-  color: var(--el-text-color-secondary);
 }
 
 /* ── 居中列包裹器 ── */
@@ -829,8 +880,22 @@
   gap: 1px;
   line-height: 1.4;
 }
-.verdict-source      { font-size: 11px; color: #86909c; }
-.verdict-reason-text { font-size: 11px; color: #4e5969; }
+.verdict-source {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: #86909c;
+}
+.verdict-reason-text {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: #4e5969;
+}
 
 /* ── 处置机制 ── */
 .mechanism-tag { align-self: center; }

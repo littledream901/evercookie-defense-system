@@ -100,13 +100,13 @@ export const clockRoutes: AppRouteRecord = {
   }
 }
 
-/** 威胁情报 */
+/** 威胁情报与画像库 */
 export const threatIntelRoutes: AppRouteRecord = {
   name: 'FangyuThreatIntel',
   path: '/defense/threat-intel',
   component: '/fangyu/threat-intel',
   meta: {
-    title: '威胁情报',
+    title: '情报与画像',
     icon: 'ri:alert-line',
     permission: 'threat_intel.read',
     keepAlive: true,
@@ -172,7 +172,7 @@ export const sdkDiagnosticsRoutes: AppRouteRecord = {
   path: '/defense/sdk-diagnostics',
   component: '/fangyu/sdk-diagnostics',
   meta: {
-    title: 'SDK 接入诊断',
+    title: '诊断',
     icon: 'ri:stethoscope-line',
     permission: 'app.read',
     keepAlive: true

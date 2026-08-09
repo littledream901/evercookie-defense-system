@@ -70,8 +70,9 @@
       label: '站点名 / 域名',
       key: 'keyword',
       type: 'input',
+      labelWidth: '100px',
       placeholder: '请输入站点名或域名关键词',
-      clearable: true
+      clearable: true,
     },
     {
       label: '所属应用',

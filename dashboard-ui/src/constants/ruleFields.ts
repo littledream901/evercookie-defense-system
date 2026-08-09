@@ -219,6 +219,15 @@ export const LIST_OPS = new Set([
 ])
 
 /** 网络层（IP）字段 */
+/** 
+ * IP 字段（网络层）
+ * 
+ * 包含 IP 地理位置、ASN、网络类型、代理/VPN/Tor 等属性。
+ * 其中代理/VPN/数据中心等网络属性部分来自「情报与画像 - IP 画像」的人工标注，
+ * 部分来自 GeoIP 数据库的自动识别。
+ * 
+ * 注意：威胁情报的黑名单数据通过 intel.* 字段族引用，不在此处。
+ */
 const IP_FIELDS: FieldDef[] = [
   { label: 'IP 地址', value: 'ip.ip', type: 'string', ops: [...STR_OPS, ...CIDR_OPS] },
   {
@@ -306,9 +315,10 @@ const IP_FIELDS: FieldDef[] = [
 /**
  * 威胁情报命中字段
  *
- * 由网关在决策前查询后台维护的六类情报得出，是「情报库」与「规则」之间的
- * 唯一桥梁。要按恶意 IP 分类拦截请用 intel.reasons / intel.risk_score，
- * IP 画像里没有 category 字段。
+ * 由网关在决策前查询后台维护的四类黑名单情报（IP 威胁、ASN 情报、爬虫特征、指纹情报）得出，
+ * 是「威胁情报（黑名单）」与「规则条件」之间的唯一桥梁。
+ * 
+ * 注意：IP 画像和 GeoIP 录入属于「网络画像」数据，通过 ip.* 字段族引用，不在此处。
  */
 const INTEL_FIELDS: FieldDef[] = [
   { label: '情报是否命中', value: 'intel.matched', type: 'bool', ops: BOOL_OPS },

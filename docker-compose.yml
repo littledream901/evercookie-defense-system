@@ -93,7 +93,7 @@ services:
       # 必须带 GATEWAY_ 前缀：GatewaySettings 的 env_prefix 是 GATEWAY_，
       # 无前缀的 OTLP_ENDPOINT 读不到，trace 导出器不会启用。
       GATEWAY_OTLP_ENDPOINT: http://jaeger:4317
-      GATEWAY_TRACE_SAMPLE_RATE: "1.0"
+      GATEWAY_DECISION_TRACE_SAMPLE_RATE: "1.0"
       # 无前缀的 REDIS_URL 读不到（GatewaySettings 前缀为 GATEWAY_），
       # 不显式给出会回落到代码默认的 localhost，容器内指向自身。
       GATEWAY_REDIS_URL: redis://redis:6379/0

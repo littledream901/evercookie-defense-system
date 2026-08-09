@@ -113,7 +113,7 @@
   }
 
   const goToSites = (appId: number) => {
-    router.push({ path: '/fangyu/apps', query: { appId: String(appId) } })
+    router.push({ path: '/defense/apps', query: { appId: String(appId) } })
   }
 
   const {

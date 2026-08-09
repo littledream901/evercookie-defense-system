@@ -332,6 +332,21 @@ async def delete_site(
     await site_service.delete(site_id)
 
 
+@router.get("/{site_id}/secret", response_model=dict)
+async def get_site_secret(
+    site_id: int,
+    site_service: SiteService = Depends(get_site_service),
+    _user: dict = Depends(require_permission("app.read")),
+) -> dict:
+    """获取站点密钥明文（需鉴权）。"""
+    site = await site_service.get(site_id)
+    return {
+        "site_id": site.id,
+        "site_key": site.site_key,
+        "site_secret": site.site_secret,
+    }
+
+
 @router.post("/{site_id}/rotate-secret", response_model=SecretRotateResponse)
 async def rotate_site_secret(
     site_id: int,
