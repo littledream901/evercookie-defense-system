@@ -36,6 +36,7 @@ export const analyticsRoutes: AppRouteRecord = {
       component: '/fangyu/analytics',
       meta: {
         title: '分析看板',
+        icon: 'ri:line-chart-line',
         permission: 'analytics.read',
         keepAlive: true
       }
