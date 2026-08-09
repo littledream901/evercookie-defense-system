@@ -148,44 +148,87 @@
           </div>
         </template>
 
-        <!-- 5. 爬虫识别（增强版，显示详细分类） -->
+        <!-- 5. 爬虫识别（简化显示 + Tooltip） -->
         <template #crawler_info="{ row }">
           <div v-if="row.crawler_name || row.crawler_category" class="crawler-detail">
             <!-- 爬虫详细信息 -->
             <template v-if="getCrawlerDetailInfo(row.crawler_name)">
-              <div class="crawler-main">
-                <span class="crawler-icon">{{ getCrawlerDetailInfo(row.crawler_name)?.icon }}</span>
-                <div class="crawler-text">
-                  <div class="crawler-name">{{ getCrawlerDetailInfo(row.crawler_name)?.displayName }}</div>
-                  <div class="crawler-meta">
-                    <span class="crawler-vendor">{{ getCrawlerDetailInfo(row.crawler_name)?.vendorName }}</span>
-                    <span class="crawler-sep">·</span>
-                    <span class="crawler-product">{{ getCrawlerDetailInfo(row.crawler_name)?.product }}</span>
+              <ElTooltip placement="top" :show-after="200">
+                <template #content>
+                  <div class="crawler-tooltip">
+                    <div class="tooltip-row">
+                      <span class="tooltip-label">厂商：</span>
+                      <span>{{ getCrawlerDetailInfo(row.crawler_name)?.vendorName }}</span>
+                    </div>
+                    <div class="tooltip-row">
+                      <span class="tooltip-label">产品：</span>
+                      <span>{{ getCrawlerDetailInfo(row.crawler_name)?.product }}</span>
+                    </div>
+                    <div class="tooltip-row">
+                      <span class="tooltip-label">用途：</span>
+                      <span>{{ getCrawlerDetailInfo(row.crawler_name)?.purpose }}</span>
+                    </div>
                   </div>
-                  <div class="crawler-purpose">{{ getCrawlerDetailInfo(row.crawler_name)?.purpose }}</div>
+                </template>
+                <div class="crawler-main">
+                  <Icon
+                    :icon="getVendorIcon(getCrawlerDetailInfo(row.crawler_name)?.vendor)"
+                    class="crawler-vendor-icon"
+                  />
+                  <div class="crawler-text">
+                    <div class="crawler-name">{{ getCrawlerDetailInfo(row.crawler_name)?.displayName }}</div>
+                    <ElTag 
+                      :type="getCrawlerCategoryType(getCrawlerDetailInfo(row.crawler_name)?.subcategory || '') as any" 
+                      size="small"
+                      class="crawler-subcategory-tag"
+                    >
+                      {{ getSubcategoryLabel(getCrawlerDetailInfo(row.crawler_name)?.subcategory || '') }}
+                    </ElTag>
+                  </div>
                 </div>
-              </div>
-              <ElTag 
-                :type="getCrawlerCategoryType(getCrawlerDetailInfo(row.crawler_name)?.subcategory || '') as any" 
-                size="small"
-                class="crawler-subcategory-tag"
-              >
-                {{ getSubcategoryLabel(getCrawlerDetailInfo(row.crawler_name)?.subcategory || '') }}
-              </ElTag>
+              </ElTooltip>
             </template>
             
             <!-- 降级显示：只有基础信息 -->
             <template v-else>
-              <div class="crawler-basic">
+              <ElTooltip v-if="row.crawler_name" placement="top" :show-after="200">
+                <template #content>
+                  <div class="crawler-tooltip">
+                    <div class="tooltip-row" v-if="row.crawler_name">
+                      <span class="tooltip-label">名称：</span>
+                      <span>{{ row.crawler_name }}</span>
+                    </div>
+                    <div class="tooltip-row" v-if="row.crawler_category">
+                      <span class="tooltip-label">类别：</span>
+                      <span>{{ getCrawlerCategoryLabel(row.crawler_category) }}</span>
+                    </div>
+                    <div class="tooltip-row" v-if="row.crawler_vendor">
+                      <span class="tooltip-label">厂商：</span>
+                      <span>{{ row.crawler_vendor }}</span>
+                    </div>
+                  </div>
+                </template>
+                <div class="crawler-basic">
+                  <div class="crawler-basic-header">
+                    <Icon
+                      :icon="getVendorIcon(row.crawler_vendor)"
+                      class="crawler-vendor-icon"
+                    />
+                    <div class="crawler-basic-info">
+                      <span class="crawler-name-basic">{{ row.crawler_name }}</span>
+                      <div class="crawler-tags">
+                        <ElTag :type="getCrawlerCategoryColor(row.crawler_category) as any" size="small" effect="plain">
+                          {{ getCrawlerCategoryLabel(row.crawler_category) }}
+                        </ElTag>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </ElTooltip>
+              <div v-else class="crawler-basic">
                 <ElTag :type="getCrawlerCategoryColor(row.crawler_category) as any" size="small" effect="plain">
                   {{ getCrawlerCategoryLabel(row.crawler_category) }}
                 </ElTag>
-                <ElTooltip v-if="row.crawler_name" placement="top" :content="row.crawler_name" :show-after="300">
-                  <span class="crawler-name-basic">{{ row.crawler_name }}</span>
-                </ElTooltip>
-                <ElTooltip v-if="row.crawler_vendor" placement="top" :content="row.crawler_vendor" :show-after="300">
-                  <span class="crawler-vendor-basic">{{ row.crawler_vendor }}</span>
-                </ElTooltip>
               </div>
             </template>
           </div>
@@ -323,7 +366,8 @@
   import { DEVICE_TYPE_OPTIONS, pruneParams, recentLocalRange } from '@/constants/fangyu'
   import { MECHANISM_TAGS, DECIDED_BY_LABELS, VERDICT_TAGS } from '@/constants/disposition'
   import { MECHANISM_LABELS, VERDICT_LABELS } from '@/constants/accessLogDetail'
-  import { getCrawlerDetail, getSubcategoryLabel, type CrawlerDetail } from '@/constants/crawlerDetails'
+  import { getCrawlerDetail, getSubcategoryLabel, getVendorIcon, type CrawlerDetail } from '@/constants/crawlerDetails'
+  import { Icon } from '@iconify/vue'
 
   defineOptions({ name: 'AccessLogs' })
 
@@ -543,11 +587,11 @@
       immediate: false,
       columnsFactory: () => [
         { prop: 'request_id',      label: '访客编号',     minWidth: 200, useSlot: true, align: 'center'  },
-        { prop: 'path',            label: '访客访问网址', minWidth: 200, useSlot: true, align: 'center'  },
+        { prop: 'path',            label: '访客访问网址', minWidth: 160, useSlot: true, align: 'center'  },
         { prop: 'verdict',         label: '访问状态',     width: 160,    useSlot: true, align: 'center' },
         { prop: 'mechanism',       label: '处置机制',     width: 130,    useSlot: true, align: 'center' },
-        { prop: 'crawler_info',    label: '爬虫识别',     width: 260, useSlot: true, align: 'left'  },
-        { prop: 'referer',         label: '访问来路',     minWidth: 150, useSlot: true, align: 'center'  },
+        { prop: 'crawler_info',    label: '爬虫识别',     width: 180, useSlot: true, align: 'center'  },
+        { prop: 'referer',         label: '访问来路',     minWidth: 150, useSlot: true  , align: 'center'  },
         { prop: 'ip',              label: 'IP 地址',      minWidth: 130, useSlot: true , align: 'center' },
         { prop: 'asn',             label: 'IP 详情',      width: 130,    useSlot: true, align: 'center'  },
         { prop: 'device_type',     label: '设备系统',     width: 130,    useSlot: true, align: 'center'  },
@@ -742,140 +786,181 @@
 .crawler-detail {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 6px 8px;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 6px;
   width: 100%;
   max-width: 100%;
   min-width: 0;
+  height: 66px;
+  min-height: 66px;
+  max-height: 66px;
   overflow: hidden;
   box-sizing: border-box;
+  cursor: default;
+}
+
+/* Tooltip 内容样式 */
+.crawler-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 320px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.tooltip-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.tooltip-label {
+  color: #c9cdd4;
+  flex-shrink: 0;
+  min-width: 42px;
 }
 
 .crawler-main {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
   min-width: 0;
   max-width: 100%;
   width: 100%;
+  height: 100%;
 }
 
 .crawler-icon {
   font-size: 20px;
-  line-height: 1;
+  line-height: 20px;
+  height: 20px;
   flex-shrink: 0;
+}
+
+/* 厂商 logo 图标（iconify） */
+.crawler-vendor-icon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: block;
 }
 
 .crawler-text {
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 2px;
-  flex: 1;
+  width: 100%;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
 }
 
 .crawler-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: #1d2129;
-  line-height: 1.4;
+  line-height: 18px;
+  height: 18px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
-}
-
-.crawler-meta {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: #86909c;
-  line-height: 1.3;
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-}
-
-.crawler-vendor {
-  color: #4e5969;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex-shrink: 1;
-  min-width: 0;
-  max-width: 45%;
-}
-
-.crawler-sep {
-  color: #c9cdd4;
-  flex-shrink: 0;
-}
-
-.crawler-product {
-  color: #86909c;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex-shrink: 1;
-  min-width: 0;
-  max-width: 45%;
-}
-
-.crawler-purpose {
-  font-size: 11px;
-  color: #86909c;
-  line-height: 1.4;
-  margin-top: 1px;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-  word-break: break-all;
-  max-width: 100%;
+  text-align: center;
 }
 
 .crawler-subcategory-tag {
-  align-self: flex-start;
+  align-self: center;
   flex-shrink: 0;
   font-size: 11px;
+  width: fit-content;
+  padding: 0 8px;
+  height: 18px;
+  line-height: 16px;
 }
 
 /* 降级显示样式 */
 .crawler-basic {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
   width: 100%;
   max-width: 100%;
   min-width: 0;
+  height: 100%;
   overflow: hidden;
-  padding: 6px 8px;
+  padding: 0;
   box-sizing: border-box;
+  cursor: default;
+}
+
+.crawler-basic-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+}
+
+.crawler-icon-fallback {
+  font-size: 20px;
+  line-height: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.crawler-basic-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .crawler-name-basic {
-  display: block;
+  display: inline-block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
   color: #1d2129;
-  font-weight: 500;
+  font-weight: 600;
   max-width: 100%;
+  line-height: 18px;
+  height: 18px;
+  text-align: center;
 }
 
-.crawler-vendor-basic {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  color: #86909c;
+.crawler-tags {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  width: 100%;
+  height: 18px;
+}
+
+/* 让降级视图中的 Tag 宽度贴合内容 */
+.crawler-tags :deep(.el-tag) {
+  padding: 0 8px;
+  height: 18px;
+  line-height: 16px;
+  width: fit-content;
   max-width: 100%;
 }
 

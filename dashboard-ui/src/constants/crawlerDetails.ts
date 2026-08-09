@@ -18,10 +18,69 @@ export interface CrawlerDetail {
   product: string
   /** 用途描述 */
   purpose: string
-  /** 图标 */
+  /** 图标（emoji 或 iconify 图标名） */
   icon: string
+  /** 厂商 logo（iconify 图标名，优先显示） */
+  vendorIcon?: string
   /** 文档链接 */
   docUrl?: string
+}
+
+/**
+ * 厂商 → iconify 图标映射
+ * 使用彩色品牌 logo，让用户一眼识别厂商
+ */
+export const VENDOR_ICONS: Record<string, string> = {
+  google: 'logos:google-icon',
+  bing: 'logos:bing',
+  microsoft: 'logos:microsoft-icon',
+  openai: 'simple-icons:openai',
+  anthropic: 'simple-icons:anthropic',
+  baidu: 'simple-icons:baidu',
+  facebook: 'logos:facebook',
+  bytedance: 'simple-icons:tiktok',
+  apple: 'logos:apple',
+  yandex: 'logos:yandex',
+  duckduckgo: 'logos:duckduckgo',
+  slack: 'logos:slack-icon',
+  twitter: 'logos:twitter',
+  linkedin: 'logos:linkedin-icon',
+  telegram: 'logos:telegram',
+  amazon: 'logos:aws',
+  semrush: 'simple-icons:semrush',
+  ahrefs: 'simple-icons:ahrefs',
+  majestic: 'simple-icons:majestic',
+  moz: 'simple-icons:moz',
+  internetarchive: 'simple-icons:internetarchive',
+  commoncrawl: 'simple-icons:commoncrawl',
+  datadog: 'logos:datadog',
+  pingdom: 'simple-icons:pingdom',
+  uptimerobot: 'simple-icons:uptimerobot',
+  screamingfrog: 'simple-icons:screamingfrog',
+  // HTTP 客户端与库
+  encode: 'simple-icons:python',
+  psf: 'simple-icons:python',
+  'aio-libs': 'simple-icons:python',
+  python: 'simple-icons:python',
+  haxx: 'simple-icons:curl',
+  gnu: 'simple-icons:gnu',
+  axios: 'simple-icons:axios',
+  nodejs: 'logos:nodejs-icon',
+  sindresorhus: 'logos:nodejs-icon',
+  ladjs: 'logos:nodejs-icon',
+  golang: 'logos:go',
+  oracle: 'logos:java',
+  apache: 'logos:apache',
+  square: 'simple-icons:square',
+  restsharp: 'simple-icons:dotnet',
+  postman: 'logos:postman-icon',
+  kong: 'simple-icons:insomnia',
+  grafana: 'logos:grafana',
+  scrapy: 'simple-icons:scrapy',
+  crummy: 'simple-icons:python',
+  selenium: 'logos:selenium',
+  cypress: 'logos:cypress-icon',
+  httpie: 'simple-icons:httpie'
 }
 
 /** 爬虫详细信息数据库 */
@@ -576,6 +635,328 @@ export const CRAWLER_DETAILS: Record<string, CrawlerDetail> = {
     purpose: '网站SEO审计',
     icon: '🐸',
     docUrl: 'https://www.screamingfrog.co.uk/seo-spider/'
+  },
+
+  // ========== HTTP 客户端库 ==========
+  'pythonhttpx': {
+    displayName: 'Python httpx',
+    vendor: 'encode',
+    vendorName: 'Encode',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'httpx',
+    purpose: 'Python 异步 HTTP 客户端库',
+    icon: '🐍',
+    docUrl: 'https://www.python-httpx.org/'
+  },
+  'pythonrequests': {
+    displayName: 'Python Requests',
+    vendor: 'psf',
+    vendorName: 'Python Software Foundation',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'requests',
+    purpose: 'Python HTTP 请求库',
+    icon: '🐍',
+    docUrl: 'https://requests.readthedocs.io/'
+  },
+  'pythonaiohttp': {
+    displayName: 'Python aiohttp',
+    vendor: 'aio-libs',
+    vendorName: 'aio-libs',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'aiohttp',
+    purpose: 'Python 异步 HTTP 框架',
+    icon: '🐍',
+    docUrl: 'https://docs.aiohttp.org/'
+  },
+  'pythonurllib': {
+    displayName: 'Python urllib',
+    vendor: 'python',
+    vendorName: 'Python',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'urllib',
+    purpose: 'Python 标准库 HTTP 模块',
+    icon: '🐍'
+  },
+  'curl': {
+    displayName: 'cURL',
+    vendor: 'haxx',
+    vendorName: 'Haxx',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'cURL',
+    purpose: '命令行 HTTP 工具',
+    icon: '🔧',
+    docUrl: 'https://curl.se/'
+  },
+  'wget': {
+    displayName: 'Wget',
+    vendor: 'gnu',
+    vendorName: 'GNU',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'Wget',
+    purpose: '命令行下载工具',
+    icon: '📥',
+    docUrl: 'https://www.gnu.org/software/wget/'
+  },
+  'axios': {
+    displayName: 'Axios',
+    vendor: 'axios',
+    vendorName: 'Axios',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'axios',
+    purpose: 'JavaScript HTTP 客户端库',
+    icon: '📦',
+    docUrl: 'https://axios-http.com/'
+  },
+  'nodeaxios': {
+    displayName: 'Node.js Axios',
+    vendor: 'axios',
+    vendorName: 'Axios',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'axios',
+    purpose: 'Node.js HTTP 客户端',
+    icon: '🟢',
+    docUrl: 'https://axios-http.com/'
+  },
+  'nodefetch': {
+    displayName: 'node-fetch',
+    vendor: 'nodejs',
+    vendorName: 'Node.js',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'node-fetch',
+    purpose: 'Node.js Fetch API 实现',
+    icon: '🟢',
+    docUrl: 'https://github.com/node-fetch/node-fetch'
+  },
+  'got': {
+    displayName: 'Got',
+    vendor: 'sindresorhus',
+    vendorName: 'Sindre Sorhus',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'got',
+    purpose: 'Node.js HTTP 请求库',
+    icon: '🟢',
+    docUrl: 'https://github.com/sindresorhus/got'
+  },
+  'superagent': {
+    displayName: 'SuperAgent',
+    vendor: 'ladjs',
+    vendorName: 'Lad',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'superagent',
+    purpose: 'JavaScript HTTP 客户端',
+    icon: '🦸',
+    docUrl: 'https://ladjs.github.io/superagent/'
+  },
+  'gohttpclient': {
+    displayName: 'Go HTTP Client',
+    vendor: 'golang',
+    vendorName: 'Go',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'net/http',
+    purpose: 'Go 标准库 HTTP 客户端',
+    icon: '🐹'
+  },
+  'javahttpclient': {
+    displayName: 'Java HttpClient',
+    vendor: 'oracle',
+    vendorName: 'Oracle',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'java.net.http',
+    purpose: 'Java 标准库 HTTP 客户端',
+    icon: '☕'
+  },
+  'apachehttpclient': {
+    displayName: 'Apache HttpClient',
+    vendor: 'apache',
+    vendorName: 'Apache',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'HttpClient',
+    purpose: 'Apache HTTP 客户端库',
+    icon: '🪶',
+    docUrl: 'https://hc.apache.org/httpcomponents-client-5.2.x/'
+  },
+  'okhttp': {
+    displayName: 'OkHttp',
+    vendor: 'square',
+    vendorName: 'Square',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'OkHttp',
+    purpose: 'Android/Java HTTP 客户端',
+    icon: '🤖',
+    docUrl: 'https://square.github.io/okhttp/'
+  },
+  'restsharp': {
+    displayName: 'RestSharp',
+    vendor: 'restsharp',
+    vendorName: 'RestSharp',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'RestSharp',
+    purpose: '.NET REST 客户端库',
+    icon: '🔷',
+    docUrl: 'https://restsharp.dev/'
+  },
+  'httpclient': {
+    displayName: 'HttpClient',
+    vendor: 'microsoft',
+    vendorName: 'Microsoft',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'HttpClient',
+    purpose: '.NET HTTP 客户端',
+    icon: '🔷'
+  },
+
+  // ========== 测试工具 ==========
+  'postman': {
+    displayName: 'Postman Runtime',
+    vendor: 'postman',
+    vendorName: 'Postman',
+    category: 'testing',
+    subcategory: 'api_testing',
+    product: 'Postman',
+    purpose: 'API 测试工具',
+    icon: '🚀',
+    docUrl: 'https://www.postman.com/'
+  },
+  'insomnia': {
+    displayName: 'Insomnia',
+    vendor: 'kong',
+    vendorName: 'Kong',
+    category: 'testing',
+    subcategory: 'api_testing',
+    product: 'Insomnia',
+    purpose: 'REST/GraphQL 客户端',
+    icon: '💤',
+    docUrl: 'https://insomnia.rest/'
+  },
+  'jmeter': {
+    displayName: 'Apache JMeter',
+    vendor: 'apache',
+    vendorName: 'Apache',
+    category: 'testing',
+    subcategory: 'load_testing',
+    product: 'JMeter',
+    purpose: '性能和负载测试',
+    icon: '⚡',
+    docUrl: 'https://jmeter.apache.org/'
+  },
+  'k6': {
+    displayName: 'k6',
+    vendor: 'grafana',
+    vendorName: 'Grafana Labs',
+    category: 'testing',
+    subcategory: 'load_testing',
+    product: 'k6',
+    purpose: '现代化负载测试工具',
+    icon: '📊',
+    docUrl: 'https://k6.io/'
+  },
+
+  // ========== 爬虫框架 ==========
+  'scrapy': {
+    displayName: 'Scrapy',
+    vendor: 'scrapy',
+    vendorName: 'Scrapy',
+    category: 'scraping_framework',
+    subcategory: 'web_scraping',
+    product: 'Scrapy',
+    purpose: 'Python 爬虫框架',
+    icon: '🕷️',
+    docUrl: 'https://scrapy.org/'
+  },
+  'beautifulsoup': {
+    displayName: 'Beautiful Soup',
+    vendor: 'crummy',
+    vendorName: 'Leonard Richardson',
+    category: 'scraping_framework',
+    subcategory: 'html_parser',
+    product: 'Beautiful Soup',
+    purpose: 'Python HTML 解析库',
+    icon: '🍜',
+    docUrl: 'https://www.crummy.com/software/BeautifulSoup/'
+  },
+  'selenium': {
+    displayName: 'Selenium',
+    vendor: 'selenium',
+    vendorName: 'Selenium',
+    category: 'testing',
+    subcategory: 'browser_automation',
+    product: 'Selenium WebDriver',
+    purpose: '浏览器自动化测试',
+    icon: '🌐',
+    docUrl: 'https://www.selenium.dev/'
+  },
+  'puppeteer': {
+    displayName: 'Puppeteer',
+    vendor: 'google',
+    vendorName: 'Google',
+    category: 'testing',
+    subcategory: 'browser_automation',
+    product: 'Puppeteer',
+    purpose: 'Chrome 无头浏览器控制',
+    icon: '🎭',
+    docUrl: 'https://pptr.dev/'
+  },
+  'playwright': {
+    displayName: 'Playwright',
+    vendor: 'microsoft',
+    vendorName: 'Microsoft',
+    category: 'testing',
+    subcategory: 'browser_automation',
+    product: 'Playwright',
+    purpose: '跨浏览器自动化测试',
+    icon: '🎬',
+    docUrl: 'https://playwright.dev/'
+  },
+  'cypress': {
+    displayName: 'Cypress',
+    vendor: 'cypress',
+    vendorName: 'Cypress.io',
+    category: 'testing',
+    subcategory: 'e2e_testing',
+    product: 'Cypress',
+    purpose: '前端端到端测试',
+    icon: '🌲',
+    docUrl: 'https://www.cypress.io/'
+  },
+
+  // ========== 其他工具 ==========
+  'httpsnoopapi': {
+    displayName: 'HttpSnoopAPI',
+    vendor: 'unknown',
+    vendorName: '未知',
+    category: 'monitoring',
+    subcategory: 'http_debugging',
+    product: 'HTTP Snoop',
+    purpose: 'HTTP 调试工具',
+    icon: '🔍'
+  },
+  'httpie': {
+    displayName: 'HTTPie',
+    vendor: 'httpie',
+    vendorName: 'HTTPie',
+    category: 'library',
+    subcategory: 'http_client',
+    product: 'HTTPie',
+    purpose: '现代化命令行 HTTP 客户端',
+    icon: '🥧',
+    docUrl: 'https://httpie.io/'
   }
 }
 
@@ -585,15 +966,86 @@ export const CRAWLER_DETAILS: Record<string, CrawlerDetail> = {
 export function getCrawlerDetail(crawlerName: string | null | undefined): CrawlerDetail | null {
   if (!crawlerName) return null
   
-  // 规范化名称（转小写，移除版本号）
+  // 规范化名称（转小写，移除版本号和特殊字符）
   const normalized = crawlerName.toLowerCase().replace(/[\s_-]/g, '').replace(/\/.*$/, '')
   
-  // 直接匹配
+  // 1. 直接精确匹配
   if (CRAWLER_DETAILS[normalized]) {
     return CRAWLER_DETAILS[normalized]
   }
   
-  // 模糊匹配（处理变体）
+  // 2. 智能识别规则（处理常见模式）
+  // Python 生态：python-xxx、python/xxx
+  if (normalized.startsWith('python')) {
+    const pythonLib = normalized.replace(/^python/, '')
+    if (CRAWLER_DETAILS[`python${pythonLib}`]) {
+      return CRAWLER_DETAILS[`python${pythonLib}`]
+    }
+    // 通用 Python 库兜底
+    if (pythonLib && pythonLib.length >= 3) {
+      return {
+        displayName: `Python ${crawlerName.split(/[-_/]/)[1] || crawlerName}`,
+        vendor: 'python',
+        vendorName: 'Python',
+        category: 'library',
+        subcategory: 'http_client',
+        product: pythonLib,
+        purpose: 'Python HTTP 客户端库',
+        icon: '🐍'
+      }
+    }
+  }
+  
+  // Node.js 生态：node-xxx、node/xxx
+  if (normalized.startsWith('node')) {
+    const nodeLib = normalized.replace(/^node/, '')
+    if (CRAWLER_DETAILS[`node${nodeLib}`]) {
+      return CRAWLER_DETAILS[`node${nodeLib}`]
+    }
+    // 通用 Node.js 库兜底
+    if (nodeLib && nodeLib.length >= 3) {
+      return {
+        displayName: `Node.js ${crawlerName.split(/[-_/]/)[1] || crawlerName}`,
+        vendor: 'nodejs',
+        vendorName: 'Node.js',
+        category: 'library',
+        subcategory: 'http_client',
+        product: nodeLib,
+        purpose: 'Node.js HTTP 客户端库',
+        icon: '🟢'
+      }
+    }
+  }
+  
+  // Go 生态：go-xxx、golang-xxx
+  if (normalized.startsWith('go') || normalized.startsWith('golang')) {
+    return {
+      displayName: `Go ${crawlerName}`,
+      vendor: 'golang',
+      vendorName: 'Go',
+      category: 'library',
+      subcategory: 'http_client',
+      product: crawlerName,
+      purpose: 'Go HTTP 客户端库',
+      icon: '🐹'
+    }
+  }
+  
+  // Java 生态：java-xxx
+  if (normalized.startsWith('java')) {
+    return {
+      displayName: `Java ${crawlerName}`,
+      vendor: 'oracle',
+      vendorName: 'Java',
+      category: 'library',
+      subcategory: 'http_client',
+      product: crawlerName,
+      purpose: 'Java HTTP 客户端库',
+      icon: '☕'
+    }
+  }
+  
+  // 3. 模糊匹配（处理变体）
   // 仅保留“爬虫名称包含已知特征词”这一方向的匹配，避免反向匹配导致
   // 短词（如通用兜底提取出的 "bot"）被误判为任意包含该子串的具体厂商
   // （例如 "bot" 会被 "googlebot" 误命中），详见访问日志爬虫识别误判问题。
@@ -605,6 +1057,15 @@ export function getCrawlerDetail(crawlerName: string | null | undefined): Crawle
   }
   
   return null
+}
+
+/**
+ * 根据 vendor 获取厂商 iconify 图标名
+ * 找不到时返回通用机器人图标
+ */
+export function getVendorIcon(vendor?: string | null): string {
+  if (!vendor) return 'mdi:robot-outline'
+  return VENDOR_ICONS[vendor.toLowerCase()] || 'mdi:robot-outline'
 }
 
 /**
@@ -645,7 +1106,17 @@ export const SUBCATEGORY_LABELS: Record<string, string> = {
   web_archiving: '网页存档',
   dataset_building: '数据集构建',
   synthetic_monitoring: '综合监控',
-  uptime_monitoring: '在线监控'
+  uptime_monitoring: '在线监控',
+
+  // HTTP 客户端与测试工具
+  http_client: 'HTTP 客户端',
+  http_debugging: 'HTTP 调试',
+  api_testing: 'API 测试',
+  load_testing: '负载测试',
+  e2e_testing: '端到端测试',
+  browser_automation: '浏览器自动化',
+  web_scraping: '网页抓取',
+  html_parser: 'HTML 解析'
 }
 
 /**
