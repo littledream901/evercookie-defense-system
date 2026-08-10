@@ -22,7 +22,7 @@
     decidedBy?: string
     deviceType?: string
     isBot?: boolean
-    isCrawler?: boolean
+    crawlerName?: string
     crawlerCategory?: string
     crawlerVendor?: string
     ipType?: string
@@ -31,6 +31,7 @@
     country?: string
     asn?: number
     path?: string
+    host?: string
     visitorId?: string
     daterange?: string[]
   }
@@ -49,6 +50,35 @@
   const emit = defineEmits<Emits>()
 
   const searchBarRef = ref()
+
+  /** 爬虫名称选项（从 crawlerDetails 提取常用爬虫） */
+  const crawlerNameOptions = [
+    { label: 'Googlebot', value: 'googlebot' },
+    { label: 'Bingbot', value: 'bingbot' },
+    { label: 'Baiduspider', value: 'baiduspider' },
+    { label: 'YandexBot', value: 'yandexbot' },
+    { label: 'DuckDuckBot', value: 'duckduckbot' },
+    { label: 'Applebot', value: 'applebot' },
+    { label: 'Slackbot', value: 'slackbot' },
+    { label: 'Twitterbot', value: 'twitterbot' },
+    { label: 'LinkedInBot', value: 'linkedinbot' },
+    { label: 'FacebookExternalHit', value: 'facebookexternalhit' },
+    { label: 'TelegramBot', value: 'telegrambot' },
+    { label: 'GPTBot (OpenAI)', value: 'gptbot' },
+    { label: 'ChatGPT-User', value: 'chatgpt-user' },
+    { label: 'Claude-Web', value: 'claude-web' },
+    { label: 'Bytespider', value: 'bytespider' },
+    { label: 'SemrushBot', value: 'semrushbot' },
+    { label: 'AhrefsBot', value: 'ahrefsbot' },
+    { label: 'MJ12bot (Majestic)', value: 'mj12bot' },
+    { label: 'DotBot (Moz)', value: 'dotbot' },
+    { label: 'Screaming Frog', value: 'screamingfrog' },
+    { label: 'DatadogSynthetics', value: 'datadogsynthetics' },
+    { label: 'Pingdom', value: 'pingdom' },
+    { label: 'UptimeRobot', value: 'uptimerobot' },
+    { label: 'archive.org_bot', value: 'archive.org_bot' },
+    { label: 'CCBot (Common Crawl)', value: 'ccbot' }
+  ]
 
   /**
    * 表单数据双向绑定
@@ -184,10 +214,10 @@
       props: { placeholder: '请选择', options: botOptions, clearable: true }
     },
     {
-      label: '是否识别爬虫',
-      key: 'isCrawler',
+      label: '爬虫名称',
+      key: 'crawlerName',
       type: 'select',
-      props: { placeholder: '请选择', options: botOptions, clearable: true }
+      props: { placeholder: '请选择爬虫名称', options: crawlerNameOptions, clearable: true, filterable: true }
     },
     {
       label: '爬虫分类',
@@ -230,6 +260,12 @@
       key: 'path',
       type: 'input',
       props: { placeholder: '如 /api/login', clearable: true }
+    },
+    {
+      label: '域名',
+      key: 'host',
+      type: 'input',
+      props: { placeholder: '如 example.com', clearable: true }
     },
     {
       label: '访客 ID',

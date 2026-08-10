@@ -30,6 +30,7 @@ _FILTERABLE = (
     "mechanism",
     "decided_by",
     "path",
+    "host",
     "country",
     "device_type",
     "crawler_name",
@@ -379,9 +380,10 @@ class AccessLogQueryService:
         )
 
     async def crawler_timeline(
-        self, *, site_id: int | None, start: datetime, end: datetime, granularity: str = "hour"
+        self, *, site_id: int | None, start: datetime, end: datetime, granularity: str = "hour",
+        group_by_crawler: bool = False
     ) -> list[dict[str, Any]]:
-        """爬虫流量时间趋势（分爬虫/非爬虫）。"""
+        """爬虫流量时间趋势（分爬虫/非爬虫，可选按爬虫名称分组）。"""
         site_clause = "site_id = {site_id} AND " if site_id is not None else ""
         params: dict[str, Any] = {"start": self._format_dt(start), "end": self._format_dt(end)}
         if site_id is not None:
@@ -395,20 +397,37 @@ class AccessLogQueryService:
         }
         time_bucket = interval_map.get(granularity, interval_map["hour"])
         
-        return await self._client.fetch(
-            f"""
-            SELECT {time_bucket} AS time_bucket,
-                   countIf(notEmpty(crawler_name) OR notEmpty(crawler_category)) AS crawler_count,
-                   countIf(empty(crawler_name) AND empty(crawler_category)) AS non_crawler_count,
-                   count(*) AS total_count
-            FROM {self._db}.decision_events
-            WHERE {site_clause}occurred_at >= {{start}}
-              AND occurred_at < {{end}}
-            GROUP BY time_bucket
-            ORDER BY time_bucket ASC
-            """,
-            params,
-        )
+        if group_by_crawler:
+            # 按爬虫名称分组
+            return await self._client.fetch(
+                f"""
+                SELECT {time_bucket} AS time_bucket,
+                       if(notEmpty(crawler_name), crawler_name, 'real_user') AS crawler_name,
+                       count(*) AS request_count
+                FROM {self._db}.decision_events
+                WHERE {site_clause}occurred_at >= {{start}}
+                  AND occurred_at < {{end}}
+                GROUP BY time_bucket, crawler_name
+                ORDER BY time_bucket ASC, request_count DESC
+                """,
+                params,
+            )
+        else:
+            # 默认：爬虫 vs 真实用户
+            return await self._client.fetch(
+                f"""
+                SELECT {time_bucket} AS time_bucket,
+                       countIf(notEmpty(crawler_name) OR notEmpty(crawler_category)) AS crawler_count,
+                       countIf(empty(crawler_name) AND empty(crawler_category)) AS non_crawler_count,
+                       count(*) AS total_count
+                FROM {self._db}.decision_events
+                WHERE {site_clause}occurred_at >= {{start}}
+                  AND occurred_at < {{end}}
+                GROUP BY time_bucket
+                ORDER BY time_bucket ASC
+                """,
+                params,
+            )
 
     @staticmethod
     def _where(

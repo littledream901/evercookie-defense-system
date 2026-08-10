@@ -7,6 +7,7 @@ export interface CrawlerAnalyticsQuery {
   end?: string
   granularity?: 'minute' | 'hour' | 'day'
   limit?: number
+  groupByCrawler?: boolean
 }
 
 /** 爬虫流量概览 */

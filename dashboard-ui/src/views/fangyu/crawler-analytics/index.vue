@@ -32,6 +32,7 @@ const dateRange = ref<[string, string]>([
   new Date().toISOString().slice(0, 19)
 ])
 const granularity = ref<'hour' | 'day'>('hour')
+const crawlerDimension = ref<'total' | 'by_crawler'>('total')
 
 // 日期快捷选项
 const dateShortcuts = [
@@ -113,7 +114,8 @@ async function loadTimeline() {
       siteId: siteId.value,
       start: dateRange.value[0],
       end: dateRange.value[1],
-      granularity: granularity.value
+      granularity: granularity.value,
+      groupByCrawler: crawlerDimension.value === 'by_crawler'
     })
     timelineData.value = resp || []
     renderTimeline()
@@ -196,55 +198,129 @@ function renderTimeline() {
     timelineChart = echarts.init(timelineChartRef.value)
   }
   
-  const times = timelineData.value.map(item => item.time_bucket)
-  const crawlerCounts = timelineData.value.map(item => item.crawler_count)
-  const nonCrawlerCounts = timelineData.value.map(item => item.non_crawler_count)
-  
-  const option = {
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'cross' }
-    },
-    legend: {
-      data: ['爬虫流量', '真实用户流量'],
-      bottom: 0
-    },
-    grid: {
-      left: '3%',
-      right: '4%',
-      bottom: '12%',
-      containLabel: true
-    },
-    xAxis: {
-      type: 'category',
-      boundaryGap: false,
-      data: times
-    },
-    yAxis: {
-      type: 'value',
-      name: '请求数'
-    },
-    series: [
-      {
-        name: '爬虫流量',
+  if (crawlerDimension.value === 'by_crawler') {
+    // 按爬虫名称分组显示
+    const timeSet = new Set<string>()
+    const crawlerSet = new Set<string>()
+    
+    timelineData.value.forEach(item => {
+      timeSet.add(item.time_bucket)
+      crawlerSet.add(item.crawler_name)
+    })
+    
+    const times = Array.from(timeSet).sort()
+    const crawlers = Array.from(crawlerSet)
+    
+    // 构建每个爬虫的时间序列数据
+    const seriesData = crawlers.map(crawler => {
+      const data = times.map(time => {
+        const found = timelineData.value.find(
+          item => item.time_bucket === time && item.crawler_name === crawler
+        )
+        return found ? found.request_count : 0
+      })
+      
+      const displayName = crawler === 'real_user' 
+        ? '真实用户' 
+        : (getCrawlerDetail(crawler)?.displayName || crawler)
+      
+      return {
+        name: displayName,
         type: 'line',
         smooth: true,
-        areaStyle: { opacity: 0.3 },
-        data: crawlerCounts,
-        itemStyle: { color: '#f56c6c' }
-      },
-      {
-        name: '真实用户流量',
-        type: 'line',
-        smooth: true,
-        areaStyle: { opacity: 0.3 },
-        data: nonCrawlerCounts,
-        itemStyle: { color: '#67c23a' }
+        data,
+        emphasis: { focus: 'series' }
       }
-    ]
+    })
+    
+    // 将真实用户移到最后，爬虫按名称排序
+    seriesData.sort((a, b) => {
+      if (a.name === '真实用户') return 1
+      if (b.name === '真实用户') return -1
+      return a.name.localeCompare(b.name)
+    })
+    
+    const option = {
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'cross' }
+      },
+      legend: {
+        data: seriesData.map(s => s.name),
+        bottom: 0,
+        type: 'scroll'
+      },
+      grid: {
+        left: '3%',
+        right: '4%',
+        bottom: '15%',
+        containLabel: true
+      },
+      xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: times
+      },
+      yAxis: {
+        type: 'value',
+        name: '请求数'
+      },
+      series: seriesData
+    }
+    
+    timelineChart.setOption(option, true)
+  } else {
+    // 默认：爬虫 vs 真实用户
+    const times = timelineData.value.map(item => item.time_bucket)
+    const crawlerCounts = timelineData.value.map(item => item.crawler_count)
+    const nonCrawlerCounts = timelineData.value.map(item => item.non_crawler_count)
+    
+    const option = {
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'cross' }
+      },
+      legend: {
+        data: ['爬虫流量', '真实用户流量'],
+        bottom: 0
+      },
+      grid: {
+        left: '3%',
+        right: '4%',
+        bottom: '12%',
+        containLabel: true
+      },
+      xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: times
+      },
+      yAxis: {
+        type: 'value',
+        name: '请求数'
+      },
+      series: [
+        {
+          name: '爬虫流量',
+          type: 'line',
+          smooth: true,
+          areaStyle: { opacity: 0.3 },
+          data: crawlerCounts,
+          itemStyle: { color: '#f56c6c' }
+        },
+        {
+          name: '真实用户流量',
+          type: 'line',
+          smooth: true,
+          areaStyle: { opacity: 0.3 },
+          data: nonCrawlerCounts,
+          itemStyle: { color: '#67c23a' }
+        }
+      ]
+    }
+    
+    timelineChart.setOption(option, true)
   }
-  
-  timelineChart.setOption(option)
 }
 
 function renderVendorChart() {
@@ -450,6 +526,10 @@ onMounted(async () => {
             <ElOption label="按小时" value="hour" />
             <ElOption label="按天" value="day" />
           </ElSelect>
+          <ElSelect v-model="crawlerDimension" style="width: 140px">
+            <ElOption label="爬虫 vs 真实用户" value="total" />
+            <ElOption label="按爬虫名称" value="by_crawler" />
+          </ElSelect>
           <ElButton type="primary" :disabled="!siteId" @click="loadAll">刷新</ElButton>
         </ElSpace>
       </ElCard>
@@ -514,7 +594,11 @@ onMounted(async () => {
       <!-- 流量趋势图 -->
       <ElCard shadow="never" v-loading="timelineLoading">
         <template #header>
-          <span class="font-medium">爬虫流量趋势（爬虫 vs 真实用户）</span>
+          <span class="font-medium">
+            爬虫流量趋势
+            <span v-if="crawlerDimension === 'total'" class="text-gray-400">（爬虫 vs 真实用户）</span>
+            <span v-else class="text-gray-400">（按爬虫名称）</span>
+          </span>
         </template>
         <div ref="timelineChartRef" style="height: 300px"></div>
       </ElCard>

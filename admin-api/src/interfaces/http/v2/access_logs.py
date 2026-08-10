@@ -105,8 +105,8 @@ async def list_access_logs(
     crawler_vendor: str | None = Query(default=None, alias="crawlerVendor"),
     connection_type: str | None = Query(default=None, alias="connectionType"),
     path: str | None = None,
+    host: str | None = None,
     is_bot: bool | None = Query(default=None, alias="isBot"),
-    is_crawler: bool | None = Query(default=None, alias="isCrawler"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500, alias="pageSize"),
     service: AccessLogQueryService = Depends(_service),
@@ -141,9 +141,10 @@ async def list_access_logs(
             "crawler_vendor": crawler_vendor or "",
             "connection_type": connection_type or "",
             "path": path or "",
+            "host": host or "",
         },
         is_bot=is_bot,
-        is_crawler=is_crawler,
+        is_crawler=None,
         page=page,
         page_size=page_size,
     )
@@ -334,15 +335,19 @@ async def crawler_timeline(
     start: datetime | None = None,
     end: datetime | None = None,
     granularity: str = Query(default="hour", regex="^(minute|hour|day)$"),
+    group_by_crawler: bool = Query(default=False, alias="groupByCrawler"),
     service: AccessLogQueryService = Depends(_service),
 ) -> SuccessResponse[list[dict[str, Any]]]:
-    """爬虫流量时间趋势（分爬虫/非爬虫）。
+    """爬虫流量时间趋势（分爬虫/非爬虫，可选按爬虫名称分组）。
     
-    返回：时间桶、爬虫数量、非爬虫数量、总数量
+    返回：
+    - group_by_crawler=false: 时间桶、爬虫数量、非爬虫数量、总数量
+    - group_by_crawler=true: 时间桶、爬虫名称、请求数
     """
     actual_end = end or datetime.utcnow()
     actual_start = start or actual_end - timedelta(days=1)
     rows = await service.crawler_timeline(
-        site_id=site_id, start=actual_start, end=actual_end, granularity=granularity
+        site_id=site_id, start=actual_start, end=actual_end, granularity=granularity,
+        group_by_crawler=group_by_crawler
     )
     return SuccessResponse(data=rows)
