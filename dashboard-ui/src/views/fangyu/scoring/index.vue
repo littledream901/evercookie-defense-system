@@ -552,7 +552,7 @@ import {
   fetchGetScoringConfig, fetchPutScoringConfig, fetchResetScoringConfig,
   fetchGetScoringDimensions 
 } from '@/api/scoring'
-import { fetchGetSiteList } from '@/api/apps'
+import { fetchGetAllSites } from '@/api/apps'
 import { fetchGetPageResourceList } from '@/api/page-resources'
 import {
   MECHANISM_OPTIONS, CHALLENGE_KIND_OPTIONS,
@@ -1041,8 +1041,8 @@ const createSiteConfig = () => {
 const loadSiteList = async () => {
   siteListLoading.value = true
   try {
-    const res = await fetchGetSiteList({ page: 1, pageSize: 1000 })
-    siteList.value = res.items.map(site => ({
+    const sites = await fetchGetAllSites()
+    siteList.value = sites.map(site => ({
       id: site.id,
       name: site.name
     }))

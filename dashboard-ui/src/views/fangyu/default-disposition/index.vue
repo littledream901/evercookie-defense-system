@@ -193,7 +193,7 @@ import {
   fetchGetGlobalDefaultDisposition, fetchPutGlobalDefaultDisposition, fetchResetGlobalDefaultDisposition,
   fetchGetDefaultDisposition, fetchPutDefaultDisposition, fetchResetDefaultDisposition
 } from '@/api/default-disposition'
-import { fetchGetSiteList } from '@/api/apps'
+import { fetchGetAllSites } from '@/api/apps'
 import { fetchGetPageResourceList } from '@/api/page-resources'
 
 defineOptions({ name: 'FangyuDefaultDisposition' })
@@ -276,8 +276,8 @@ async function loadPageResources() {
 async function loadSiteList() {
   siteListLoading.value = true
   try {
-    const res = await fetchGetSiteList({ page: 1, pageSize: 1000 })
-    siteList.value = res.items.map(site => ({ id: site.id, name: site.name }))
+    const sites = await fetchGetAllSites()
+    siteList.value = sites.map(site => ({ id: site.id, name: site.name }))
   } catch (err) {
     console.error('加载站点列表失败:', err)
     ElMessage.error('站点列表加载失败')

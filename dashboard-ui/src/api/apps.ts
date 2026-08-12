@@ -64,6 +64,26 @@ export function fetchGetSiteList(params?: Api.Fangyu.SiteListParams) {
   })
 }
 
+/**
+ * 拉取全量站点列表（循环分页）。
+ *
+ * 站点下拉框需要完整列表，而后端 `/api/v2/sites` 单页上限为 100，单次请求
+ * 拿不全时会导致第 101 个之后的站点缺失。这里按页循环拉取，直到累计数量
+ * 达到 total 或最后一页不满。
+ */
+export async function fetchGetAllSites(): Promise<Api.Fangyu.Site[]> {
+  const all: Api.Fangyu.Site[] = []
+  const pageSize = 100
+  let page = 1
+  for (;;) {
+    const res = await fetchGetSiteList({ page, pageSize })
+    all.push(...res.items)
+    if (all.length >= res.total || res.items.length < pageSize) break
+    page++
+  }
+  return all
+}
+
 /** 站点详情 */
 export function fetchGetSite(id: number) {
   return request.get<Api.Fangyu.SiteDetail>({
