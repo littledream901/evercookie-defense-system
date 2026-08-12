@@ -57,7 +57,7 @@ _DECIDED_BY_VALUES = frozenset(
         "threat_intel",
         "security",
         "scoring",
-        "app_default",
+        "default",
         "system_default",
     }
 )

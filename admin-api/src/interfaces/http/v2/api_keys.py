@@ -6,17 +6,11 @@ from fastapi import APIRouter, Depends
 
 from fangyu_shared.schemas.common import SuccessResponse
 
-from src.application.services.api_key_service import ApiKeyService
-from src.infrastructure.repositories.api_key_repository import ApiKeyRepository
-from src.interfaces.http.dependencies import get_current_user_id, get_db_session
+from src.interfaces.http.dependencies import get_api_key_service, get_current_user_id
 
 from .schemas import ApiKeyCreateRequest, ApiKeyCreatedResponse, ApiKeySchema
 
 router = APIRouter(prefix="/api-keys", tags=["api-keys"])
-
-
-def get_api_key_service(session=Depends(get_db_session)) -> ApiKeyService:
-    return ApiKeyService(api_key_repo=ApiKeyRepository(session))
 
 
 @router.post(

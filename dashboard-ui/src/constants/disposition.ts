@@ -87,6 +87,25 @@ export const MECHANISM_TAGS: Record<string, TagType> = {
   not_found: 'danger'
 }
 
+/**
+ * 机制 → 裁决，与后端 `DecisionDisposition.to_disposition()` 内的
+ * `_MECHANISM_VERDICT` 保持一致。默认处置、评分等「只配机制、不填裁决」
+ * 的场景，都由机制推导裁决，避免运维重复填写。
+ */
+export const MECHANISM_VERDICT: Record<string, string> = {
+  pass: 'trusted',
+  serve_alt: 'suspect',
+  redirect: 'suspect',
+  challenge: 'suspect',
+  deny: 'hostile',
+  not_found: 'hostile'
+}
+
+/** 由机制推导裁决；未知机制回退 suspect，与后端默认一致 */
+export function verdictForMechanism(mechanism: string): string {
+  return MECHANISM_VERDICT[mechanism] ?? 'suspect'
+}
+
 /** 决策来源，顺序体现决策流水线阶段 */
 export const DECIDED_BY_LABELS: Record<string, string> = {
   decision_rule: '决策规则',
@@ -95,7 +114,7 @@ export const DECIDED_BY_LABELS: Record<string, string> = {
   security: '安全检查',
   scoring: '风险评分',
   hybrid_layer: '混合层',
-  app_default: '应用默认',
+  default: '默认处置',
   system_default: '系统兜底'
 }
 

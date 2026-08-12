@@ -855,7 +855,7 @@
 
 .crawler-name {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: normal;
   color: #1d2129;
   line-height: 1.5;
   overflow: hidden;
@@ -922,7 +922,7 @@
   white-space: nowrap;
   font-size: 12px;
   color: #1d2129;
-  font-weight: 600;
+  font-weight: normal;
   max-width: 100%;
   line-height: 1.5;
   text-align: center;

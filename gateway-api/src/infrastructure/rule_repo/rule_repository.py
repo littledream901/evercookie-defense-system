@@ -14,9 +14,11 @@ from typing import Any
 import orjson
 from redis.asyncio import Redis
 
+from fangyu_shared.schemas.disposition import Disposition
 from fangyu_shared.schemas.rule import DecisionRule, RuleGroup, RuleSet, ScoringRule
 
 _GROUP_PREFIX = "fangyu:rule_groups"
+_DEFAULT_DISPOSITION_PREFIX = "fangyu:default_disposition"
 
 # admin 侧 RuleCache 换页时随快照写入的代次字段，不是规则，解析时必须跳过，
 # 否则每次加载都会对它 model_validate 失败、刷一条无意义的脏数据日志。
@@ -114,13 +116,32 @@ class RuleRepository:
             except (orjson.JSONDecodeError, ValueError):
                 continue
 
+        default_disposition = await self._load_default_disposition(site_id)
+
         rule_set = RuleSet(
             siteId=site_id,
             decisionRules=decision_rules,
             scoringRules=scoring_rules,
             groups=groups,
+            defaultDisposition=default_disposition,
         )
         return rule_set, version
+
+    async def _load_default_disposition(self, site_id: int) -> Disposition | None:
+        """加载默认处置，站点缺失时回退到全局（site_id=0）。
+
+        配置层级：站点 > 全局 > 系统默认（None 表示回退系统默认放行）。
+        解析失败静默返回 None，避免脏数据影响整条规则集加载。
+        """
+        raw = await self._redis.get(f"{_DEFAULT_DISPOSITION_PREFIX}:{site_id}")
+        if raw is None and site_id != 0:
+            raw = await self._redis.get(f"{_DEFAULT_DISPOSITION_PREFIX}:0")
+        if raw is None:
+            return None
+        try:
+            return Disposition.model_validate(orjson.loads(raw))
+        except (orjson.JSONDecodeError, ValueError):
+            return None
 
     async def invalidate(self, site_id: int) -> None:
         """清除本地缓存，强制下次读取时重新从 Redis 加载。"""

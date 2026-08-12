@@ -12,6 +12,7 @@ from .audit_logs import router as audit_logs_router
 from .auth import router as auth_router
 from .bans import router as bans_router
 from .clock import router as clock_router, global_router as clock_global_router
+from .default_disposition import router as default_disposition_router
 from .diagnostics import router as diagnostics_router
 from .health import router as health_router
 from .page_resource_templates import router as page_resource_templates_router
@@ -60,6 +61,7 @@ v2_router.include_router(page_resource_templates_router)
 v2_router.include_router(page_resources_router)
 v2_router.include_router(page_resources_global_router)
 v2_router.include_router(scoring_router)
+v2_router.include_router(default_disposition_router)
 
 # 健康/就绪不带前缀
 v2_router.include_router(health_router)

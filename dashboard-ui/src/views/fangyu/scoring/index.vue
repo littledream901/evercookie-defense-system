@@ -552,7 +552,7 @@ import {
   fetchGetScoringConfig, fetchPutScoringConfig, fetchResetScoringConfig,
   fetchGetScoringDimensions 
 } from '@/api/scoring'
-import { fetchGetApplicationList } from '@/api/apps'
+import { fetchGetSiteList } from '@/api/apps'
 import { fetchGetPageResourceList } from '@/api/page-resources'
 import {
   MECHANISM_OPTIONS, CHALLENGE_KIND_OPTIONS,
@@ -1041,10 +1041,10 @@ const createSiteConfig = () => {
 const loadSiteList = async () => {
   siteListLoading.value = true
   try {
-    const res = await fetchGetApplicationList({ page: 1, pageSize: 1000 })
-    siteList.value = res.items.map(app => ({
-      id: app.id,
-      name: app.name
+    const res = await fetchGetSiteList({ page: 1, pageSize: 1000 })
+    siteList.value = res.items.map(site => ({
+      id: site.id,
+      name: site.name
     }))
   } catch (err) {
     console.error('加载站点列表失败:', err)

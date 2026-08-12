@@ -458,6 +458,28 @@ class ScoringConfigModel(Base, TimestampMixin):
     disposition_hostile: Mapped[dict | None] = mapped_column(MySQLJSON, nullable=True)
 
 
+class DefaultDispositionModel(Base, TimestampMixin):
+    """站点默认处置：决策流水线 default 阶段的兜底策略。
+
+    与 ``ScoringConfigModel`` / ``ClockLimitsModel`` 同一套约定：
+    ``site_id=0`` 为全系统全局哨兵值，站点有专属记录则覆盖全局，否则回退全局，
+    再否则回退 gateway 的系统默认（放行）。
+
+    ``disposition`` 存完整处置 JSON（含 verdict、mechanism、target）。
+    行存在即代表「该站点/全局配置了自定义默认处置」，删除行即回退上一级。
+    """
+
+    __tablename__ = "biz_default_disposition"
+    __table_args__ = (
+        UniqueConstraint("site_id", name="uk_default_disposition_site"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    site_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    """站点 ID；``0`` 为全局配置哨兵值，故不设外键。"""
+    disposition: Mapped[dict] = mapped_column(MySQLJSON, nullable=False)
+
+
 class AuditLogModel(Base):
     __tablename__ = "sys_audit_log"
     __table_args__ = (

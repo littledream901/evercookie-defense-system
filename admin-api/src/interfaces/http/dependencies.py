@@ -16,10 +16,12 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.services.analytics_service import AnalyticsService
+from src.application.services.api_key_service import ApiKeyService
 from src.application.services.application_service import ApplicationService
 from src.application.services.audit_service import AuditService
 from src.application.services.auth_service import AuthService
 from src.application.services.clock_service import ClockService
+from src.application.services.default_disposition_service import DefaultDispositionService
 from src.application.services.page_resource_service import PageResourceService
 from src.application.services.reputation_sync_service import ReputationSyncService
 from src.application.services.role_service import RoleService
@@ -43,8 +45,13 @@ from src.infrastructure.cache.rule_group_cache import RuleGroupCache
 from src.infrastructure.clickhouse.analytics_query import AnalyticsQueryService
 from src.infrastructure.clock_sync import ClockSync
 from src.infrastructure.database import Database
+from src.infrastructure.default_disposition_sync import DefaultDispositionSync
+from src.infrastructure.repositories.api_key_repository import ApiKeyRepository
 from src.infrastructure.repositories.application_repository import ApplicationRepository
 from src.infrastructure.repositories.audit_repository import AuditLogRepository
+from src.infrastructure.repositories.default_disposition_repository import (
+    DefaultDispositionRepository,
+)
 from src.infrastructure.repositories.page_resource_repository import PageResourceRepository
 from src.infrastructure.repositories.rbac_repository import RbacRepository
 from src.infrastructure.repositories.rule_repository import RuleAdminRepository
@@ -150,6 +157,12 @@ def get_auth_service(
         password_service=password_service,
         settings=settings,
     )
+
+
+def get_api_key_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> ApiKeyService:
+    return ApiKeyService(api_key_repo=ApiKeyRepository(session))
 
 
 def get_user_service(
@@ -281,18 +294,52 @@ def get_scoring_service(
     return ScoringService(repo, sync)
 
 
+def get_default_disposition_repo(
+    session: AsyncSession = Depends(get_db_session),
+) -> DefaultDispositionRepository:
+    return DefaultDispositionRepository(session)
+
+
+def get_default_disposition_sync(
+    redis: Redis = Depends(get_redis),
+) -> DefaultDispositionSync:
+    return DefaultDispositionSync(redis)
+
+
+def get_default_disposition_service(
+    repo: DefaultDispositionRepository = Depends(get_default_disposition_repo),
+    sync: DefaultDispositionSync = Depends(get_default_disposition_sync),
+) -> DefaultDispositionService:
+    return DefaultDispositionService(repo, sync)
+
+
 # ---------- 认证与鉴权 ----------
 async def get_current_user_id(
     request: Request,
     authorization: Annotated[str | None, Header(alias="Authorization")] = None,
     auth_service: AuthService = Depends(get_auth_service),
+    api_key_service: ApiKeyService = Depends(get_api_key_service),
+    user_repo: UserRepository = Depends(get_user_repo),
 ) -> int:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise AuthenticationException("缺少或格式错误的 Authorization 头")
-    token = authorization.split(" ", 1)[1].strip()
-    if not token:
+    credential = authorization.split(" ", 1)[1].strip()
+    if not credential:
         raise AuthenticationException("Token 为空")
-    user_id = await auth_service.verify_token(token)
+
+    # 用户 API Key（fy_ 前缀）与 JWT 共用 Bearer 头，按前缀分流。
+    # 长生命周期凭据额外校验用户仍为 active，避免停用用户后 key 仍可越权。
+    if credential.startswith("fy_"):
+        key = await api_key_service.verify_api_key(credential)
+        if key is None:
+            raise AuthenticationException("API Key 无效或已失效")
+        user = await user_repo.get_by_id(key.user_id)
+        if user is None or not user.is_active:
+            raise AuthenticationException("API Key 对应的用户不存在或已停用")
+        request.state.current_user_id = key.user_id
+        return key.user_id
+
+    user_id = await auth_service.verify_token(credential)
     request.state.current_user_id = user_id
     return user_id
 

@@ -903,6 +903,20 @@ declare namespace Api {
       enabled?: boolean
     }
 
+    /** 默认处置（决策流水线 default 阶段兜底，含 verdict 的完整处置） */
+    interface DefaultDisposition {
+      id: number
+      site_id: number
+      disposition: Disposition
+      created_at: string | null
+      updated_at: string | null
+    }
+
+    /** 默认处置更新载荷（无 verdict，由 mechanism 推导，与规则页一致） */
+    interface DefaultDispositionPayload {
+      disposition: DecisionDisposition
+    }
+
     /** 单一接入来源（sdk / adapter）的实测指标 */
     interface IngressStat {
       ingress: string

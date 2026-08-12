@@ -448,3 +448,23 @@ class ScoringConfigUpsertRequest(BaseSchema):
     disposition_suspect: DecisionDisposition | None = None
     """自定义处置。verdict 不在此填写——由 mechanism 推导，与规则页保持一致。"""
     disposition_hostile: DecisionDisposition | None = None
+
+
+# ---------- 默认处置 ----------
+class DefaultDispositionSchema(BaseSchema):
+    id: int
+    site_id: int
+    disposition: Disposition
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class DefaultDispositionUpsertRequest(BaseSchema):
+    """默认处置新建/更新请求（PUT 语义，全量覆盖）。
+
+    入参用 ``DecisionDisposition``（不含 verdict），服务层通过
+    ``to_disposition()`` 按 mechanism 推导 verdict 后落库，与规则页、评分页
+    保持一致——前端/运维只需选「怎么做」，不用重复填「为什么」。
+    """
+
+    disposition: DecisionDisposition

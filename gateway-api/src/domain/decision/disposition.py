@@ -33,7 +33,7 @@ class DecidedBy(str, Enum):
     THREAT_INTEL = "threat_intel"
     SECURITY = "security"
     SCORING = "scoring"
-    APP_DEFAULT = "app_default"
+    DEFAULT = "default"
     SYSTEM_DEFAULT = "system_default"
 
     @property
@@ -206,13 +206,13 @@ class DispositionResolver:
 
     @staticmethod
     def fallback(app_default: Disposition | None) -> ResolvedDisposition:
-        """兜底链：app 级默认 → 系统默认。"""
+        """兜底链：默认处置（全局/站点）→ 系统默认。"""
         if app_default is not None:
             return ResolvedDisposition(
                 disposition=app_default,
-                decided_by=DecidedBy.APP_DEFAULT,
+                decided_by=DecidedBy.DEFAULT,
                 decided_stage="default",
-                reason="app_default_disposition",
+                reason="default_disposition",
             )
         return ResolvedDisposition(
             disposition=SYSTEM_DEFAULT_DISPOSITION,

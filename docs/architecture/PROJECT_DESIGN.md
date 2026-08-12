@@ -184,7 +184,7 @@ WHERE rs.site_id = :site_id;
 [8] threat_intel      短路 → deny()（IP 黑名单）
 [9] security          短路 → checker 返回的处置（Tor/VPN+数据中心等硬判定）
 [10] risk_scoring     条件短路（score ≥ block_threshold 则拦截）
-[11] default          兜底 → app_default 或 allow()
+[11] default          兜底 → 默认处置(default) 或 allow()
 ```
 
 **关键设计约束**：

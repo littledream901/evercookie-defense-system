@@ -162,7 +162,7 @@ def test_from_threat_intel_and_security() -> None:
 def test_fallback_prefers_app_default() -> None:
     app_default = observe()
     r = DispositionResolver.fallback(app_default)
-    assert r.decided_by == DecidedBy.APP_DEFAULT
+    assert r.decided_by == DecidedBy.DEFAULT
     assert r.disposition is app_default
 
 

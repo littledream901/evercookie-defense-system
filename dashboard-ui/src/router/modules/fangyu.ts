@@ -197,6 +197,17 @@ export const settingsRoutes: AppRouteRecord = {
       }
     },
     {
+      path: 'default-disposition',
+      name: 'FangyuDefaultDisposition',
+      component: '/fangyu/default-disposition',
+      meta: {
+        title: '默认处置',
+        permission: 'app.read',
+        keepAlive: true,
+        authList: [{ title: '保存', authMark: 'app.write' }]
+      }
+    },
+    {
       path: 'sdk-diagnostics',
       name: 'FangyuSdkDiagnostics',
       component: '/fangyu/sdk-diagnostics',
