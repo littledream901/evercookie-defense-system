@@ -95,18 +95,39 @@ class ScoringConfigCache:
             raw = await self._redis.get(f"{_KEY_PREFIX}:{site_id}")  # type: ignore[misc]
         except Exception as exc:
             _logger.warning("scoring_config_fetch_failed", site_id=site_id, error=str(exc))
-            return self._default_config()
+            return await self._load_with_fallback(site_id)
 
         if not raw:
-            return self._default_config()
+            return await self._load_with_fallback(site_id)
 
         try:
             data = orjson.loads(raw)
         except (orjson.JSONDecodeError, TypeError):
             _logger.warning("scoring_config_parse_failed", site_id=site_id)
-            return self._default_config()
+            return await self._load_with_fallback(site_id)
 
         return self._parse(data)
+
+    async def _load_with_fallback(self, site_id: int) -> ScoringConfig:
+        """站点配置缺失时，回退到全局配置（site_id=0），最后才用系统默认值。
+        
+        配置层级：站点配置 > 全局配置 > 系统默认值
+        """
+        if site_id == 0:
+            # 已经是全局配置，直接返回系统默认值
+            return self._default_config()
+        
+        # 尝试读取全局配置
+        try:
+            global_raw = await self._redis.get(f"{_KEY_PREFIX}:0")  # type: ignore[misc]
+            if global_raw:
+                global_data = orjson.loads(global_raw)
+                return self._parse(global_data)
+        except Exception as exc:
+            _logger.warning("scoring_global_config_fallback_failed", site_id=site_id, error=str(exc))
+        
+        # 全局配置也不存在，返回系统默认值
+        return self._default_config()
 
     def _parse(self, data: dict) -> ScoringConfig:
         enabled = bool(data.get("enabled", True))
