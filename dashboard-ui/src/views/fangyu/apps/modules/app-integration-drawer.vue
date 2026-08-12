@@ -606,7 +606,7 @@ curl -X POST ${gw.value}/v2/decide \\
     testResult.value = {}
 
     try {
-      const res = await testSiteConnection(props.app.id)
+      const res = await testSiteConnection(props.app.id, gatewayUrl.value.trim())
 
       testResult.value[activeTab.value] = {
         ok: res.ok,

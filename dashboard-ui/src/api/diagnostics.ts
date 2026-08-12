@@ -9,7 +9,7 @@ export function fetchGetIntegrationDiagnostics(siteId: number, hours = 24) {
 }
 
 /** 测试站点网关连通性 */
-export function testSiteConnection(siteId: number) {
+export function testSiteConnection(siteId: number, gatewayUrl?: string) {
   return request.post<{
     ok: boolean
     message?: string
@@ -18,7 +18,8 @@ export function testSiteConnection(siteId: number) {
     status_code?: number
     response?: any
   }>({
-    url: `/api/v2/sites/${siteId}/test-connection`
+    url: `/api/v2/sites/${siteId}/test-connection`,
+    data: gatewayUrl ? { gateway_url: gatewayUrl } : undefined
   })
 }
 

@@ -128,6 +128,8 @@ services:
       # app_key 映射、app_secret 反向索引、规则缓存、白名单、评分配置全靠这个共享库。
       # 分库不报错，但会静默切断同步——规则不生效、SDK 401、挑战令牌签不出来。
       ADMIN_REDIS_URL: redis://redis:6379/0
+      # 部署级默认网关地址：站点未配置专属 gateway_url 时回退使用。
+      GATEWAY_DOMAIN: ${GATEWAY_DOMAIN:-}
       # MMDB 文件管理目录（用于上传/下载，与 gateway 共享同一挂载卷）
       MMDB_DIR: /data/mmdb
     volumes:

@@ -22,13 +22,15 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field
 
 from fangyu_shared.clickhouse_manager import ClickHouseClient, get_clickhouse
 from fangyu_shared.schemas.common import SuccessResponse
 
 from src.application.services.site_service import SiteService
+from src.config import AdminSettings
 from src.infrastructure.clickhouse.access_log_query import AccessLogQueryService
-from src.interfaces.http.dependencies import get_site_service, require_permission
+from src.interfaces.http.dependencies import get_site_service, get_settings_dep, require_permission
 from .schemas import (
     BatchDiagnosticsRequest,
     IngressStatSchema,
@@ -300,6 +302,7 @@ async def integration_diagnostics(
     hours: int = Query(default=24, ge=1, le=720),
     site_service: SiteService = Depends(get_site_service),
     log_service: AccessLogQueryService = Depends(_service),
+    settings: AdminSettings = Depends(get_settings_dep),
 ) -> SuccessResponse[IntegrationDiagnosticsSchema]:
     """诊断某站点的接入健康度：实测接入方式、最后活跃时间与异常信号。
 
@@ -340,6 +343,7 @@ async def integration_diagnostics(
         hours=hours,
     )
     last_seen = max((s.last_seen_at for s in stats if s.last_seen_at), default=None)
+    gateway_url = site.gateway_url or settings.gateway_domain
 
     return SuccessResponse(
         data=IntegrationDiagnosticsSchema(
@@ -349,7 +353,7 @@ async def integration_diagnostics(
             is_active=site.is_active,
             configured_access_mode=site.access_mode,
             configured_sdk_version=site.sdk_version,
-            gateway_url=site.gateway_url,
+            gateway_url=gateway_url,
             window_hours=hours,
             total_requests=sum(s.total for s in stats),
             last_seen_at=last_seen,
@@ -360,6 +364,12 @@ async def integration_diagnostics(
     )
 
 
+class TestConnectionRequest(BaseModel):
+    """连通性测试请求。前端可传入网关地址覆盖站点配置，便于未入库前试连。"""
+
+    gateway_url: str | None = Field(default=None, description="网关地址，优先于站点配置")
+
+
 @router.post(
     "/{site_id}/test-connection",
     response_model=SuccessResponse[dict],
@@ -368,7 +378,9 @@ async def integration_diagnostics(
 )
 async def test_site_connection(
     site_id: int,
+    payload: TestConnectionRequest | None = None,
     site_service: SiteService = Depends(get_site_service),
+    settings: AdminSettings = Depends(get_settings_dep),
 ) -> SuccessResponse[dict]:
     """测试站点与网关的连通性，模拟 SDK/Adapter 决策请求。
     
@@ -380,17 +392,23 @@ async def test_site_connection(
     注意：此测试会产生真实的决策事件（ingress="test"），但不消耗用户 quota。
     """
     site = await site_service.get(site_id)
-    
-    if not site.gateway_url:
+
+    gateway_url = (
+        (payload.gateway_url if payload and payload.gateway_url else None)
+        or site.gateway_url
+        or settings.gateway_domain
+    )
+
+    if not gateway_url:
         return SuccessResponse(
             data={
                 "ok": False,
                 "error": "站点未配置网关地址",
-                "detail": "请在站点设置中配置 gateway_url",
+                "detail": "请在站点设置中配置 gateway_url，或在 .env 中配置 GATEWAY_DOMAIN",
             }
         )
     
-    gateway_url = site.gateway_url.rstrip("/")
+    gateway_url = gateway_url.rstrip("/")
     decide_url = f"{gateway_url}/v2/decide"
     
     # 构造测试请求

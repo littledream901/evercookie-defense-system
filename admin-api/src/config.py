@@ -61,6 +61,10 @@ class AdminSettings(BaseSettings):
     cors_origins: list[str] = Field(default_factory=list)
     cors_allow_credentials: bool = True
 
+    # 部署级默认网关地址；站点未配置专属 gateway_url 时回退使用。
+    # 刻意用无 ADMIN_ 前缀的 GATEWAY_DOMAIN：生产 .env.production 统一以该名声明。
+    gateway_domain: str | None = Field(default=None, validation_alias="GATEWAY_DOMAIN")
+
     # Rate limiter
     login_rate_limit_per_minute: int = 10
 
