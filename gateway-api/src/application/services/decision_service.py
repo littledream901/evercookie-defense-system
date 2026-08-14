@@ -110,6 +110,7 @@ from src.infrastructure.cache.decision_cache import (
     DecisionCache,
 )
 from src.infrastructure.cache.page_resource_cache import PageResourceCache
+from src.infrastructure.cache.pipeline_config_cache import PipelineConfigCache
 from src.infrastructure.cache.profile_cache import ProfileCache
 from src.infrastructure.cache.scoring_config_cache import ScoringConfigCache
 from src.infrastructure.cache.security_policy_cache import SecurityPolicyCache
@@ -166,6 +167,8 @@ class DecisionServiceDeps:
     """None 表示关闭动态评分配置，阈值由 GatewaySettings 静态值决定。"""
     security_policy_cache: SecurityPolicyCache | None = None
     """None 表示使用硬编码默认处置（威胁情报 deny，安全检查 deny），非 None 时从配置读取。"""
+    pipeline_config_cache: PipelineConfigCache | None = None
+    """None 表示关闭流水线配置中心化，各阶段开关由 GatewaySettings 静态值决定；非 None 时优先从配置读取。"""
     server_session_cache: ServerSessionCache | None = None
     """None 表示关闭 Hybrid 双层架构的 serverToken 关联。非 None 时：
     - ingress=adapter 且 mechanism=pass 时，把第一层预判存入 Redis
@@ -517,6 +520,12 @@ class DecisionService:
         reader = self._deps.whitelist_reader
         if reader is None:
             return None
+        
+        # 检查流水线配置：whitelist 阶段是否启用
+        if self._deps.pipeline_config_cache is not None:
+            config = await self._deps.pipeline_config_cache.get(ctx.site_id)
+            if config is not None and not config.whitelistEnabled:
+                return None
 
         with decision_latency_seconds.labels(
             app_id=str(ctx.site_id), stage="whitelist"
@@ -586,6 +595,12 @@ class DecisionService:
         guard = self._deps.clock_guard
         if repo is None or guard is None:
             return None
+        
+        # 检查流水线配置：clock 阶段是否启用
+        if self._deps.pipeline_config_cache is not None:
+            config = await self._deps.pipeline_config_cache.get(ctx.site_id)
+            if config is not None and not config.clockEnabled:
+                return None
 
         now_ms = utcnow_ms()
         ip_hash = sha256_hex(str(ctx.ip))[:32]
@@ -741,171 +756,221 @@ class DecisionService:
         eval_ctx = snapshot.to_evaluation_context()
 
         # Stage: decision rule
-        with decision_latency_seconds.labels(app_id=str(ctx.site_id), stage="rule").time():
-            rule_set = await self._deps.rule_repository.get_rule_set(ctx.site_id)
-            match = self._deps.rule_matcher.match(
-                rule_set.decision_rules, eval_ctx, groups=rule_set.groups
-            )
-
-        shadow_hits = tuple(
-            ShadowHit.from_disposition(
-                rule_id=m.rule.id,
-                rule_name=m.rule.name,
-                disposition=m.rule.effective_match_disposition,
-            )
-            for m in match.shadow_matches
-        )
-
-        if match.matched and match.rule is not None:
-            resolved = DispositionResolver.from_rule(
-                match.rule.effective_match_disposition,
-                rule_id=match.rule.id,
-                rule_name=match.rule.name,
-            )
-            stages.append(
-                PipelineStageResult(
-                    stage=PipelineStage.DECISION_RULE,
-                    disposition=resolved.disposition,
-                    rule_ids=(match.rule.id,) if match.rule.id else (),
-                    reason=resolved.explain,
-                    matched=True,
+        # 检查流水线配置：rules 阶段是否启用
+        rules_enabled = True
+        if self._deps.pipeline_config_cache is not None:
+            config = await self._deps.pipeline_config_cache.get(ctx.site_id)
+            if config is not None and not config.rulesEnabled:
+                rules_enabled = False
+        
+        shadow_hits: tuple[ShadowHit, ...] = ()
+        
+        if rules_enabled:
+            with decision_latency_seconds.labels(app_id=str(ctx.site_id), stage="rule").time():
+                rule_set = await self._deps.rule_repository.get_rule_set(ctx.site_id)
+                match = self._deps.rule_matcher.match(
+                    rule_set.decision_rules, eval_ctx, groups=rule_set.groups
                 )
-            )
-            return self._finalize(resolved, stages, shadow_hits=shadow_hits)
 
-        if match.is_group_no_match and match.group is not None:
-            assert match.group.on_no_match is not None  # RuleGroup 校验器已保证
-            resolved = DispositionResolver.from_group_no_match(
-                match.group.on_no_match, group_name=match.group.name
-            )
-            stages.append(
-                PipelineStageResult(
-                    stage=PipelineStage.DECISION_RULE,
-                    disposition=resolved.disposition,
-                    reason=resolved.explain,
-                    matched=True,
+            shadow_hits = tuple(
+                ShadowHit.from_disposition(
+                    rule_id=m.rule.id,
+                    rule_name=m.rule.name,
+                    disposition=m.rule.effective_match_disposition,
                 )
+                for m in match.shadow_matches
             )
-            return self._finalize(resolved, stages, shadow_hits=shadow_hits)
 
-        # disposition_miss 短路：规则未命中但带有明确的"未命中处置"
-        if match.miss_rule is not None:
-            miss_disp = match.miss_rule.effective_miss_disposition
-            if miss_disp is not None:
+            if match.matched and match.rule is not None:
                 resolved = DispositionResolver.from_rule(
-                    miss_disp,
-                    rule_id=match.miss_rule.id,
-                    rule_name=match.miss_rule.name,
-                    stage="decision_rule_miss",
+                    match.rule.effective_match_disposition,
+                    rule_id=match.rule.id,
+                    rule_name=match.rule.name,
                 )
                 stages.append(
                     PipelineStageResult(
                         stage=PipelineStage.DECISION_RULE,
                         disposition=resolved.disposition,
-                        rule_ids=(match.miss_rule.id,) if match.miss_rule.id else (),
-                        reason=f"miss:{resolved.explain}",
+                        rule_ids=(match.rule.id,) if match.rule.id else (),
+                        reason=resolved.explain,
                         matched=True,
                     )
                 )
                 return self._finalize(resolved, stages, shadow_hits=shadow_hits)
+
+            if match.is_group_no_match and match.group is not None:
+                assert match.group.on_no_match is not None  # RuleGroup 校验器已保证
+                resolved = DispositionResolver.from_group_no_match(
+                    match.group.on_no_match, group_name=match.group.name
+                )
+                stages.append(
+                    PipelineStageResult(
+                        stage=PipelineStage.DECISION_RULE,
+                        disposition=resolved.disposition,
+                        reason=resolved.explain,
+                        matched=True,
+                    )
+                )
+                return self._finalize(resolved, stages, shadow_hits=shadow_hits)
+
+            # disposition_miss 短路：规则未命中但带有明确的"未命中处置"
+            if match.miss_rule is not None:
+                miss_disp = match.miss_rule.effective_miss_disposition
+                if miss_disp is not None:
+                    resolved = DispositionResolver.from_rule(
+                        miss_disp,
+                        rule_id=match.miss_rule.id,
+                        rule_name=match.miss_rule.name,
+                        stage="decision_rule_miss",
+                    )
+                    stages.append(
+                        PipelineStageResult(
+                            stage=PipelineStage.DECISION_RULE,
+                            disposition=resolved.disposition,
+                            rule_ids=(match.miss_rule.id,) if match.miss_rule.id else (),
+                            reason=f"miss:{resolved.explain}",
+                            matched=True,
+                        )
+                    )
+                    return self._finalize(resolved, stages, shadow_hits=shadow_hits)
+        else:
+            # rules 阶段被关闭，需要获取 rule_set 用于后续默认处置
+            with decision_latency_seconds.labels(app_id=str(ctx.site_id), stage="rule").time():
+                rule_set = await self._deps.rule_repository.get_rule_set(ctx.site_id)
 
         # Stage: threat intel
-        with decision_latency_seconds.labels(app_id=str(ctx.site_id), stage="threat_intel").time():
-            ti = await ThreatIntelReader.check(str(ctx.ip))
-        if ti.is_threat:
-            # 获取可配置的威胁情报处置（未配置时默认 deny）
-            should_block = True
-            threat_disposition = deny()
-            threat_score = 100.0
-            
-            if self._deps.security_policy_cache is not None:
-                policy = await self._deps.security_policy_cache.get(ctx.site_id)
-                if not policy.enabled or not policy.threat_intel.enabled:
-                    # 安全策略或威胁情报已关闭，跳过此阶段
-                    should_block = False
-                elif policy.threat_intel.action == SecurityPolicyAction.CHALLENGE:
-                    threat_disposition = challenge()
-                elif policy.threat_intel.action == SecurityPolicyAction.SCORE:
-                    # 不直接拦截，将在评分阶段加分
-                    should_block = False
-                    threat_score = float(policy.threat_intel.score)
-            
-            if should_block:
-                reason = f"threat_intel:{','.join(ti.categories)}" if ti.categories else "threat_intel"
-                resolved = DispositionResolver.from_threat_intel(threat_disposition, reason=reason)
-                stages.append(
-                    PipelineStageResult(
-                        stage=PipelineStage.THREAT_INTEL,
-                        disposition=resolved.disposition,
-                        reason=reason,
-                        matched=True,
-                        metadata={"categories": ti.categories},
+        # 检查流水线配置：threat_intel 阶段是否启用
+        threat_intel_enabled = True
+        if self._deps.pipeline_config_cache is not None:
+            config = await self._deps.pipeline_config_cache.get(ctx.site_id)
+            if config is not None and not config.threatIntelEnabled:
+                threat_intel_enabled = False
+        
+        if threat_intel_enabled:
+            with decision_latency_seconds.labels(app_id=str(ctx.site_id), stage="threat_intel").time():
+                ti = await ThreatIntelReader.check(str(ctx.ip))
+            if ti.is_threat:
+                # 获取可配置的威胁情报处置（未配置时默认 deny）
+                should_block = True
+                threat_disposition = deny()
+                threat_score = 100.0
+                
+                if self._deps.security_policy_cache is not None:
+                    policy = await self._deps.security_policy_cache.get(ctx.site_id)
+                    if not policy.enabled or not policy.threat_intel.enabled:
+                        # 安全策略或威胁情报已关闭，跳过此阶段
+                        should_block = False
+                    elif policy.threat_intel.action == SecurityPolicyAction.CHALLENGE:
+                        threat_disposition = challenge()
+                    elif policy.threat_intel.action == SecurityPolicyAction.SCORE:
+                        # 不直接拦截，将在评分阶段加分
+                        should_block = False
+                        threat_score = float(policy.threat_intel.score)
+                
+                if should_block:
+                    reason = f"threat_intel:{','.join(ti.categories)}" if ti.categories else "threat_intel"
+                    resolved = DispositionResolver.from_threat_intel(threat_disposition, reason=reason)
+                    stages.append(
+                        PipelineStageResult(
+                            stage=PipelineStage.THREAT_INTEL,
+                            disposition=resolved.disposition,
+                            reason=reason,
+                            matched=True,
+                            metadata={"categories": ti.categories},
+                        )
                     )
-                )
-                return self._finalize(
-                    resolved, stages, score=threat_score, shadow_hits=shadow_hits
-                )
+                    return self._finalize(
+                        resolved, stages, score=threat_score, shadow_hits=shadow_hits
+                    )
 
         # Stage: security
-        with decision_latency_seconds.labels(app_id=str(ctx.site_id), stage="security").time():
-            sec = self._deps.security_checker.check(snapshot)
+        # 检查流水线配置：security 阶段是否启用
+        security_enabled = True
+        if self._deps.pipeline_config_cache is not None:
+            config = await self._deps.pipeline_config_cache.get(ctx.site_id)
+            if config is not None and not config.securityEnabled:
+                security_enabled = False
         
         security_score_delta = 0.0
-        if sec.triggered and sec.disposition is not None:
-            # 获取可配置的安全策略（未配置时使用 SecurityChecker 返回的默认处置）
-            final_disposition = sec.disposition
-            should_block = True
+        if security_enabled:
+            with decision_latency_seconds.labels(app_id=str(ctx.site_id), stage="security").time():
+                sec = self._deps.security_checker.check(snapshot)
             
-            if self._deps.security_policy_cache is not None:
-                policy = await self._deps.security_policy_cache.get(ctx.site_id)
+            if sec.triggered and sec.disposition is not None:
+                # 获取可配置的安全策略（未配置时使用 SecurityChecker 返回的默认处置）
+                final_disposition = sec.disposition
+                should_block = True
                 
-                if not policy.enabled:
-                    # 安全策略总开关关闭，跳过所有安全检查
-                    should_block = False
-                # 根据不同的安全检查类型应用配置
-                elif "security_scanner" in (sec.reason or ""):
-                    if not policy.scanner.enabled:
+                if self._deps.security_policy_cache is not None:
+                    policy = await self._deps.security_policy_cache.get(ctx.site_id)
+                    
+                    if not policy.enabled:
+                        # 安全策略总开关关闭，跳过所有安全检查
                         should_block = False
-                    elif policy.scanner.action == SecurityPolicyAction.CHALLENGE:
-                        final_disposition = challenge()
-                    elif policy.scanner.action == SecurityPolicyAction.SCORE:
-                        # 不直接拦截，加分到评分阶段
-                        should_block = False
-                        security_score_delta = float(policy.scanner.score)
+                    # 根据不同的安全检查类型应用配置
+                    elif "security_scanner" in (sec.reason or ""):
+                        if not policy.scanner.enabled:
+                            should_block = False
+                        elif policy.scanner.action == SecurityPolicyAction.CHALLENGE:
+                            final_disposition = challenge()
+                        elif policy.scanner.action == SecurityPolicyAction.SCORE:
+                            # 不直接拦截，加分到评分阶段
+                            should_block = False
+                            security_score_delta = float(policy.scanner.score)
+                    
+                    elif "vpn_on_datacenter" in (sec.reason or ""):
+                        if not policy.vpn_datacenter.enabled:
+                            should_block = False
+                        elif policy.vpn_datacenter.action == SecurityPolicyAction.CHALLENGE:
+                            final_disposition = challenge()
+                        elif policy.vpn_datacenter.action == SecurityPolicyAction.SCORE:
+                            should_block = False
+                            security_score_delta = float(policy.vpn_datacenter.score)
+                    
+                    elif "tor_exit_node" in (sec.reason or ""):
+                        if not policy.tor.enabled:
+                            should_block = False
+                        elif policy.tor.action == SecurityPolicyAction.CHALLENGE:
+                            final_disposition = challenge()
+                        elif policy.tor.action == SecurityPolicyAction.SCORE:
+                            should_block = False
+                            security_score_delta = float(policy.tor.score)
                 
-                elif "vpn_on_datacenter" in (sec.reason or ""):
-                    if not policy.vpn_datacenter.enabled:
-                        should_block = False
-                    elif policy.vpn_datacenter.action == SecurityPolicyAction.CHALLENGE:
-                        final_disposition = challenge()
-                    elif policy.vpn_datacenter.action == SecurityPolicyAction.SCORE:
-                        should_block = False
-                        security_score_delta = float(policy.vpn_datacenter.score)
-                
-                elif "tor_exit_node" in (sec.reason or ""):
-                    if not policy.tor.enabled:
-                        should_block = False
-                    elif policy.tor.action == SecurityPolicyAction.CHALLENGE:
-                        final_disposition = challenge()
-                    elif policy.tor.action == SecurityPolicyAction.SCORE:
-                        should_block = False
-                        security_score_delta = float(policy.tor.score)
-            
-            if should_block:
-                resolved = DispositionResolver.from_security(
-                    final_disposition, reason=sec.reason or "security"
-                )
-                stages.append(
-                    PipelineStageResult(
-                        stage=PipelineStage.SECURITY,
-                        disposition=resolved.disposition,
-                        reason=sec.reason,
-                        matched=True,
+                if should_block:
+                    resolved = DispositionResolver.from_security(
+                        final_disposition, reason=sec.reason or "security"
                     )
-                )
-                return self._finalize(resolved, stages, shadow_hits=shadow_hits)
+                    stages.append(
+                        PipelineStageResult(
+                            stage=PipelineStage.SECURITY,
+                            disposition=resolved.disposition,
+                            reason=sec.reason,
+                            matched=True,
+                        )
+                    )
+                    return self._finalize(resolved, stages, shadow_hits=shadow_hits)
 
         # Stage: risk scoring
+        # 检查流水线配置：scoring 阶段是否启用
+        scoring_pipeline_enabled = True
+        if self._deps.pipeline_config_cache is not None:
+            config = await self._deps.pipeline_config_cache.get(ctx.site_id)
+            if config is not None and not config.scoringEnabled:
+                scoring_pipeline_enabled = False
+        
+        if not scoring_pipeline_enabled:
+            # 流水线配置关闭了评分阶段，跳过并交给默认处置链
+            stages.append(
+                PipelineStageResult(
+                    stage=PipelineStage.RISK_SCORING,
+                    disposition=rule_set.default_disposition or allow(),
+                    reason="scoring_disabled_by_pipeline_config",
+                    matched=False,
+                )
+            )
+            resolved = DispositionResolver.fallback(rule_set.default_disposition)
+            return self._finalize(resolved, stages, shadow_hits=shadow_hits)
+        
         # 评分开关、阈值、权重与 scorer 常量均来自 ScoringConfigCache（admin 保存后 30s 内生效）。
         scoring_cfg = None
         if self._deps.scoring_config_cache is not None:

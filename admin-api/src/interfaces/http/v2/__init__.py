@@ -18,6 +18,7 @@ from .health import router as health_router
 from .page_resource_templates import router as page_resource_templates_router
 from .page_resources import router as page_resources_router, global_router as page_resources_global_router
 from .permissions import router as permissions_router
+from .pipeline_config import router as pipeline_config_router
 from .roles import router as roles_router
 from .rule_groups import router as rule_groups_router
 from .rule_templates import router as rule_templates_router

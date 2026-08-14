@@ -27,6 +27,7 @@ from src.infrastructure.cache.challenge_pass_store import ChallengePassStore
 from src.infrastructure.cache.decision_cache import DecisionCache
 from src.infrastructure.cache.nonce_store import NonceStore
 from src.infrastructure.cache.page_resource_cache import PageResourceCache
+from src.infrastructure.cache.pipeline_config_cache import PipelineConfigCache
 from src.infrastructure.cache.pool_health_store import PoolHealthStore
 from src.infrastructure.cache.pool_quota_store import PoolQuotaStore
 from src.infrastructure.cache.profile_cache import ProfileCache
@@ -49,6 +50,7 @@ _app_key_resolver: AppKeyResolver | None = None
 _nonce_store: NonceStore | None = None
 _clock_repository: ClockRepository | None = None
 _health_prober: PoolHealthProber | None = None
+_pipeline_config_cache: PipelineConfigCache | None = None
 
 
 @lru_cache(maxsize=1)
@@ -119,6 +121,7 @@ def build_decision_service() -> DecisionService:
             default_block_threshold=settings.block_threshold,
         ),
         security_policy_cache=SecurityPolicyCache(redis),
+        pipeline_config_cache=get_pipeline_config_cache(),
         server_session_cache=ServerSessionCache(redis),
         app_key_resolver=get_app_key_resolver(),
         challenge_pass_store=ChallengePassStore(redis),
@@ -199,10 +202,18 @@ def get_clock_repository() -> ClockRepository | None:
     return _clock_repository
 
 
+def get_pipeline_config_cache() -> PipelineConfigCache:
+    """获取流水线配置缓存（全局单例）。"""
+    global _pipeline_config_cache
+    if _pipeline_config_cache is None:
+        _pipeline_config_cache = PipelineConfigCache(get_redis())
+    return _pipeline_config_cache
+
+
 def reset_dependencies() -> None:
     """重置所有全局依赖（测试与关闭时调用）。"""
     global _decision_service, _mmdb_reader, _app_key_resolver, _nonce_store
-    global _clock_repository, _health_prober
+    global _clock_repository, _health_prober, _pipeline_config_cache
     if _mmdb_reader is not None:
         _mmdb_reader.close()
     _mmdb_reader = None
@@ -211,3 +222,4 @@ def reset_dependencies() -> None:
     _nonce_store = None
     _clock_repository = None
     _health_prober = None
+    _pipeline_config_cache = None

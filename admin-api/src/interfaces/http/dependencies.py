@@ -23,6 +23,7 @@ from src.application.services.auth_service import AuthService
 from src.application.services.clock_service import ClockService
 from src.application.services.default_disposition_service import DefaultDispositionService
 from src.application.services.page_resource_service import PageResourceService
+from src.application.services.pipeline_config_service import PipelineConfigService
 from src.application.services.reputation_sync_service import ReputationSyncService
 from src.application.services.role_service import RoleService
 from src.application.services.rule_service import RuleService
@@ -54,6 +55,7 @@ from src.infrastructure.repositories.default_disposition_repository import (
     DefaultDispositionRepository,
 )
 from src.infrastructure.repositories.page_resource_repository import PageResourceRepository
+from src.infrastructure.repositories.pipeline_config_repository import PipelineConfigRepository
 from src.infrastructure.repositories.rbac_repository import RbacRepository
 from src.infrastructure.repositories.rule_repository import RuleAdminRepository
 from src.infrastructure.repositories.rule_group_repository import RuleGroupRepository
@@ -255,6 +257,22 @@ def get_security_policy_service(
     session: AsyncSession = Depends(get_db_session),
 ) -> SecurityPolicyService:
     return SecurityPolicyService(SecurityPolicyRepository(session))
+
+
+def get_pipeline_config_repo(
+    session: AsyncSession = Depends(get_db_session),
+) -> PipelineConfigRepository:
+    return PipelineConfigRepository(session)
+
+
+def get_pipeline_config_service(
+    repo: PipelineConfigRepository = Depends(get_pipeline_config_repo),
+    redis: Redis = Depends(get_redis),
+) -> PipelineConfigService:
+    from src.infrastructure.pipeline_config_sync import PipelineConfigSync
+    
+    sync = PipelineConfigSync(redis)
+    return PipelineConfigService(repo, sync)
 
 
 def get_whitelist_service(
