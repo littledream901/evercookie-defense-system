@@ -32,6 +32,7 @@ from src.infrastructure.cache.pool_quota_store import PoolQuotaStore
 from src.infrastructure.cache.profile_cache import ProfileCache
 from src.infrastructure.cache.rotation_counter import RotationCounter
 from src.infrastructure.cache.scoring_config_cache import ScoringConfigCache
+from src.infrastructure.cache.security_policy_cache import SecurityPolicyCache
 from src.infrastructure.cache.server_session_cache import ServerSessionCache
 from src.infrastructure.clock.repository import ClockRepository
 from src.infrastructure.event_publisher.stream_publisher import StreamEventPublisher
@@ -117,6 +118,7 @@ def build_decision_service() -> DecisionService:
             default_challenge_threshold=settings.challenge_threshold,
             default_block_threshold=settings.block_threshold,
         ),
+        security_policy_cache=SecurityPolicyCache(redis),
         server_session_cache=ServerSessionCache(redis),
         app_key_resolver=get_app_key_resolver(),
         challenge_pass_store=ChallengePassStore(redis),

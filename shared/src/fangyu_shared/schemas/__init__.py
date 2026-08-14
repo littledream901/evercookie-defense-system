@@ -31,6 +31,7 @@ from fangyu_shared.schemas.event import (
     EventBatch,
     EventBatchAck,
 )
+from fangyu_shared.schemas.pipeline import PipelineConfig
 from fangyu_shared.schemas.profile import DeviceProfile, IpProfile
 from fangyu_shared.schemas.rule import (
     DecisionRule,
@@ -40,6 +41,14 @@ from fangyu_shared.schemas.rule import (
     RulePriority,
     RuleSet,
     RuleStatus,
+)
+from fangyu_shared.schemas.security import (
+    ScannerPolicy,
+    SecurityPolicy,
+    SecurityPolicyAction,
+    ThreatIntelPolicy,
+    TorPolicy,
+    VpnDatacenterPolicy,
 )
 from fangyu_shared.schemas.target_render import pick_target, render_pool, render_target
 
@@ -65,16 +74,23 @@ __all__ = [
     "Mechanism",
     "PageRequest",
     "PageResponse",
+    "PipelineConfig",
     "RuleCondition",
     "RuleGroup",
     "RulePriority",
     "RuleSet",
     "RuleStatus",
+    "ScannerPolicy",
+    "SecurityPolicy",
+    "SecurityPolicyAction",
     "ShadowOutcome",
     "SuccessResponse",
     "Target",
     "TargetKind",
+    "ThreatIntelPolicy",
+    "TorPolicy",
     "Verdict",
+    "VpnDatacenterPolicy",
     "default_limits",
     "pick_target",
     "render_pool",

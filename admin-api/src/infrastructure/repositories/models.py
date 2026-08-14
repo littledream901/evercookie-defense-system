@@ -480,6 +480,43 @@ class DefaultDispositionModel(Base, TimestampMixin):
     disposition: Mapped[dict] = mapped_column(MySQLJSON, nullable=False)
 
 
+class SecurityPolicyModel(Base, TimestampMixin):
+    """站点安全策略：威胁情报和安全检查器的可配置处置策略。
+    
+    每个站点一行配置，未配置时使用安全默认值（全部 deny）。
+    """
+
+    __tablename__ = "biz_security_policy"
+    __table_args__ = (
+        UniqueConstraint("site_id", name="uk_security_policy_site"),
+        ForeignKey("biz_site.id", name="fk_security_policy_site", ondelete="CASCADE"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    site_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, server_default="1", nullable=False)
+
+    # 威胁情报配置
+    threat_intel_enabled: Mapped[bool] = mapped_column(Boolean, server_default="1", nullable=False)
+    threat_intel_action: Mapped[str] = mapped_column(String(16), server_default="deny", nullable=False)
+    threat_intel_score: Mapped[int] = mapped_column(Integer, server_default="100", nullable=False)
+
+    # 扫描器配置
+    scanner_enabled: Mapped[bool] = mapped_column(Boolean, server_default="1", nullable=False)
+    scanner_action: Mapped[str] = mapped_column(String(16), server_default="deny", nullable=False)
+    scanner_score: Mapped[int] = mapped_column(Integer, server_default="80", nullable=False)
+
+    # VPN+数据中心配置
+    vpn_datacenter_enabled: Mapped[bool] = mapped_column(Boolean, server_default="1", nullable=False)
+    vpn_datacenter_action: Mapped[str] = mapped_column(String(16), server_default="deny", nullable=False)
+    vpn_datacenter_score: Mapped[int] = mapped_column(Integer, server_default="60", nullable=False)
+
+    # Tor 检测配置
+    tor_enabled: Mapped[bool] = mapped_column(Boolean, server_default="1", nullable=False)
+    tor_action: Mapped[str] = mapped_column(String(16), server_default="deny", nullable=False)
+    tor_score: Mapped[int] = mapped_column(Integer, server_default="90", nullable=False)
+
+
 class AuditLogModel(Base):
     __tablename__ = "sys_audit_log"
     __table_args__ = (

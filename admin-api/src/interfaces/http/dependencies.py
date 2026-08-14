@@ -28,6 +28,7 @@ from src.application.services.role_service import RoleService
 from src.application.services.rule_service import RuleService
 from src.application.services.rule_group_service import RuleGroupService
 from src.application.services.scoring_service import ScoringService
+from src.application.services.security_policy_service import SecurityPolicyService
 from src.application.services.site_service import SiteService
 from src.application.services.intel_service import IntelService
 from src.application.services.threat_intel_service import ThreatIntelService
@@ -57,10 +58,12 @@ from src.infrastructure.repositories.rbac_repository import RbacRepository
 from src.infrastructure.repositories.rule_repository import RuleAdminRepository
 from src.infrastructure.repositories.rule_group_repository import RuleGroupRepository
 from src.infrastructure.repositories.scoring_repository import ScoringRepository
+from src.infrastructure.repositories.security_policy_repository import SecurityPolicyRepository
 from src.infrastructure.repositories.site_repository import SiteRepository
 from src.infrastructure.repositories.user_repository import UserRepository
 from src.infrastructure.reputation_intel_feedback import ReputationIntelFeedback
 from src.infrastructure.scoring_sync import ScoringSync
+from src.infrastructure.security_policy_sync import SecurityPolicySync
 from src.infrastructure.whitelist_sync import WhitelistSync
 
 
@@ -245,7 +248,13 @@ def get_clock_service(
     session: AsyncSession = Depends(get_db_session),
     redis: Redis = Depends(get_redis),
 ) -> ClockService:
-    return ClockService(session, ClockSync(redis))
+    return ClockService(redis, ClockSync(redis, session))
+
+
+def get_security_policy_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> SecurityPolicyService:
+    return SecurityPolicyService(SecurityPolicyRepository(session))
 
 
 def get_whitelist_service(

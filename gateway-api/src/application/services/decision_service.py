@@ -86,6 +86,7 @@ from fangyu_shared.schemas.disposition import (
     resolve_http_status,
 )
 from fangyu_shared.schemas.event import ConditionTraceEvent, DecisionEvent
+from fangyu_shared.schemas.security import SecurityPolicyAction
 from fangyu_shared.schemas.target_render import pick_target, render_pool, resolve_rotation_order
 from fangyu_shared.utils.crypto import sha256_hex
 from fangyu_shared.utils.time import utcnow_ms
@@ -111,6 +112,7 @@ from src.infrastructure.cache.decision_cache import (
 from src.infrastructure.cache.page_resource_cache import PageResourceCache
 from src.infrastructure.cache.profile_cache import ProfileCache
 from src.infrastructure.cache.scoring_config_cache import ScoringConfigCache
+from src.infrastructure.cache.security_policy_cache import SecurityPolicyCache
 from src.infrastructure.cache.server_session_cache import ServerSessionCache
 from src.infrastructure.clock.repository import ClockReading, ClockRepository
 from src.infrastructure.event_publisher.stream_publisher import StreamEventPublisher
@@ -162,6 +164,8 @@ class DecisionServiceDeps:
     """None 表示关闭六类维度情报富化，画像的 intel.* 命名空间留空。"""
     scoring_config_cache: ScoringConfigCache | None = None
     """None 表示关闭动态评分配置，阈值由 GatewaySettings 静态值决定。"""
+    security_policy_cache: SecurityPolicyCache | None = None
+    """None 表示使用硬编码默认处置（威胁情报 deny，安全检查 deny），非 None 时从配置读取。"""
     server_session_cache: ServerSessionCache | None = None
     """None 表示关闭 Hybrid 双层架构的 serverToken 关联。非 None 时：
     - ingress=adapter 且 mechanism=pass 时，把第一层预判存入 Redis
@@ -809,37 +813,97 @@ class DecisionService:
         with decision_latency_seconds.labels(app_id=str(ctx.site_id), stage="threat_intel").time():
             ti = await ThreatIntelReader.check(str(ctx.ip))
         if ti.is_threat:
-            reason = f"threat_intel:{','.join(ti.categories)}" if ti.categories else "threat_intel"
-            resolved = DispositionResolver.from_threat_intel(deny(), reason=reason)
-            stages.append(
-                PipelineStageResult(
-                    stage=PipelineStage.THREAT_INTEL,
-                    disposition=resolved.disposition,
-                    reason=reason,
-                    matched=True,
-                    metadata={"categories": ti.categories},
+            # 获取可配置的威胁情报处置（未配置时默认 deny）
+            should_block = True
+            threat_disposition = deny()
+            threat_score = 100.0
+            
+            if self._deps.security_policy_cache is not None:
+                policy = await self._deps.security_policy_cache.get(ctx.site_id)
+                if not policy.enabled or not policy.threat_intel.enabled:
+                    # 安全策略或威胁情报已关闭，跳过此阶段
+                    should_block = False
+                elif policy.threat_intel.action == SecurityPolicyAction.CHALLENGE:
+                    threat_disposition = challenge()
+                elif policy.threat_intel.action == SecurityPolicyAction.SCORE:
+                    # 不直接拦截，将在评分阶段加分
+                    should_block = False
+                    threat_score = float(policy.threat_intel.score)
+            
+            if should_block:
+                reason = f"threat_intel:{','.join(ti.categories)}" if ti.categories else "threat_intel"
+                resolved = DispositionResolver.from_threat_intel(threat_disposition, reason=reason)
+                stages.append(
+                    PipelineStageResult(
+                        stage=PipelineStage.THREAT_INTEL,
+                        disposition=resolved.disposition,
+                        reason=reason,
+                        matched=True,
+                        metadata={"categories": ti.categories},
+                    )
                 )
-            )
-            return self._finalize(
-                resolved, stages, score=100.0, shadow_hits=shadow_hits
-            )
+                return self._finalize(
+                    resolved, stages, score=threat_score, shadow_hits=shadow_hits
+                )
 
         # Stage: security
         with decision_latency_seconds.labels(app_id=str(ctx.site_id), stage="security").time():
             sec = self._deps.security_checker.check(snapshot)
+        
+        security_score_delta = 0.0
         if sec.triggered and sec.disposition is not None:
-            resolved = DispositionResolver.from_security(
-                sec.disposition, reason=sec.reason or "security"
-            )
-            stages.append(
-                PipelineStageResult(
-                    stage=PipelineStage.SECURITY,
-                    disposition=resolved.disposition,
-                    reason=sec.reason,
-                    matched=True,
+            # 获取可配置的安全策略（未配置时使用 SecurityChecker 返回的默认处置）
+            final_disposition = sec.disposition
+            should_block = True
+            
+            if self._deps.security_policy_cache is not None:
+                policy = await self._deps.security_policy_cache.get(ctx.site_id)
+                
+                if not policy.enabled:
+                    # 安全策略总开关关闭，跳过所有安全检查
+                    should_block = False
+                # 根据不同的安全检查类型应用配置
+                elif "security_scanner" in (sec.reason or ""):
+                    if not policy.scanner.enabled:
+                        should_block = False
+                    elif policy.scanner.action == SecurityPolicyAction.CHALLENGE:
+                        final_disposition = challenge()
+                    elif policy.scanner.action == SecurityPolicyAction.SCORE:
+                        # 不直接拦截，加分到评分阶段
+                        should_block = False
+                        security_score_delta = float(policy.scanner.score)
+                
+                elif "vpn_on_datacenter" in (sec.reason or ""):
+                    if not policy.vpn_datacenter.enabled:
+                        should_block = False
+                    elif policy.vpn_datacenter.action == SecurityPolicyAction.CHALLENGE:
+                        final_disposition = challenge()
+                    elif policy.vpn_datacenter.action == SecurityPolicyAction.SCORE:
+                        should_block = False
+                        security_score_delta = float(policy.vpn_datacenter.score)
+                
+                elif "tor_exit_node" in (sec.reason or ""):
+                    if not policy.tor.enabled:
+                        should_block = False
+                    elif policy.tor.action == SecurityPolicyAction.CHALLENGE:
+                        final_disposition = challenge()
+                    elif policy.tor.action == SecurityPolicyAction.SCORE:
+                        should_block = False
+                        security_score_delta = float(policy.tor.score)
+            
+            if should_block:
+                resolved = DispositionResolver.from_security(
+                    final_disposition, reason=sec.reason or "security"
                 )
-            )
-            return self._finalize(resolved, stages, shadow_hits=shadow_hits)
+                stages.append(
+                    PipelineStageResult(
+                        stage=PipelineStage.SECURITY,
+                        disposition=resolved.disposition,
+                        reason=sec.reason,
+                        matched=True,
+                    )
+                )
+                return self._finalize(resolved, stages, shadow_hits=shadow_hits)
 
         # Stage: risk scoring
         # 评分开关、阈值、权重与 scorer 常量均来自 ScoringConfigCache（admin 保存后 30s 内生效）。

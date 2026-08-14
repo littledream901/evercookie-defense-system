@@ -23,6 +23,7 @@ from .rule_groups import router as rule_groups_router
 from .rule_templates import router as rule_templates_router
 from .rules import router as rules_router, global_router as rules_global_router
 from .scoring import router as scoring_router
+from .security_policy import router as security_policy_router
 from .sites import router as sites_router
 from .threat_intel import router as threat_intel_router
 from .users import router as users_router
@@ -61,6 +62,7 @@ v2_router.include_router(page_resource_templates_router)
 v2_router.include_router(page_resources_router)
 v2_router.include_router(page_resources_global_router)
 v2_router.include_router(scoring_router)
+v2_router.include_router(security_policy_router)
 v2_router.include_router(default_disposition_router)
 
 # 健康/就绪不带前缀
