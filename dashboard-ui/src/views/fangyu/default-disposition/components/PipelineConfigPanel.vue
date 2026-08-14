@@ -58,7 +58,7 @@
             <ElSwitch
               :model-value="getStageEnabled(stage.key)"
               :disabled="disabled || loading"
-              @change="(val) => setStageEnabled(stage.key, val)"
+              @change="(val: string | number | boolean) => setStageEnabled(stage.key, val as boolean)"
             />
           </div>
           <div class="mt-1 text-xs" :class="getStageEnabled(stage.key) ? 'text-g-500' : 'text-g-400'">
@@ -71,7 +71,6 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
 import { QuestionFilled } from '@element-plus/icons-vue'
 
 interface PipelineStage {
