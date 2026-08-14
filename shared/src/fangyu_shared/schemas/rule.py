@@ -1,13 +1,8 @@
-"""规则 Schema：按种类拆分为打分规则与决策规则。
+"""规则 Schema：决策规则与规则组。
 
-为什么拆分
-----------
-旧模型单个 ``Rule`` 同时带 ``weight``（打分语义）和 ``disposition``
-（终止语义），而匹配器是首次命中即终止的——终止型规则上的 weight 没有意义，
-只想贡献分数的规则又被迫填一个 disposition。两个字段互斥却并存。
-
-拆开后非法组合在**类型层面就构造不出来**，不需要运行时校验，也不需要旧版
-``inherit`` 那种 magic value 在运行时再判断一次种类。
+决策规则命中即终止流水线并施加处置，未命中走 ``disposition_miss``。
+打分能力已统一收敛到评分配置（``biz_scoring_config``），不再存在独立的
+打分规则类型，规则模型只保留决策语义。
 
 ``on_no_match`` 的作用域
 ------------------------
@@ -42,11 +37,6 @@ class RulePriority(str, Enum):
     NORMAL = "normal"
     HIGH = "high"
     CRITICAL = "critical"
-
-
-class RuleKind(str, Enum):
-    SCORING = "scoring"
-    DECISION = "decision"
 
 
 class GroupMode(str, Enum):
@@ -132,44 +122,19 @@ class RuleBase(BaseSchema):
         return self.status == RuleStatus.SHADOW
 
 
-class ScoringRule(RuleBase):
-    """打分规则：贡献权重，永不终止流水线。
-
-    没有 ``disposition`` 字段——打分规则不做处置决策。
-    """
-
-    kind: RuleKind = RuleKind.SCORING
-    weight: int = Field(default=10, ge=-1000, le=1000)
-
-    @field_validator("kind")
-    @classmethod
-    def _pin_kind(cls, v: RuleKind) -> RuleKind:
-        if v != RuleKind.SCORING:
-            raise ValueError("ScoringRule.kind 必须为 scoring")
-        return v
-
-
 class DecisionRule(RuleBase):
     """决策规则：命中即终止流水线并施加处置。
 
     双路处置（新）：命中走 ``disposition_match``，未命中走 ``disposition_miss``。
     向后兼容（旧）：只传 ``disposition`` 时自动回填 ``disposition_match``，
-    ``disposition_miss`` 默认放行。没有 ``weight`` 字段——命中即终止，权重无意义。
+    ``disposition_miss`` 默认放行。
     """
 
-    kind: RuleKind = RuleKind.DECISION
     disposition_match: DecisionDisposition | None = None
     disposition_miss: DecisionDisposition | None = None
     # 兼容旧版单路处置（回填/迁移用）；新规则优先用 disposition_match
     # @deprecated: 此字段将在下一个大版本移除，迁移时请改用 disposition_match + disposition_miss
     disposition: Disposition | None = None
-
-    @field_validator("kind")
-    @classmethod
-    def _pin_kind(cls, v: RuleKind) -> RuleKind:
-        if v != RuleKind.DECISION:
-            raise ValueError("DecisionRule.kind 必须为 decision")
-        return v
 
     @model_validator(mode="after")
     def _backfill_disposition(self) -> "DecisionRule":
@@ -239,6 +204,5 @@ class RuleSet(BaseSchema):
 
     site_id: int = Field(..., alias="siteId", gt=0)
     decision_rules: list[DecisionRule] = Field(default_factory=list, alias="decisionRules")
-    scoring_rules: list[ScoringRule] = Field(default_factory=list, alias="scoringRules")
     groups: list[RuleGroup] = Field(default_factory=list)
     default_disposition: Disposition | None = Field(default=None, alias="defaultDisposition")

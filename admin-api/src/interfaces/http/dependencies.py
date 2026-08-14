@@ -321,9 +321,18 @@ async def get_current_user_id(
     api_key_service: ApiKeyService = Depends(get_api_key_service),
     user_repo: UserRepository = Depends(get_user_repo),
 ) -> int:
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise AuthenticationException("缺少或格式错误的 Authorization 头")
-    credential = authorization.split(" ", 1)[1].strip()
+    # [BUG-001/002修复] 严格检查 Authorization 头是否存在且格式正确
+    if authorization is None or authorization.strip() == "":
+        raise AuthenticationException("缺少 Authorization 头")
+    
+    if not authorization.lower().startswith("bearer "):
+        raise AuthenticationException("Authorization 头格式错误，应为 'Bearer <token>'")
+    
+    parts = authorization.split(" ", 1)
+    if len(parts) < 2:
+        raise AuthenticationException("Authorization 头格式错误")
+    
+    credential = parts[1].strip()
     if not credential:
         raise AuthenticationException("Token 为空")
 

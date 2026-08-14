@@ -8,12 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from fangyu_shared.schemas.common import PageResponse, SuccessResponse
-from fangyu_shared.schemas.rule import (
-    DecisionRule,
-    RuleKind,
-    RuleStatus,
-    ScoringRule,
-)
+from fangyu_shared.schemas.rule import DecisionRule, RuleStatus
 
 from src.application.services.rule_service import RuleService
 from src.interfaces.http.dependencies import (
@@ -27,7 +22,7 @@ from .schemas import RuleRollbackRequest, RuleUpsertRequest
 router = APIRouter(prefix="/sites/{site_id}/rules", tags=["rules"])
 
 
-AnyRule = DecisionRule | ScoringRule
+AnyRule = DecisionRule
 
 
 def _to_domain(site_id: int | None, payload: RuleUpsertRequest) -> AnyRule:
@@ -45,12 +40,9 @@ def _to_domain(site_id: int | None, payload: RuleUpsertRequest) -> AnyRule:
         "tags": list(payload.tags),
         "version": 1,
     }
-    if payload.kind == RuleKind.SCORING:
-        return ScoringRule(kind=RuleKind.SCORING, weight=payload.weight or 0, **common)
     assert payload.disposition_match is not None
     assert payload.disposition_miss is not None
     return DecisionRule(
-        kind=RuleKind.DECISION,
         disposition_match=payload.disposition_match,
         disposition_miss=payload.disposition_miss,
         **common,

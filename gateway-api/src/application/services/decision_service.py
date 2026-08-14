@@ -842,8 +842,7 @@ class DecisionService:
             return self._finalize(resolved, stages, shadow_hits=shadow_hits)
 
         # Stage: risk scoring
-        # 传入 scoring_rules：权重由后台维护，标定阈值不必改代码重新部署。
-        # 评分开关与阈值来自 ScoringConfigCache（admin 保存后 30s 内生效）。
+        # 评分开关、阈值、权重与 scorer 常量均来自 ScoringConfigCache（admin 保存后 30s 内生效）。
         scoring_cfg = None
         if self._deps.scoring_config_cache is not None:
             scoring_cfg = await self._deps.scoring_config_cache.get(ctx.site_id)
@@ -867,6 +866,7 @@ class DecisionService:
                 challenge_threshold=scoring_cfg.challenge_threshold if scoring_cfg else None,
                 block_threshold=scoring_cfg.block_threshold if scoring_cfg else None,
                 weights=scoring_cfg.weights if scoring_cfg else None,
+                scorer_params=scoring_cfg.scorer_params if scoring_cfg else None,
                 disposition_suspect=scoring_cfg.disposition_suspect if scoring_cfg else None,
                 disposition_hostile=scoring_cfg.disposition_hostile if scoring_cfg else None,
             )

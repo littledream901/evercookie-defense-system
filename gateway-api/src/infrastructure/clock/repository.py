@@ -101,6 +101,35 @@ class ClockRepository:
         写入与读取在同一 pipeline 内，本次访问**计入**返回的计数——判定时用
         ``>`` 比较，即「第 N+1 次才算超限」。
         """
+        # [FIX] 参数验证
+        if site_id < 0:
+            _logger.error("clock_invalid_site_id", site_id=site_id)
+            return self._empty_reading(ip_hash or "", fingerprint or "", now_ms)
+        
+        if not ip_hash or not ip_hash.strip():
+            _logger.error("clock_empty_ip_hash", site_id=site_id)
+            return self._empty_reading("", fingerprint or "", now_ms)
+        
+        if not fingerprint or not fingerprint.strip():
+            _logger.error("clock_empty_fingerprint", site_id=site_id)
+            return self._empty_reading(ip_hash, "", now_ms)
+        
+        if now_ms < 0:
+            _logger.error("clock_negative_timestamp", now_ms=now_ms, site_id=site_id)
+            return self._empty_reading(ip_hash, fingerprint, 0)
+        
+        # 检查时间戳是否过于未来（可能是时钟错误）
+        import time
+        current_ms = int(time.time() * 1000)
+        if now_ms > current_ms + 3600_000:  # 未来 1 小时
+            _logger.warning(
+                "clock_future_timestamp",
+                now_ms=now_ms,
+                current_ms=current_ms,
+                site_id=site_id
+            )
+            now_ms = current_ms
+        
         now_sec = now_ms / 1000.0
         cutoff = now_sec - RETENTION_SECONDS
         dims = (
@@ -148,16 +177,67 @@ class ClockRepository:
         （旧版用手工游标推进，加窗口就得同步改两处）。
         """
         stride = self._ops_per_dimension()
+        expected_length = len(dims) * stride
+        
+        # [FIX] 验证 results 长度，防止数组越界
+        if len(results) < expected_length:
+            _logger.error(
+                "clock_parse_insufficient_results",
+                expected=expected_length,
+                actual=len(results),
+                dims_count=len(dims),
+                stride=stride
+            )
+            # fail-open: 返回空计数，避免崩溃
+            return ClockReading(
+                ip=DimensionCounts(
+                    dimension=ClockDimension.IP,
+                    value=dims[0][1] if dims else "",
+                    counts={w.name: 0 for w in ALL_WINDOWS},
+                    ban=BanState(banned=False),
+                ),
+                fingerprint=DimensionCounts(
+                    dimension=ClockDimension.FINGERPRINT,
+                    value=dims[1][1] if len(dims) > 1 else "",
+                    counts={w.name: 0 for w in ALL_WINDOWS},
+                    ban=BanState(banned=False),
+                ),
+                now_ms=now_ms,
+            )
+        
         parsed: dict[ClockDimension, DimensionCounts] = {}
 
         for idx, (dimension, value) in enumerate(dims):
             base = idx * stride
-            counts = {
-                window.name: int(results[base + 2 + w_idx] or 0)
-                for w_idx, window in enumerate(ALL_WINDOWS)
-            }
-            ban_raw = results[base + 3 + len(ALL_WINDOWS)]
-            ban_ttl = results[base + 4 + len(ALL_WINDOWS)]
+            counts = {}
+            
+            # [FIX] 安全解析计数，捕获类型转换异常
+            for w_idx, window in enumerate(ALL_WINDOWS):
+                try:
+                    raw_count = results[base + 2 + w_idx]
+                    counts[window.name] = int(raw_count) if raw_count is not None else 0
+                except (ValueError, TypeError, IndexError) as e:
+                    _logger.warning(
+                        "clock_parse_count_failed",
+                        window=window.name,
+                        dimension=dimension.value,
+                        error=str(e)
+                    )
+                    counts[window.name] = 0
+            
+            # [FIX] 安全解析封禁状态
+            try:
+                ban_raw = results[base + 3 + len(ALL_WINDOWS)]
+                ban_ttl = results[base + 4 + len(ALL_WINDOWS)]
+            except IndexError:
+                _logger.error(
+                    "clock_parse_ban_index_error",
+                    base=base,
+                    dimension=dimension.value
+                )
+                ban_raw = None
+                ban_ttl = 0
+            
             parsed[dimension] = DimensionCounts(
                 dimension=dimension,
                 value=value,
@@ -210,9 +290,33 @@ class ClockRepository:
         TTL 即剩余时长，不额外存过期时间戳——旧版存了 ``expire_at`` 又同时设
         TTL，两个真相来源需要手工对齐，读取时还要判断哪个为准。
         """
+        # [FIX] 参数验证
         if seconds <= 0:
             return
-        key = ban_key(site_id, dimension, value)
+        
+        if site_id < 0:
+            _logger.error("clock_ban_invalid_site_id", site_id=site_id)
+            return
+        
+        if not value or not value.strip():
+            _logger.error(
+                "clock_ban_empty_value",
+                site_id=site_id,
+                dimension=dimension.value
+            )
+            return
+        
+        # [FIX] 限制 reason 长度，防止占用过多内存
+        max_reason_length = 512
+        if len(reason) > max_reason_length:
+            _logger.warning(
+                "clock_ban_reason_truncated",
+                site_id=site_id,
+                original_length=len(reason)
+            )
+            reason = reason[:max_reason_length]
+        
+        key = ban_key(site_id, dimension, value.strip())
         payload = orjson.dumps({"reason": reason, "dimension": dimension.value})
         try:
             await self._redis.set(key, payload, ex=seconds)

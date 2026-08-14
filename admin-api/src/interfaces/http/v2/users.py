@@ -130,12 +130,12 @@ async def assign_roles(
 
 @router.delete(
     "/{user_id}",
-    response_model=SuccessResponse[None],
+    status_code=204,  # [BUG-004修复] DELETE 成功返回 204 No Content
+    response_model=None,  # 显式声明无响应体，避免 from __future__ import annotations 下 -> None 被解析成 NoneType
     dependencies=[Depends(require_permission("user.write"))],
 )
 async def delete_user(
     user_id: int,
     service: UserService = Depends(get_user_service),
-) -> SuccessResponse[None]:
+) -> None:  # [BUG-004修复] 204 响应不返回内容
     await service.delete_user(user_id)
-    return SuccessResponse(message="用户删除成功")

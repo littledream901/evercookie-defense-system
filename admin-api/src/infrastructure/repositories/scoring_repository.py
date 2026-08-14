@@ -30,6 +30,7 @@ class ScoringRepository:
         threshold_suspect: int = 40,
         threshold_hostile: int = 70,
         weights: dict,
+        scorer_params: dict | None = None,
         disposition_suspect: dict | None = None,
         disposition_hostile: dict | None = None,
     ) -> ScoringConfigModel:
@@ -43,6 +44,7 @@ class ScoringRepository:
                 threshold_suspect=threshold_suspect,
                 threshold_hostile=threshold_hostile,
                 weights=weights,
+                scorer_params=scorer_params or {},
                 disposition_suspect=disposition_suspect,
                 disposition_hostile=disposition_hostile,
             )
@@ -52,6 +54,7 @@ class ScoringRepository:
                 threshold_suspect=threshold_suspect,
                 threshold_hostile=threshold_hostile,
                 weights=weights,
+                scorer_params=scorer_params or {},
                 disposition_suspect=disposition_suspect,
                 disposition_hostile=disposition_hostile,
             )

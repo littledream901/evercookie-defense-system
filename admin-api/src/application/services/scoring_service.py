@@ -17,19 +17,19 @@ SCORING_DIMENSIONS = [
         "key": "ip_reputation",
         "label": "IP 声誉",
         "description": "worker 回写的 IP 历史信誉。无信誉数据时不参与判定，不贡献基线分",
-        "defaultWeight": 12,
+        "defaultWeight": 10,
     },
     {
         "key": "proxy",
         "label": "代理 / VPN / 数据中心",
         "description": "Tor、VPN、代理、机房 IDC 与网络类型综合判定。移动网络出口会额外降权，避免 CGNAT 误杀",
-        "defaultWeight": 15,
+        "defaultWeight": 10,
     },
     {
         "key": "user_agent",
         "label": "UA 与爬虫特征",
         "description": "UA 结构化解析：空 UA、无法解析、爬虫类别。搜索引擎爬虫计 0 分，交由白名单处理",
-        "defaultWeight": 8,
+        "defaultWeight": 10,
     },
     {
         "key": "device",
@@ -47,7 +47,7 @@ SCORING_DIMENSIONS = [
         "key": "interaction",
         "label": "人机交互特征",
         "description": "浏览器 SDK 采集的行为时序：零交互停留、事件间隔过于规律（脚本回放）、按键长按异常。服务端接入（Adapter）无行为数据，不参与判定",
-        "defaultWeight": 8,
+        "defaultWeight": 10,
     },
     {
         "key": "intel",
@@ -59,10 +59,10 @@ SCORING_DIMENSIONS = [
 """系统支持的评分维度，供前端渲染权重表单。
 
 ``key`` 必须与 gateway 侧 ``RiskScorer.name`` 严格一致——网关按此名查权重覆盖表，
-对不上就静默沿用类默认权重，表现为「拖了滑块没效果」且无任何报错。
+对不上就找不到配置，scorer 会使用代码中的默认值 1.0。
 
-``defaultWeight`` 是 scorer 类上默认权重的 10 倍，与 ``weights`` 字段的整数量纲
-一致（网关侧除以 10 还原）。仅用于前端展示参照值，不参与计算。
+``defaultWeight`` 是前端滑块的初始位置（整数量纲，网关侧除以 10 还原为浮点）。
+统一设为 10（对应 scorer 权重 1.0），表示所有维度默认等权重，由用户按需调整。
 """
 
 
@@ -83,6 +83,7 @@ class ScoringService:
         threshold_suspect: int = 40,
         threshold_hostile: int = 70,
         weights: dict[str, int],
+        scorer_params: dict[str, dict[str, Any]] | None = None,
         disposition_suspect: dict[str, Any] | None = None,
         disposition_hostile: dict[str, Any] | None = None,
     ) -> ScoringConfigModel:
@@ -93,6 +94,7 @@ class ScoringService:
             threshold_suspect=threshold_suspect,
             threshold_hostile=threshold_hostile,
             weights=weights,
+            scorer_params=scorer_params,
             disposition_suspect=disposition_suspect,
             disposition_hostile=disposition_hostile,
         )
@@ -103,6 +105,7 @@ class ScoringService:
             threshold_suspect=threshold_suspect,
             threshold_hostile=threshold_hostile,
             weights=weights,
+            scorer_params=scorer_params,
             disposition_suspect=disposition_suspect,
             disposition_hostile=disposition_hostile,
         )

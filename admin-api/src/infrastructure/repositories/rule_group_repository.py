@@ -26,6 +26,12 @@ class RuleGroupRepository:
         rows = (await self._session.execute(stmt)).scalars().all()
         return [self._to_domain(row) for row in rows]
 
+    async def list_all(self) -> list[RuleGroup]:
+        """查询所有规则组（跨站点）。[BUG-006修复] 新增方法"""
+        stmt = select(RuleGroupModel).order_by(RuleGroupModel.site_id, RuleGroupModel.priority)
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [self._to_domain(row) for row in rows]
+
     async def create(self, site_id: int, name: str, mode: GroupMode, priority: RulePriority, enabled: bool, on_no_match: Disposition | None) -> RuleGroup:
         """创建规则组。"""
         model = RuleGroupModel(

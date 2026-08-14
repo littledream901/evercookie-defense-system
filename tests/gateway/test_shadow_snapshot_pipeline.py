@@ -31,7 +31,6 @@ from fangyu_shared.schemas.disposition import (
 from fangyu_shared.schemas.rule import (
     DecisionRule,
     RuleCondition,
-    RuleKind,
     RuleStatus,
 )
 from src.application.services.decision_service import (
@@ -73,7 +72,6 @@ def _rule(
         siteId=_SITE_ID,
         name=name,
         status=status,
-        kind=RuleKind.DECISION,
         conditions=[RuleCondition(field="ip.country", op="eq", value=country)],
         # challenge 机制必须带 challenge_kind（DecisionDisposition 的校验器要求），
         # 其余机制则禁止携带，所以这里按机制条件填充
@@ -99,6 +97,10 @@ class _SnapshotRedis:
         if key == f"fangyu:rules:site:{_SITE_ID}":
             return dict(self._rules)
         return {}
+
+    async def get(self, key: str) -> str | None:
+        # 影子规则测试不涉及默认处置，固定返回 None（回退系统默认放行）。
+        return None
 
 
 class _StubDecisionCache:

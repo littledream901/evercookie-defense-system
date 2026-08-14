@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
@@ -19,7 +19,6 @@ from fangyu_shared.schemas.rule import (
     DecisionRule,
     GroupMode,
     RuleCondition,
-    RuleKind,
     RulePriority,
 )
 
@@ -245,20 +244,14 @@ class RuleUpsertRequest(BaseSchema):
     match_all: bool = Field(default=True, alias="matchAll")
     group: str | None = Field(default=None, max_length=64)
     tags: list[str] = Field(default_factory=list)
-    kind: RuleKind = RuleKind.DECISION
-    weight: int | None = Field(default=None, ge=-1000, le=1000)
     disposition_match: DecisionDisposition | None = Field(default=None, alias="dispositionMatch")
     """命中时的处置动作，pass 表示立即放行并终止后续规则求值。"""
     disposition_miss: DecisionDisposition | None = Field(default=None, alias="dispositionMiss")
     """未命中时的处置动作，pass 表示放行并继续执行下一条规则。"""
 
     @model_validator(mode="after")
-    def _check_kind_fields(self) -> "RuleUpsertRequest":
-        if self.kind == RuleKind.SCORING and self.weight is None:
-            raise ValueError("scoring 规则必须提供 weight")
-        if self.kind == RuleKind.DECISION and (
-            self.disposition_match is None or self.disposition_miss is None
-        ):
+    def _check_disposition_fields(self) -> "RuleUpsertRequest":
+        if self.disposition_match is None or self.disposition_miss is None:
             raise ValueError("decision 规则必须提供 dispositionMatch 和 dispositionMiss")
         return self
 
@@ -424,6 +417,7 @@ class ScoringConfigSchema(BaseSchema):
     threshold_suspect: int
     threshold_hostile: int
     weights: dict[str, int]
+    scorer_params: dict[str, dict[str, Any]] = Field(default_factory=dict)
     disposition_suspect: DecisionDisposition | None = None
     disposition_hostile: DecisionDisposition | None = None
     created_at: datetime | None = None
@@ -441,8 +435,16 @@ class ScoringConfigUpsertRequest(BaseSchema):
         default_factory=dict,
         description=(
             "scorer 名 → 整数权重映射，范围 -1000..1000。"
-            "gateway 侧接收后除以 10 换算为浮点量纲（与 scorer 类默认权重 1.0 量级对齐），"
+            "gateway 侧接收后除以 10 换算为浮点量纲（默认等权基线 1.0），"
             "存储时保留原始整数，不在 admin 侧换算。"
+        ),
+    )
+    scorer_params: dict[str, dict[str, Any]] = Field(
+        default_factory=dict,
+        description=(
+            "scorer 名 → 参数键值映射，用于覆盖各 scorer 的默认评分常量"
+            "（如 proxy.tor、user_agent.suspicious_ua 等）。"
+            "未覆盖的键由 gateway 回退到 DEFAULT_SCORER_PARAMS。"
         ),
     )
     disposition_suspect: DecisionDisposition | None = None

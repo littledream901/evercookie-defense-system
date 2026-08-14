@@ -418,8 +418,8 @@ async def test_site_connection(
     payload = {
         "context": {
             "siteId": site.id,
-            "ingress": "test",  # 标记为测试流量
-            "fingerprint": f"test_fp_{timestamp}",
+            "ingress": "sdk",  # 使用 sdk 模式进行测试（fingerprint 标记为测试流量）
+            "fingerprint": f"test_connection_{timestamp}",
             "userAgent": "Fangyu-ConnectionTest/1.0",
             "visitUrl": f"https://{site.domain or 'test.example.com'}/connection-test",
             "path": "/connection-test",

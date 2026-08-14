@@ -174,6 +174,7 @@ async def _bootstrap_scoring_config_sync() -> None:
                 threshold_suspect=row.threshold_suspect,
                 threshold_hostile=row.threshold_hostile,
                 weights=dict(row.weights or {}),
+                scorer_params=dict(row.scorer_params or {}),
                 disposition_suspect=row.disposition_suspect,
                 disposition_hostile=row.disposition_hostile,
             )

@@ -29,6 +29,10 @@ class RuleGroupService:
         """查询某站点的所有规则组。"""
         return await self._repo.list_by_site(site_id)
 
+    async def list_all(self) -> list[RuleGroup]:
+        """查询所有规则组（跨站点）。[BUG-006修复] 新增方法"""
+        return await self._repo.list_all()
+
     async def create(
         self,
         site_id: int,

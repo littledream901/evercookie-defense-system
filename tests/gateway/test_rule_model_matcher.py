@@ -1,7 +1,7 @@
-"""规则模型拆分与决策匹配器测试。
+"""规则模型与决策匹配器测试。
 
-覆盖三件本次重构的核心保证：
-1. 非法字段组合在类型层面构造不出来（weight / disposition 互斥）
+覆盖两件本次重构的核心保证：
+1. 决策规则命中即终止、未命中走 miss 处置
 2. allowlist 组兜底作用域严格限制在组内
 3. 影子规则参与求值但不影响真实决策
 """
@@ -17,10 +17,8 @@ from fangyu_shared.schemas.rule import (
     GroupMode,
     RuleCondition,
     RuleGroup,
-    RuleKind,
     RulePriority,
     RuleStatus,
-    ScoringRule,
 )
 
 from src.domain.rule.evaluator import ConditionEvaluator
@@ -55,34 +53,16 @@ def _decision(
     )
 
 
-# ---------- 模型：种类互斥 ----------
-def test_scoring_rule_has_no_disposition_field() -> None:
-    r = ScoringRule(siteId=1, name="s", conditions=[_cond()], weight=30)
-    assert not hasattr(r, "disposition")
-    assert r.kind == RuleKind.SCORING
-
-
+# ---------- 模型：决策规则语义 ----------
 def test_decision_rule_has_no_weight_field() -> None:
     r = _decision(rid=1)
     assert not hasattr(r, "weight")
-    assert r.kind == RuleKind.DECISION
-
-
-def test_kind_cannot_be_mismatched() -> None:
-    with pytest.raises(ValidationError):
-        ScoringRule(siteId=1, name="s", conditions=[_cond()], weight=1, kind=RuleKind.DECISION)
-    with pytest.raises(ValidationError):
-        DecisionRule(
-            siteId=1, name="d", conditions=[_cond()], disposition=deny(), kind=RuleKind.SCORING
-        )
 
 
 def test_empty_conditions_rejected() -> None:
     # fail-closed：旧版空条件规则会命中全部流量
     with pytest.raises(ValidationError):
         DecisionRule(siteId=1, name="d", conditions=[], disposition=deny())
-    with pytest.raises(ValidationError):
-        ScoringRule(siteId=1, name="s", conditions=[], weight=10)
 
 
 def test_invalid_operator_rejected() -> None:
@@ -121,6 +101,29 @@ def test_first_match_wins_by_priority(matcher: DecisionRuleMatcher) -> None:
     assert result.matched is True
     assert result.rule is not None
     assert result.rule.name == "critical"
+
+
+def test_same_priority_sorted_by_id(matcher: DecisionRuleMatcher) -> None:
+    """同优先级规则按 ID 升序，ID 小的先执行。"""
+    rule_100 = _decision(rid=100, name="id_100", priority=RulePriority.NORMAL, disposition=deny())
+    rule_50 = _decision(rid=50, name="id_50", priority=RulePriority.NORMAL, disposition=allow())
+    # 传入顺序故意打乱，验证排序逻辑
+    result = matcher.match([rule_100, rule_50], {"ip": {"country": "CN"}})
+    assert result.matched is True
+    assert result.rule is not None
+    assert result.rule.name == "id_50"  # ID 50 < 100，先执行
+    assert result.rule.id == 50
+
+
+def test_none_id_sorted_last(matcher: DecisionRuleMatcher) -> None:
+    """id 为 None 的规则排在最后（用于规则预览等场景）。"""
+    rule_with_id = _decision(rid=1, name="has_id", priority=RulePriority.NORMAL, disposition=deny())
+    rule_no_id = _decision(rid=None, name="no_id", priority=RulePriority.NORMAL, disposition=allow())
+    result = matcher.match([rule_no_id, rule_with_id], {"ip": {"country": "CN"}})
+    assert result.matched is True
+    assert result.rule is not None
+    assert result.rule.name == "has_id"  # 有 ID 的先执行
+    assert result.rule.id == 1
 
 
 def test_no_match_returns_unmatched(matcher: DecisionRuleMatcher) -> None:

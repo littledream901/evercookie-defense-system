@@ -13,12 +13,12 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from fangyu_shared.schemas.rule import DecisionRule, ScoringRule
+from fangyu_shared.schemas.rule import DecisionRule
 from fangyu_shared.utils.time import utcnow_ms
 
 from src.domain.rule.state_machine import SYNCABLE_STATUSES
 
-AnyRule = DecisionRule | ScoringRule
+AnyRule = DecisionRule
 
 _KEY_PREFIX = "fangyu:rules:site:"
 

@@ -37,11 +37,9 @@ from fangyu_shared.schemas.rule import (
     GroupMode,
     RuleCondition,
     RuleGroup,
-    RuleKind,
     RulePriority,
     RuleSet,
     RuleStatus,
-    ScoringRule,
 )
 from fangyu_shared.schemas.target_render import pick_target, render_pool, render_target
 
@@ -69,11 +67,9 @@ __all__ = [
     "PageResponse",
     "RuleCondition",
     "RuleGroup",
-    "RuleKind",
     "RulePriority",
     "RuleSet",
     "RuleStatus",
-    "ScoringRule",
     "ShadowOutcome",
     "SuccessResponse",
     "Target",

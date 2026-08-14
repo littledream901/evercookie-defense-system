@@ -766,7 +766,7 @@ class AdminAPISecurityTest:
             ("/v2/access-logs/stats/summary", "access log summary"),
             ("/v2/access-logs", "access log list"),
             ("/v2/access-logs/shadow/impact", "shadow rule impact"),
-            ("/v2/access-logs/pool/distribution", "pool distribution"),
+            ("/v2/access-logs/pool/distribution?siteId=1", "pool distribution"),  # [BUG-005修复] 添加必选参数
             ("/v2/access-logs/crawler/overview", "crawler overview"),
             ("/v2/access-logs/crawler/vendor-distribution", "crawler vendor dist"),
             ("/v2/access-logs/crawler/category-distribution", "crawler category dist"),

@@ -37,6 +37,7 @@ class ScoringSync:
         threshold_suspect: int,
         threshold_hostile: int,
         weights: dict[str, int],
+        scorer_params: dict[str, dict[str, Any]] | None = None,
         disposition_suspect: dict[str, Any] | None = None,
         disposition_hostile: dict[str, Any] | None = None,
     ) -> None:
@@ -48,6 +49,7 @@ class ScoringSync:
                 "thresholdSuspect": threshold_suspect,
                 "thresholdHostile": threshold_hostile,
                 "weights": weights,
+                "scorerParams": scorer_params or {},
                 "dispositionSuspect": disposition_suspect,
                 "dispositionHostile": disposition_hostile,
             }

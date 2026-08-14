@@ -16,7 +16,10 @@ from fangyu_shared.clock.limits import (
     MAX_BAN_SECONDS,
 )
 from fangyu_shared.clock.windows import ALL_WINDOWS, ClockWindow
+from fangyu_shared.logging import get_logger
 from fangyu_shared.schemas.common import BaseSchema
+
+_logger = get_logger("clock")
 
 
 class BehaviorEvent(BaseSchema):
@@ -67,7 +70,24 @@ class ClockLimits(BaseSchema):
 
     def limit_for(self, window: ClockWindow) -> int:
         """取某窗口的阈值。0 表示该窗口不限流。"""
-        return self.windows.get(window.name, DEFAULT_LIMITS.get(window.name, 0))
+        limit = self.windows.get(window.name)
+        if limit is not None:
+            return limit
+
+        # 回退到默认值
+        default = DEFAULT_LIMITS.get(window.name, 0)
+
+        # 配置非空但缺少该窗口时记录回退，便于排查阈值来源
+        if default > 0 and self.windows:
+            _logger.debug(
+                "clock_limit_fallback_to_default",
+                site_id=self.site_id,
+                window=window.name,
+                default=default,
+                configured_windows=list(self.windows.keys()),
+            )
+
+        return default
 
 
 def default_limits(site_id: int) -> ClockLimits:

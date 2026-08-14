@@ -25,6 +25,7 @@ def _to_schema(row: ScoringConfigModel) -> ScoringConfigSchema:
         threshold_suspect=row.threshold_suspect,
         threshold_hostile=row.threshold_hostile,
         weights=dict(row.weights or {}),
+        scorer_params=dict(row.scorer_params or {}),
         disposition_suspect=row.disposition_suspect,
         disposition_hostile=row.disposition_hostile,
         created_at=row.created_at,
@@ -61,6 +62,7 @@ async def put_global_scoring_config(
         threshold_suspect=payload.threshold_suspect,
         threshold_hostile=payload.threshold_hostile,
         weights=dict(payload.weights),
+        scorer_params=dict(payload.scorer_params),
         disposition_suspect=payload.disposition_suspect.model_dump(mode="json") if payload.disposition_suspect else None,
         disposition_hostile=payload.disposition_hostile.model_dump(mode="json") if payload.disposition_hostile else None,
     )
@@ -109,6 +111,7 @@ async def put_scoring_config(
         threshold_suspect=payload.threshold_suspect,
         threshold_hostile=payload.threshold_hostile,
         weights=dict(payload.weights),
+        scorer_params=dict(payload.scorer_params),
         disposition_suspect=payload.disposition_suspect.model_dump(mode="json") if payload.disposition_suspect else None,
         disposition_hostile=payload.disposition_hostile.model_dump(mode="json") if payload.disposition_hostile else None,
     )

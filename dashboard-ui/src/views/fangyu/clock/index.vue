@@ -192,10 +192,15 @@
       return
     }
 
+    // 修复：保留所有窗口配置，包括 0 值（0 表示不限流）
     const activeWindows = windows.value.filter((w) => (limitsForm.limits[w.name] ?? 0) > 0)
     if (limitsForm.enabled && !activeWindows.length) {
-      ElMessage.warning('已启用频控但所有窗口阈值均为 0（不限），请至少设置一个窗口阈值')
-      return
+      const confirmed = await ElMessageBox.confirm(
+        '所有窗口阈值均为 0（不限流），频控将不会生效。确认保存吗？',
+        '确认保存',
+        { confirmButtonText: '保存', cancelButtonText: '取消', type: 'warning' }
+      ).catch(() => false)
+      if (!confirmed) return
     }
 
     const banHint = limitsForm.banEnabled
@@ -210,7 +215,19 @@
 
     saving.value = true
     try {
-      await fetchPutClockLimits({ ...limitsForm })
+      // 修复：构造完整的 windows 配置，明确保存 0 值
+      const limitsPayload = {
+        enabled: limitsForm.enabled,
+        banEnabled: limitsForm.banEnabled,
+        banSeconds: limitsForm.banSeconds,
+        limits: {} as Record<string, number>
+      }
+      // 为所有窗口显式设置值，即使是 0
+      windows.value.forEach((w) => {
+        limitsPayload.limits[w.name] = limitsForm.limits[w.name] ?? 0
+      })
+      
+      await fetchPutClockLimits(limitsPayload)
       ElMessage.success('频控配置已保存并同步到网关节点')
     } catch {
       ElMessage.error('保存失败，线上配置未变更，请稍后重试')

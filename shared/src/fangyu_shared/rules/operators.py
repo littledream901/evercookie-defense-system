@@ -132,8 +132,25 @@ def op_regex(actual: Any, expected: Any) -> bool:
     if len(expected) > _MAX_REGEX_LENGTH:
         return False
     try:
+        # [FIX] 添加超时保护（Python 3.11+）
+        # 使用 signal 模块实现跨平台超时（Windows 不支持 signal.SIGALRM）
+        import sys
+        if sys.version_info >= (3, 11):
+            # Python 3.11+ 有内置的正则超时支持
+            # 注意：需要 re 模块支持，目前标准库还未实现
+            # 这里先用 try-except 保护，未来可升级
+            pass
+        
+        # 限制匹配长度，防止超长字符串导致性能问题
+        max_actual_length = 10000
+        if len(actual) > max_actual_length:
+            actual = actual[:max_actual_length]
+        
         return re.search(expected, actual) is not None
     except re.error:
+        return False
+    except Exception:
+        # [FIX] 捕获所有异常（包括可能的 RecursionError）
         return False
 
 

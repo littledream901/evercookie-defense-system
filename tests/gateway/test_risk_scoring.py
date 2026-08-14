@@ -4,7 +4,7 @@
 
 1. **单调性**：新增一个不参与判定的 scorer，不得改变既有请求的总分。
 2. **强信号不被稀释**：高危组合必须越过拦截线。
-3. **权重可配置**：评分配置页下发的权重能覆盖 scorer 类默认值，且支持负权重。
+3. **权重可配置**：评分配置页下发的权重覆盖默认权重 1.0，且支持负权重（可信信号减分）。
 4. **配置下发无声失效**：维度 key 与 scorer 名对不上、量纲换算、verdict 推导。
 5. **人机行为信号**：脚本流量命中、真人不命中、无行为数据时不参与判定。
 """
@@ -68,18 +68,19 @@ def _pipeline(scorers: list[RiskScorer] | None = None) -> RiskPipeline:
 class _ConstantScorer(RiskScorer):
     """恒定产出的测试 scorer。"""
 
-    def __init__(self, name: str, score: float, *, weight: float = 1.0, applies: bool = True):
+    def __init__(self, name: str, score: float, *, applies: bool = True):
         self.name = name
-        self.weight = weight
         self._score = score
         self._applies = applies
 
-    def score(self, snapshot: ProfileSnapshot) -> ScorerOutput:
+    def score(
+        self,
+        snapshot: ProfileSnapshot,
+        params: dict | None = None,
+    ) -> ScorerOutput:
         if not self._applies:
             return self._skip("test_skip")
-        return ScorerOutput(
-            name=self.name, score=self._score, weight=self.weight, applies=True
-        )
+        return ScorerOutput(name=self.name, score=self._score, applies=True)
 
 
 # ── 单调性 ──
@@ -117,9 +118,9 @@ def test_score_is_capped_at_100():
 
 
 def test_score_floors_at_zero_with_negative_weights():
-    """负权重不得把总分压到 0 以下。"""
-    scorers = [_ConstantScorer("bad", 10.0), _ConstantScorer("trusted", 90.0, weight=-2.0)]
-    assert _pipeline(scorers).run(_snapshot()).score == 0.0
+    """负权重表达可信信号减分，但总分不得压到 0 以下。"""
+    scorers = [_ConstantScorer("bad", 10.0), _ConstantScorer("trusted", 90.0)]
+    assert _pipeline(scorers).run(_snapshot(), weights={"trusted": -2.0}).score == 0.0
 
 
 # ── 强信号不被稀释 ──
@@ -169,8 +170,8 @@ def test_reputation_participates_once_evaluated():
     )
     decision = _pipeline([IpReputationScorer()]).run(snapshot)
 
-    # (100 - 20) * 1.2 = 96
-    assert decision.score == 96.0
+    # (100 - 20) * 1.0 = 80
+    assert decision.score == 80.0
     assert decision.scorer_scores["ip_reputation"] == 80.0
 
 
@@ -200,12 +201,12 @@ def test_clean_traffic_passes():
 # ── 权重覆盖（来自评分配置页）──
 
 
-def test_config_weight_overrides_class_weight():
-    """评分配置下发的权重覆盖 scorer 类上的默认权重。
+def test_config_weight_overrides_default_weight():
+    """评分配置下发的权重覆盖默认权重 1.0。
 
     传入的权重已由 ScoringConfigCache 从整数量纲除以 10 还原，此处直接是浮点倍率。
     """
-    pipeline = _pipeline([_ConstantScorer("a", 20.0, weight=1.0)])
+    pipeline = _pipeline([_ConstantScorer("a", 20.0)])
     snapshot = _snapshot()
 
     assert pipeline.run(snapshot).score == 20.0
@@ -215,7 +216,7 @@ def test_config_weight_overrides_class_weight():
 def test_negative_config_weight_subtracts():
     """负权重表达可信信号减分。"""
     pipeline = _pipeline(
-        [_ConstantScorer("bad", 50.0), _ConstantScorer("verified", 40.0, weight=1.0)]
+        [_ConstantScorer("bad", 50.0), _ConstantScorer("verified", 40.0)]
     )
 
     # 50 + 40*(-1.0) = 10
@@ -228,19 +229,35 @@ def test_unknown_scorer_name_in_weights_is_ignored():
     维度 key 与 scorer 名对不上曾导致整页权重静默失效，这里锁住「多余的 key
     只是无效，不会连带破坏正常维度」这个行为。
     """
-    pipeline = _pipeline([_ConstantScorer("a", 20.0, weight=1.0)])
+    pipeline = _pipeline([_ConstantScorer("a", 20.0)])
 
     assert pipeline.run(_snapshot(), weights={"not_a_scorer": 9.9}).score == 20.0
 
 
-def test_partial_weights_keep_class_defaults():
-    """只配一部分维度时，未配置的 scorer 沿用类默认权重。"""
+def test_partial_weights_keep_defaults():
+    """只配一部分维度时，未配置的 scorer 使用默认权重 1.0。"""
     pipeline = _pipeline(
-        [_ConstantScorer("a", 10.0, weight=1.0), _ConstantScorer("b", 10.0, weight=2.0)]
+        [_ConstantScorer("a", 10.0), _ConstantScorer("b", 10.0)]
     )
 
-    # a 被覆盖为 3.0，b 保持类上的 2.0 → 10*3 + 10*2 = 50
-    assert pipeline.run(_snapshot(), weights={"a": 3.0}).score == 50.0
+    # a 被覆盖为 3.0，b 保持默认 1.0 → 10*3 + 10*1 = 40
+    assert pipeline.run(_snapshot(), weights={"a": 3.0}).score == 40.0
+
+
+def test_scorer_params_override_default_constants():
+    """评分配置下发的 scorer_params 覆盖 scorer 默认评分常量。
+
+    方案 A 后评分常量不再散落在 scorer 内部，统一由评分配置页下发覆盖。
+    这里锁住「参数能真正穿透 pipeline 到达 scorer」这一条链路。
+    """
+    snapshot = _snapshot(ua=UAResult(is_empty=True))
+    default = _pipeline([UserAgentScorer()]).run(snapshot)
+    overridden = _pipeline([UserAgentScorer()]).run(
+        snapshot, scorer_params={"user_agent": {"empty_ua": 77.0}}
+    )
+
+    assert default.scorer_scores["user_agent"] == 40.0
+    assert overridden.scorer_scores["user_agent"] == 77.0
 
 
 @pytest.mark.parametrize(
@@ -272,7 +289,7 @@ def test_parse_weights_skips_invalid_entries_only():
 
 
 def test_parse_weights_tolerates_non_dict():
-    """字段缺失或类型不对时返回空表，由 scorer 沿用类默认权重。"""
+    """字段缺失或类型不对时返回空表，由 pipeline 使用默认权重 1.0。"""
     assert _parse_weights(None) == {}
     assert _parse_weights("15") == {}
 

@@ -7,7 +7,6 @@ from fangyu_shared.schemas.disposition import Mechanism, Verdict, deny
 from fangyu_shared.schemas.rule import (
     DecisionRule,
     RuleCondition,
-    RuleKind,
     RulePriority,
     RuleStatus,
 )
@@ -48,19 +47,8 @@ async def test_rule_templates_returns_builtin_items():
 async def test_templates_carry_structured_disposition():
     resp = await list_rule_templates()
     tpl = next(t for t in resp.data if t.id == "block-country")
-    assert tpl.kind == RuleKind.DECISION
     assert tpl.disposition is not None
     assert tpl.disposition.verdict == Verdict.HOSTILE
-    # 决策模板不携带 weight（命中即终止，权重无意义）
-    assert tpl.weight is None
-
-
-@pytest.mark.asyncio
-async def test_scoring_template_carries_weight_not_disposition():
-    resp = await list_rule_templates()
-    tpl = next(t for t in resp.data if t.kind == RuleKind.SCORING)
-    assert tpl.weight is not None
-    assert tpl.disposition is None
 
 
 @pytest.mark.asyncio

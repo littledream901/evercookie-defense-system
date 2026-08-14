@@ -6,7 +6,7 @@
 ``RiskScorer.name`` 去权重覆盖表里查值（见 ``RiskPipeline.run`` 的
 ``overrides.get(output.name)``）。两边靠**字符串**对齐，没有任何静态检查：
 
-- 维度 key 拼错或 scorer 改名 → 网关查不到，静默沿用类默认权重。运维的表现是
+- 维度 key 拼错或 scorer 改名 → 网关查不到，静默使用默认权重 1.0。运维的表现是
   「拖了滑块保存成功，但分数一点没变」，且不产生任何错误日志。
 - 新增 scorer 忘了加维度 → 该维度在后台完全不可见，权重永远无法调整。
 
@@ -103,15 +103,14 @@ def test_dimensions_carry_chinese_label_and_description():
         assert dimension.get("description"), f"维度 {key} 缺 description"
 
 
-def test_default_weight_matches_scorer_class_weight():
-    """defaultWeight 是 scorer 类默认权重的 10 倍（admin 侧整数量纲）。
+def test_default_weight_uniform():
+    """defaultWeight 统一为 10（对应默认权重 1.0），所有维度默认等权重。
 
-    量纲对不上时前端展示的参照值会与网关实际行为不符，运维据此标定必然偏。
+    方案 A 后 scorer 不再携带类权重，权重由评分配置统一下发；未配置时使用
+    1.0，前端滑块初始位置统一为 10，避免隐含的维度优先级假设。
     """
-    by_name = {s.name: s for s in _GATEWAY_SCORERS}
     for dimension in _parse_dimensions():
-        scorer = by_name[dimension["key"]]
-        assert dimension["defaultWeight"] == round(scorer.weight * 10), (
-            f"维度 {dimension['key']} 的 defaultWeight={dimension['defaultWeight']} "
-            f"与 scorer 类权重 {scorer.weight} 换算后不符"
+        assert dimension["defaultWeight"] == 10, (
+            f"维度 {dimension['key']} 的 defaultWeight={dimension['defaultWeight']}，"
+            f"应统一为 10（对应权重 1.0）"
         )

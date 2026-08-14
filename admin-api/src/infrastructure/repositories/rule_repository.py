@@ -12,17 +12,15 @@ from fangyu_shared.schemas.disposition import DecisionDisposition, Disposition, 
 from fangyu_shared.schemas.rule import (
     DecisionRule,
     RuleCondition,
-    RuleKind,
     RulePriority,
     RuleStatus,
-    ScoringRule,
 )
 
 from src.domain.rule.state_machine import SYNCABLE_STATUSES
 from src.domain.rule.version import RuleVersion
 from src.infrastructure.repositories.models import RuleModel, RuleSiteModel, RuleVersionModel
 
-AnyRule = DecisionRule | ScoringRule
+AnyRule = DecisionRule
 
 # SQL 层比较的是字符串列，故从领域层的状态集合派生出 value 列表，
 # 而不是另手写一份（两份不一致就会出现「查得到但下发不了」的静默失效）。
@@ -220,8 +218,6 @@ class RuleAdminRepository:
             description=rule.description or "",
             status=rule.status.value,
             priority=rule.priority.value,
-            kind=rule.kind.value,
-            weight=getattr(rule, "weight", 0),
             disposition_match=_dump_disposition_match(rule),
             disposition_miss=_dump_disposition_miss(rule),
             conditions=[c.model_dump(mode="json") for c in rule.conditions],
@@ -252,8 +248,6 @@ class RuleAdminRepository:
         model.description = rule.description or ""
         model.status = rule.status.value
         model.priority = rule.priority.value
-        model.kind = rule.kind.value
-        model.weight = getattr(rule, "weight", 0)
         model.disposition_match = _dump_disposition_match(rule)
         model.disposition_miss = _dump_disposition_miss(rule)
         model.conditions = [c.model_dump(mode="json") for c in rule.conditions]
@@ -401,9 +395,6 @@ class RuleAdminRepository:
             "updatedAt": row.updated_at,
             "publishedAt": row.published_at,
         }
-        kind = RuleKind(row.kind) if row.kind else RuleKind.DECISION
-        if kind == RuleKind.SCORING:
-            return ScoringRule(kind=RuleKind.SCORING, weight=row.weight or 0, **common)
         # disposition_match/miss 可能为 str（部分 MySQL 驱动）或 dict，统一解析
         _pass = DecisionDisposition(mechanism=Mechanism.PASS)
         parsed_match = _parse_disposition(row.disposition_match)
@@ -419,7 +410,6 @@ class RuleAdminRepository:
             else _pass
         )
         return DecisionRule(
-            kind=RuleKind.DECISION,
             disposition_match=disposition_match,
             disposition_miss=disposition_miss,
             **common,

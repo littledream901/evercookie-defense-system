@@ -171,8 +171,6 @@ class RuleModel(Base, TimestampMixin):
     description: Mapped[str] = mapped_column(String(512), default="")
     status: Mapped[str] = mapped_column(String(16), default="draft", nullable=False)
     priority: Mapped[str] = mapped_column(String(16), default="normal", nullable=False)
-    kind: Mapped[str] = mapped_column(String(16), default="decision", nullable=False)
-    weight: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     disposition_match: Mapped[dict | None] = mapped_column(MySQLJSON, nullable=True)
     """命中条件时的处置动作（mechanism/target/challengeKind/ttlSeconds）。"""
     disposition_miss: Mapped[dict | None] = mapped_column(MySQLJSON, nullable=True)
@@ -438,6 +436,7 @@ class ScoringConfigModel(Base, TimestampMixin):
 
     每个站点对应唯一一条记录（UPSERT 语义）。
     ``weights`` 存 {维度key: 权重0-100}，缺失维度由 gateway 回退到默认权重。
+    ``scorer_params`` 存 {scorer名: {参数键: 值}}，缺失维度由 gateway 回退到默认评分常量。
     ``disposition_suspect`` / ``disposition_hostile`` 为 JSON，null 表示沿用规则链默认处置。
     """
 
@@ -454,6 +453,7 @@ class ScoringConfigModel(Base, TimestampMixin):
     threshold_suspect: Mapped[int] = mapped_column(Integer, default=40, nullable=False)
     threshold_hostile: Mapped[int] = mapped_column(Integer, default=70, nullable=False)
     weights: Mapped[dict] = mapped_column(MySQLJSON, default=dict, nullable=False)
+    scorer_params: Mapped[dict] = mapped_column(MySQLJSON, default=dict, nullable=False)
     disposition_suspect: Mapped[dict | None] = mapped_column(MySQLJSON, nullable=True)
     disposition_hostile: Mapped[dict | None] = mapped_column(MySQLJSON, nullable=True)
 

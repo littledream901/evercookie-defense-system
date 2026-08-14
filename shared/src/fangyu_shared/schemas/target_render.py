@@ -57,8 +57,8 @@ def render_target(
     请求维度
     --------
     ``{scheme}`` ``{host}`` ``{path}`` ``{handle}`` ``{query}`` ``{url}``
-    ``{url_enc}``（URL 编码的完整地址，适合做 redirect back 参数）
-    ``{app_id}`` ``{request_id}`` ``{ts}``（Unix 秒级时间戳）
+    ``{url_enc}``（URL 编码的完整地址,适合做 redirect back 参数）
+    ``{site_id}`` ``{request_id}`` ``{ts}``（Unix 秒级时间戳）
 
     - ``{path}``：URL 路径（不含 query），始终以 ``/`` 开头且不以 ``/`` 结尾
       （根路径 ``/`` 除外）。如 ``https://site.com/products/red-shoes``
@@ -68,6 +68,7 @@ def render_target(
       ``https://site.com/products/red-shoes`` → ``red-shoes``。
       当模板包含 ``{handle}`` 但 handle 为空时（如访问根路径），返回 ``None``
       表示放弃跳转，避免生成 ``https://target.com/products/`` 这样残缺的地址。
+    - ``{site_id}``：站点 ID（同 X-App-Key 值）。旧版本中也支持别名 ``{app_id}``。
 
     访客画像维度
     ------------
@@ -131,7 +132,8 @@ def render_target(
         "{query}":         f"?{parsed.query}" if parsed.query else "",
         "{url}":           visit_url or "",
         "{url_enc}":       urlquote(visit_url or "", safe=""),
-        "{app_id}":        str(app_id or ""),
+        "{app_id}":        str(app_id or ""),  # 旧名称，保留向后兼容
+        "{site_id}":       str(app_id or ""),  # 新名称，与前端文档一致
         "{request_id}":    request_id or "",
         "{ts}":            str(int(time.time())),
         # 访客画像

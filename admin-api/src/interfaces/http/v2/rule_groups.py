@@ -10,11 +10,25 @@ from src.application.services.rule_group_service import RuleGroupService
 from src.interfaces.http.dependencies import get_rule_group_service, require_permission
 from src.interfaces.http.v2.schemas import RuleGroupUpsertRequest
 
-router = APIRouter(tags=["rule_groups"])
+router = APIRouter(prefix="/rule-groups", tags=["rule_groups"])  # [BUG-006修复] 添加统一前缀
+
+
+# [BUG-006修复] 添加全局规则组列表端点
+@router.get(
+    "",
+    summary="查询所有规则组列表",
+    dependencies=[Depends(require_permission("app.read"))],
+)
+async def list_all_rule_groups(
+    service: RuleGroupService = Depends(get_rule_group_service),
+) -> SuccessResponse[list[RuleGroup]]:
+    """列出所有规则组（跨站点）。"""
+    groups = await service.list_all()
+    return SuccessResponse(data=groups)
 
 
 @router.get(
-    "/api/v2/sites/{site_id}/rule-groups",
+    "/sites/{site_id}",  # [BUG-006修复] 路径调整
     summary="查询站点的规则组列表",
     dependencies=[Depends(require_permission("app.read"))],
 )
@@ -27,7 +41,7 @@ async def list_rule_groups(
 
 
 @router.get(
-    "/api/v2/rule-groups/{group_id}",
+    "/{group_id}",  # [BUG-006修复] 路径调整
     summary="获取规则组详情",
     dependencies=[Depends(require_permission("app.read"))],
 )
@@ -40,7 +54,7 @@ async def get_rule_group(
 
 
 @router.post(
-    "/api/v2/sites/{site_id}/rule-groups",
+    "/sites/{site_id}",  # [BUG-006修复] 路径调整
     summary="创建规则组",
     dependencies=[Depends(require_permission("app.write"))],
 )
@@ -61,7 +75,7 @@ async def create_rule_group(
 
 
 @router.put(
-    "/api/v2/rule-groups/{group_id}",
+    "/{group_id}",  # [BUG-006修复] 路径调整
     summary="更新规则组",
     dependencies=[Depends(require_permission("app.write"))],
 )
@@ -82,7 +96,7 @@ async def update_rule_group(
 
 
 @router.delete(
-    "/api/v2/rule-groups/{group_id}",
+    "/{group_id}",  # [BUG-006修复] 路径调整
     summary="删除规则组",
     dependencies=[Depends(require_permission("app.write"))],
 )
@@ -95,7 +109,7 @@ async def delete_rule_group(
 
 
 @router.post(
-    "/api/v2/sites/{site_id}/rule-groups/sync",
+    "/sites/{site_id}/sync",  # [BUG-006修复] 路径调整
     summary="全量同步规则组到 Redis",
     dependencies=[Depends(require_permission("app.write"))],
 )

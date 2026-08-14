@@ -7,7 +7,7 @@ from fangyu_shared.exceptions import (
     ResourceNotFoundException,
 )
 from fangyu_shared.logging import get_logger
-from fangyu_shared.schemas.rule import DecisionRule, RuleKind, RuleStatus, ScoringRule
+from fangyu_shared.schemas.rule import DecisionRule, RuleStatus
 from fangyu_shared.utils.time import utcnow
 
 from src.domain.rule.state_machine import SYNCABLE_STATUSES, RuleStateMachine
@@ -19,10 +19,7 @@ _logger = get_logger("admin.rule_service")
 
 
 def _rule_from_snapshot(snapshot: dict) -> AnyRule:
-    """按 kind 还原规则快照。历史快照缺 kind 时按决策规则处理。"""
-    kind = str(snapshot.get("kind") or RuleKind.DECISION.value)
-    if kind == RuleKind.SCORING.value:
-        return ScoringRule.model_validate(snapshot)
+    """按快照还原决策规则。历史快照可能残留 kind/weight 字段，Pydantic 会忽略。"""
     return DecisionRule.model_validate(snapshot)
 
 
@@ -154,9 +151,6 @@ class RuleService:
         if current.status == RuleStatus.ARCHIVED:
             raise BusinessRuleException("已归档的规则不可修改")
 
-        if patch.kind != current.kind:
-            raise BusinessRuleException("不支持变更规则种类，请新建规则")
-
         current.name = patch.name or current.name
         current.description = (
             patch.description if patch.description is not None else current.description
@@ -166,12 +160,8 @@ class RuleService:
         current.match_all = patch.match_all
         current.group = patch.group
         current.tags = list(patch.tags)
-        # weight / disposition 按种类互斥，只拷贝该种类实际持有的那个
-        if isinstance(current, ScoringRule) and isinstance(patch, ScoringRule):
-            current.weight = patch.weight
-        elif isinstance(current, DecisionRule) and isinstance(patch, DecisionRule):
-            current.disposition_match = patch.disposition_match
-            current.disposition_miss = patch.disposition_miss
+        current.disposition_match = patch.disposition_match
+        current.disposition_miss = patch.disposition_miss
         current.version += 1
         current.status = RuleStatus.DRAFT
 

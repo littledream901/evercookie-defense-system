@@ -95,7 +95,7 @@ class ClockGuard:
                 # 0 表示该窗口不限流
                 continue
             count = counts.count_for(window.name)
-            if count > limit:
+            if count > limit:  # 保持原逻辑：严格大于才拦截（count=limit 时放行）
                 return LimitBreach(
                     dimension=counts.dimension,
                     window_name=window.name,

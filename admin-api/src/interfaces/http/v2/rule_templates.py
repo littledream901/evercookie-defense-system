@@ -23,7 +23,7 @@ from fangyu_shared.schemas.disposition import (
     redirect,
     serve_alt,
 )
-from fangyu_shared.schemas.rule import DecisionRule, RuleKind
+from fangyu_shared.schemas.rule import DecisionRule
 from fangyu_shared.ua import parse_user_agent
 
 from src.interfaces.http.dependencies import require_permission
@@ -32,20 +32,14 @@ router = APIRouter(prefix="/rules", tags=["rules"])
 
 
 class RuleTemplateSchema(BaseSchema):
-    """规则模板。
-
-    ``kind`` 决定模板产出决策规则还是打分规则：决策模板带 ``disposition``，
-    打分模板带 ``weight``，两者互斥。
-    """
+    """规则模板：均产出决策规则，带 ``disposition``。"""
 
     id: str
     name: str
     description: str
     priority: str
-    kind: RuleKind = RuleKind.DECISION
     conditions: list[dict[str, Any]]
     disposition: Disposition | None = None
-    weight: int | None = None
 
 
 class RulePreviewRequest(BaseSchema):
@@ -301,18 +295,6 @@ _TEMPLATES = [
         priority="normal",
         disposition=redirect("https://{host}/verify?from={path}"),
         conditions=[{"field": "ip.country", "op": "in_ci", "value": ["RU", "IR"]}],
-    ),
-    RuleTemplateSchema(
-        id="score-proxy-signal",
-        name="代理信号加分（打分规则）",
-        description=(
-            "打分规则不终止流水线，只贡献权重，最终由评分阈值决定处置。"
-            "适合弱信号叠加判断。"
-        ),
-        priority="normal",
-        kind=RuleKind.SCORING,
-        weight=35,
-        conditions=[{"field": "ip.isProxy", "op": "eq", "value": True}],
     ),
 ]
 

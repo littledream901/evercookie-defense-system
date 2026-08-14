@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api-keys", tags=["api-keys"])
     "",
     response_model=SuccessResponse[ApiKeyCreatedResponse],
     status_code=201,
+    dependencies=[Depends(get_current_user_id)],  # [BUG-003修复] 确保已认证
 )
 async def create_api_key(
     payload: ApiKeyCreateRequest,
@@ -42,6 +43,7 @@ async def create_api_key(
 @router.get(
     "",
     response_model=SuccessResponse[list[ApiKeySchema]],
+    dependencies=[Depends(get_current_user_id)],  # [BUG-003修复] 确保已认证
 )
 async def list_api_keys(
     user_id: int = Depends(get_current_user_id),
@@ -69,6 +71,7 @@ async def list_api_keys(
 @router.delete(
     "/{key_id}",
     response_model=SuccessResponse[None],
+    dependencies=[Depends(get_current_user_id)],  # [BUG-003修复] 确保已认证
 )
 async def delete_api_key(
     key_id: int,

@@ -50,13 +50,15 @@
                   <span>优先级</span>
                   <ElTooltip placement="top" :show-after="200">
                     <template #content>
-                      <div style="max-width:280px;font-size:12px;line-height:1.8">
-                        规则链按优先级从高到低求值：<b>critical → high → normal → low</b><br>
-                        同级规则按 ID 升序排列。<br>
-                        <b>critical</b>：安全兜底（IP 黑名单、已知攻击），最先匹配<br>
-                        <b>high</b>：强信号规则（VPN/DC/Tor + 高风险行为）<br>
-                        <b>normal</b>：常规业务规则（地区、频次、设备）<br>
-                        <b>low</b>：宽松规则或观察规则，放最后
+                      <div style="max-width:320px;font-size:12px;line-height:1.8">
+                        <b>执行顺序（首次命中立即终止）：</b><br>
+                        critical → high → normal → low<br>
+                        同级按 ID 升序（ID 越小越先执行）<br><br>
+                        <b>各级使用场景：</b><br>
+                        <b>critical</b>：最高优先级，安全防护规则（IP 黑名单、已知攻击特征）<br>
+                        <b>high</b>：强信号规则（VPN/机房 + 可疑行为）<br>
+                        <b>normal</b>：常规业务规则（地区限制、频次控制）<br>
+                        <b>low</b>：宽松策略或观察规则（灰度测试、兜底放行）
                       </div>
                     </template>
                     <ElIcon class="ml-1 cursor-help text-g-400" style="vertical-align:-2px"><QuestionFilled /></ElIcon>
@@ -90,8 +92,8 @@
               至少需要一个匹配条件。无条件的规则不会命中任何请求（风控侧 fail-closed，不会误伤全站流量）。
             </span>
           </div>
-          <div v-for="(cond, idx) in ruleForm.conditions" :key="idx" class="condition-row mb-2">
-            <ElRow :gutter="8" align="middle">
+          <div v-for="(cond, idx) in ruleForm.conditions" :key="idx" class="condition-row-wrapper mb-3">
+            <ElRow :gutter="8" align="middle" class="condition-row">
               <ElCol :span="7">
                 <ElSelect
                   v-model="cond.field"
@@ -131,9 +133,9 @@
               </ElCol>
             </ElRow>
             <!-- 落空/误杀风险提示：脏字段永不命中，可空字段配否定操作符会误杀 -->
-            <div v-if="conditionRiskHint(cond.field, cond.operator)" class="condition-risk">
-              <ElIcon><WarningFilled /></ElIcon>
-              <span>{{ conditionRiskHint(cond.field, cond.operator) }}</span>
+            <div v-if="conditionRiskHint(cond.field, cond.operator)" class="condition-risk-hint">
+              <ElIcon class="condition-risk-hint__icon"><WarningFilled /></ElIcon>
+              <span class="condition-risk-hint__text">{{ conditionRiskHint(cond.field, cond.operator) }}</span>
             </div>
           </div>
           <div style="margin-top:4px;margin-bottom:4px">
@@ -231,15 +233,39 @@
               >
                 <ElInput
                   v-model="branch.form.target.url"
-                  placeholder="https://example.com 支持 {ip} {fingerprint} {score} 等变量"
+                  placeholder="https://example.com 支持变量，点击右侧查看完整列表"
                 >
                   <template #append>
-                    <ElTooltip placement="top-end">
+                    <ElTooltip placement="top-end" :width="420">
                       <template #content>
-                        <div style="max-width:300px;font-size:12px;line-height:1.8">
-                          {ip} {ip_enc} {fingerprint} {country} {score} {score_int} {verdict}<br>
-                          {connection_type} {is_vpn} {is_proxy} {ua_enc} {referer_enc}<br>
-                          {url} {url_enc} {scheme} {host} {path} {handle} {query} {app_id} {request_id}
+                        <div style="max-width:420px;font-size:12px;line-height:1.8">
+                          <b>请求维度：</b><br>
+                          {url} - 访客原始 URL（明文）<br>
+                          {url_enc} - 访客原始 URL（URL 编码），适合做 redirect-back 参数<br>
+                          {path} - URL 路径（不含 query），如 /products/red-shoes<br>
+                          {handle} - 路径最后一段（不含 /），如 red-shoes，用于透传资源标识<br>
+                          {query} - query 字符串（含前缀 ?）<br>
+                          {scheme} - 协议 http / https<br>
+                          {host} - 域名+端口<br>
+                          <br><b>访客画像维度：</b><br>
+                          {ip} - 访客 IP<br>
+                          {ip_enc} - 访客 IP（URL 编码）<br>
+                          {fingerprint} - Evercookie 指纹（明文）<br>
+                          {fingerprint_enc} - Evercookie 指纹（URL 编码）<br>
+                          {country} - GeoIP 国家码，如 CN / US<br>
+                          {verdict} - 决策结论：hostile / suspicious / clean / unknown<br>
+                          {score} - 风险分（浮点，如 82.5）<br>
+                          {score_int} - 风险分（整数，如 82）<br>
+                          {connection_type} - 网络类型：datacenter / mobile / residential<br>
+                          {is_vpn} - VPN：1 或 0<br>
+                          {is_proxy} - 代理：1 或 0<br>
+                          <br><b>请求信号维度：</b><br>
+                          {ua_enc} - User-Agent（URL 编码）<br>
+                          {referer_enc} - Referer（URL 编码）<br>
+                          {ingress} - 接入来源：sdk / adapter<br>
+                          {site_id} - 站点 ID（同 X-App-Key 值）<br>
+                          {request_id} - 请求唯一 ID（每次不同，用于防重放）<br>
+                          {ts} - Unix 时间戳（秒）
                         </div>
                       </template>
                       <span class="text-xs cursor-help" style="color:#409eff">变量</span>
@@ -835,14 +861,40 @@
   color: var(--el-text-color-primary);
 }
 
-.condition-risk {
+/* 条件行容器 */
+.condition-row-wrapper {
+  position: relative;
+}
+
+/* 条件输入行 */
+.condition-row {
+  margin-bottom: 0;
+}
+
+/* 风险提示样式 */
+.condition-risk-hint {
   display: flex;
   align-items: flex-start;
-  gap: 4px;
-  margin: 4px 0 0 4px;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: #fef7e6;
+  border: 1px solid #faecd8;
+  border-radius: 4px;
   font-size: 12px;
   line-height: 1.6;
-  color: var(--el-color-warning);
+  color: #e6a23c;
+}
+
+.condition-risk-hint__icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  font-size: 14px;
+}
+
+.condition-risk-hint__text {
+  flex: 1;
+  word-break: break-word;
 }
 
 .template-item {

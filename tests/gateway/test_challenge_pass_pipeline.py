@@ -129,7 +129,7 @@ class _StubSecurity:
 
 
 class _StubRiskPipeline:
-    def run(self, snapshot, scoring_rules=None, **kwargs):
+    def run(self, snapshot, **kwargs):
         return RiskDecision(disposition=allow(), score=0.0)
 
 

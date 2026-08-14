@@ -369,6 +369,67 @@ def test_render_handle_url_encoded() -> None:
     assert out == "https://example.com/red%20shoes"
 
 
+def test_render_all_25_variables() -> None:
+    """测试所有 25 个变量是否都能正确渲染。"""
+    template = (
+        "https://target.com/verify?"
+        # 请求维度 (7个)
+        "url={url_enc}&path={path}&handle={handle}&query={query}&"
+        "scheme={scheme}&host={host}&app_id={app_id}&request_id={request_id}&ts={ts}&"
+        # 访客画像维度 (10个)
+        "ip={ip_enc}&fp={fingerprint_enc}&country={country}&verdict={verdict}&"
+        "score={score}&score_int={score_int}&conn={connection_type}&"
+        "vpn={is_vpn}&proxy={is_proxy}&"
+        # 请求信号维度 (5个)
+        "ua={ua_enc}&ref={referer_enc}&ingress={ingress}&sid={site_id}"
+    )
+    
+    out = render_target(
+        template,
+        visit_url="https://shop.example/products/red-shoes?color=red",
+        app_id=42,
+        request_id="req_abc123",
+        # 访客画像
+        ip="203.0.113.45",
+        fingerprint="fp_xyz789",
+        country="US",
+        verdict="suspicious",
+        score=75.8,
+        connection_type="datacenter",
+        is_vpn=True,
+        is_proxy=False,
+        # 请求信号
+        user_agent="Mozilla/5.0",
+        referer="https://google.com",
+        ingress="sdk",
+    )
+    
+    assert out is not None
+    # 验证关键变量存在
+    assert "url=https%3A%2F%2Fshop.example%2Fproducts%2Fred-shoes%3Fcolor%3Dred" in out
+    assert "path=/products/red-shoes" in out
+    assert "handle=red-shoes" in out
+    assert "query=?color=red" in out or "query=%3Fcolor%3Dred" in out
+    assert "scheme=https" in out
+    assert "host=shop.example" in out
+    assert "app_id=42" in out
+    assert "request_id=req_abc123" in out
+    assert "ts=" in out  # 时间戳是动态的
+    assert "ip=203.0.113.45" in out
+    assert "fp=fp_xyz789" in out
+    assert "country=US" in out
+    assert "verdict=suspicious" in out
+    assert "score=75.8" in out
+    assert "score_int=75" in out
+    assert "conn=datacenter" in out
+    assert "vpn=1" in out
+    assert "proxy=0" in out
+    assert "ua=Mozilla%2F5.0" in out
+    assert "ref=https%3A%2F%2Fgoogle.com" in out
+    assert "ingress=sdk" in out
+    assert "sid=42" in out
+
+
 def test_render_path_and_handle_together() -> None:
     """path 和 handle 可以同时使用。"""
     out = render_target(

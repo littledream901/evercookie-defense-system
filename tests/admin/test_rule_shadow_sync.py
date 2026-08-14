@@ -14,7 +14,7 @@ import orjson
 import pytest
 
 from fangyu_shared.schemas.disposition import DecisionDisposition, Mechanism
-from fangyu_shared.schemas.rule import DecisionRule, RuleCondition, RuleKind, RuleStatus
+from fangyu_shared.schemas.rule import DecisionRule, RuleCondition, RuleStatus
 
 from src.application.services.rule_service import RuleService
 from src.infrastructure.cache.rule_cache import RuleCache
@@ -29,7 +29,6 @@ def _rule(*, rid: int, status: RuleStatus, name: str = "r") -> DecisionRule:
         siteIds=[7],
         name=name,
         status=status,
-        kind=RuleKind.DECISION,
         conditions=[RuleCondition(field="ip.country", op="eq", value="CN")],
         disposition_match=DecisionDisposition(mechanism=Mechanism.DENY),
         disposition_miss=DecisionDisposition(mechanism=Mechanism.PASS),

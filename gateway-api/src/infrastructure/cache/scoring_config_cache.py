@@ -11,10 +11,9 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 import orjson
-from redis.asyncio import Redis
-
 from fangyu_shared.logging import get_logger
 from fangyu_shared.schemas.disposition import (
     ChallengeKind,
@@ -23,6 +22,7 @@ from fangyu_shared.schemas.disposition import (
     challenge,
     deny,
 )
+from redis.asyncio import Redis
 
 _logger = get_logger("gateway.scoring_config_cache")
 _KEY_PREFIX = "fangyu:scoring"
@@ -41,7 +41,10 @@ class ScoringConfig:
         自定义处置。None 表示沿用 pipeline 内置的 challenge(CAPTCHA) / deny()。
     ``weights``
         ``scorer 名 → 权重`` 覆盖表，已从 admin 侧的整数量纲除以 10 还原为浮点。
-        空 dict 表示未配置，各 scorer 沿用类上的默认权重。
+        空 dict 表示未配置，各 scorer 使用默认权重 1.0。
+    ``scorer_params``
+        ``scorer 名 → 参数键值`` 覆盖表，直接透传给 ``RiskScorer.score(params=...)``。
+        空 dict 表示未配置，各 scorer 回退到 ``DEFAULT_SCORER_PARAMS`` 默认常量。
     """
 
     enabled: bool = True
@@ -50,6 +53,7 @@ class ScoringConfig:
     disposition_suspect: Disposition | None = None
     disposition_hostile: Disposition | None = None
     weights: dict[str, float] = field(default_factory=dict)
+    scorer_params: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -152,6 +156,7 @@ class ScoringConfigCache:
             disposition_suspect=disposition_suspect,
             disposition_hostile=disposition_hostile,
             weights=_parse_weights(data.get("weights")),
+            scorer_params=_parse_scorer_params(data.get("scorerParams")),
         )
 
     def _default_config(self) -> ScoringConfig:
@@ -165,9 +170,8 @@ class ScoringConfigCache:
 def _parse_weights(raw: object) -> dict[str, float]:
     """把 admin 侧的整数权重表还原为 scorer 使用的浮点量纲。
 
-    admin 存整数（-1000..1000）便于前端用滑块整数步进，scorer 类上的默认权重是
-    1.0 量级，因此除以 10 —— 与 ``ScoringRule.weight`` 的既有换算保持同一比例，
-    不引入第三套单位。
+    admin 存整数（-1000..1000）便于前端用滑块整数步进，网关侧按浮点 1.0 作为
+    默认等权基线，因此除以 10。
 
     非法项逐个跳过而非整表丢弃：一个维度写坏不该让其余维度也退回默认权重。
     """
@@ -181,6 +185,24 @@ def _parse_weights(raw: object) -> dict[str, float]:
             out[name] = float(value) / 10.0
         except (TypeError, ValueError):
             _logger.warning("scoring_weight_invalid", scorer=name, value=repr(value))
+    return out
+
+
+def _parse_scorer_params(raw: object) -> dict[str, dict[str, Any]]:
+    """把 ``scorerParams`` 还原为 ``scorer 名 → 参数键值`` 结构。
+
+    只保留「scorer 名是 str 且值是 dict」的条目；一个维度写坏不该让其余维度也
+    退回默认评分常量，与 ``_parse_weights`` 的容错口径一致。具体参数键的合法性
+    由 ``RiskScorer._num`` / ``_merged`` 在网关侧兜底。
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for name, value in raw.items():
+        if not isinstance(name, str) or not isinstance(value, dict):
+            _logger.warning("scoring_scorer_params_invalid", scorer=name)
+            continue
+        out[name] = value
     return out
 
 

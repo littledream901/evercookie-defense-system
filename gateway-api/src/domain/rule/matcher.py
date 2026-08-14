@@ -133,5 +133,8 @@ class DecisionRuleMatcher:
     def _sort(rules: list[DecisionRule]) -> list[DecisionRule]:
         return sorted(
             rules,
-            key=lambda r: (_PRIORITY_ORDER.get(r.priority, 99), r.id or 0),
+            key=lambda r: (
+                _PRIORITY_ORDER.get(r.priority, 99),
+                r.id if r.id is not None else float('inf')
+            ),
         )

@@ -15,7 +15,7 @@ import orjson
 from redis.asyncio import Redis
 
 from fangyu_shared.schemas.disposition import Disposition
-from fangyu_shared.schemas.rule import DecisionRule, RuleGroup, RuleSet, ScoringRule
+from fangyu_shared.schemas.rule import DecisionRule, RuleGroup, RuleSet
 
 _GROUP_PREFIX = "fangyu:rule_groups"
 _DEFAULT_DISPOSITION_PREFIX = "fangyu:default_disposition"
@@ -86,7 +86,6 @@ class RuleRepository:
     async def _load_from_redis(self, site_id: int) -> tuple[RuleSet, str | None]:
         raw_items: dict[str, Any] = await self._redis.hgetall(f"{self._prefix}{site_id}")
         decision_rules: list[DecisionRule] = []
-        scoring_rules: list[ScoringRule] = []
         version: str | None = None
         for field, raw in raw_items.items():
             # 连接可能未开 decode_responses，field 统一归一化成 str 再比对
@@ -98,13 +97,9 @@ class RuleRepository:
                 data = orjson.loads(raw)
             except orjson.JSONDecodeError:
                 continue
-            # 按 kind 分派；脏数据逐条跳过，不影响其余规则加载
-            kind = str(data.get("kind") or "decision")
+            # 脏数据逐条跳过，不影响其余规则加载
             try:
-                if kind == "scoring":
-                    scoring_rules.append(ScoringRule.model_validate(data))
-                else:
-                    decision_rules.append(DecisionRule.model_validate(data))
+                decision_rules.append(DecisionRule.model_validate(data))
             except ValueError:
                 continue
 
@@ -121,7 +116,6 @@ class RuleRepository:
         rule_set = RuleSet(
             siteId=site_id,
             decisionRules=decision_rules,
-            scoringRules=scoring_rules,
             groups=groups,
             defaultDisposition=default_disposition,
         )
