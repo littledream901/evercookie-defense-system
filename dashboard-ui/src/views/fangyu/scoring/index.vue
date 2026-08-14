@@ -42,47 +42,6 @@
           </template>
         </ElAlert>
 
-        <!-- 决策流水线 -->
-        <ElCard shadow="never" class="mb-4 shrink-0">
-          <template #header>
-            <div class="flex items-center gap-2">
-              <span>决策流水线</span>
-              <ElTooltip placement="top">
-                <template #content>
-                  访客请求自上而下逐阶段流过，任一阶段命中即返回处置，后续阶段不再执行。<br />
-                  「配置来源」标明该阶段受什么控制——只有风险评分能在本页调整。
-                </template>
-                <ElIcon class="text-g-400"><QuestionFilled /></ElIcon>
-              </ElTooltip>
-            </div>
-          </template>
-          <div class="flex flex-col gap-1.5">
-            <div
-              v-for="(stage, idx) in pipelineStages"
-              :key="stage.key"
-              class="flex items-start gap-3 rounded border px-3 py-2"
-              :class="stage.dimmed ? 'border-g-200 bg-g-50' : 'border-g-200'"
-            >
-              <span
-                class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs"
-                :class="stage.dimmed ? 'bg-g-200 text-g-500' : 'bg-primary text-white'"
-              >{{ idx + 1 }}</span>
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2">
-                  <span class="text-sm font-medium" :class="stage.dimmed ? 'text-g-400' : 'text-g-800'">
-                    {{ stage.label }}
-                  </span>
-                  <ElTag size="small" :type="stage.tagType">{{ stage.source }}</ElTag>
-                  <span v-if="stage.terminal" class="text-xs text-g-400">命中即返回</span>
-                </div>
-                <div class="mt-0.5 text-xs" :class="stage.dimmed ? 'text-g-400' : 'text-g-500'">
-                  {{ stage.description }}
-                </div>
-              </div>
-            </div>
-          </div>
-        </ElCard>
-
         <ElRow :gutter="16" class="shrink-0 items-stretch">
         <!-- 基础配置 -->
         <ElCol :span="12" class="flex flex-col">
@@ -597,100 +556,7 @@ const dimensions = ref<
   Array<{ key: string; label: string; description: string; defaultWeight?: number }>
 >([])
 
-/**
- * 决策流水线阶段，顺序与网关 DecisionService.decide() 的实际执行顺序一致。
- *
- * source 标明配置来源，避免误以为都能在本页调整：
- * - 网关环境变量：改动需重启网关进程
- * - 代码固定：当前无开关
- * - 本页配置：仅风险评分一项
- */
-const PIPELINE_STAGES = [
-  {
-    key: 'ingress',
-    label: '接入层解析',
-    description: 'SDK 取 socket peer IP / Adapter 由调用方传入；解析指纹、UA、访问路径。未解析出 IP 会直接抛错，不进流水线',
-    source: '代码固定',
-    terminal: false
-  },
-  {
-    key: 'whitelist',
-    label: '白名单',
-    description: '按 IP / 指纹查站点白名单。放在最前是误封兜底——被频控封禁的访客到不了后面的阶段。代价是白名单流量不参与频控计数',
-    source: '网关环境变量',
-    terminal: true
-  },
-  {
-    key: 'challenge_pass',
-    label: '挑战通行',
-    description: '查访客是否持有已通过挑战的凭据，持有则放行，不必重复验证',
-    source: '代码固定',
-    terminal: true
-  },
-  {
-    key: 'clock',
-    label: '频控',
-    description: '按 IP / 指纹多窗口计数并落行为时序，超限升级为封禁。必须前置于缓存，否则缓存命中的请求不计数会漏掉突发流量。拦截返回 404 而非 403，不暴露频控存在',
-    source: '网关环境变量',
-    terminal: true
-  },
-  {
-    key: 'hybrid_lookup',
-    label: 'Hybrid 查询',
-    description: '仅 SDK 请求。用 serverToken 查第一层（Adapter）预判：规则命中过则直接短路；纯评分产生的可疑只作为信号注入，交由本层用真实指纹重判。token 消费后即删，防重放',
-    source: '代码固定',
-    terminal: true
-  },
-  {
-    key: 'cache',
-    label: '决策缓存',
-    description: '按 (站点, 指纹, IP) 查已有结论，命中则跳过后续全部阶段。频控结论不写入此缓存——它与时间强相关，缓存后窗口滑过仍会被拒',
-    source: '代码固定',
-    terminal: true
-  },
-  {
-    key: 'profile',
-    label: '画像构建',
-    description: '读设备与 IP 画像缓存，叠加 MMDB 归属地、ASN、UA 解析与六类维度情报，产出后续阶段的求值上下文。不产出处置',
-    source: '代码固定',
-    terminal: false
-  },
-  {
-    key: 'decision_rule',
-    label: '决策规则',
-    description: '按优先级匹配已发布的决策规则，首次命中即终止。含 allowlist 规则组兜底与「未命中处置」短路；影子规则只记录不生效',
-    source: '规则页配置',
-    terminal: true
-  },
-  {
-    key: 'threat_intel',
-    label: '威胁情报',
-    description: '查 IP 是否在威胁情报库中，命中则拒绝',
-    source: '代码固定',
-    terminal: true
-  },
-  {
-    key: 'security',
-    label: '基础安全检查',
-    description: 'IP 黑名单、地理围栏、Tor 出口节点。前两项默认为空列表，未配置时实际只有 Tor 判定在起作用',
-    source: '网关环境变量',
-    terminal: true
-  },
-  {
-    key: 'risk_scoring',
-    label: '风险评分',
-    description: '六个维度加权累加后截顶到 100 分，越过阈值施加对应处置。关闭后本阶段整体跳过，直接落到默认处置',
-    source: '本页配置',
-    terminal: true
-  },
-  {
-    key: 'default',
-    label: '默认处置',
-    description: '前面全部未命中时的兜底：站点级默认处置 → 系统默认放行',
-    source: '代码固定',
-    terminal: false
-  }
-] as const
+// 流水线阶段常量已移除，相关配置移至「默认处置」页面
 
 const configForm = reactive<{
   enabled: boolean
@@ -708,20 +574,11 @@ const configForm = reactive<{
   weights: {}
 })
 
-const pipelineStages = computed(() =>
-  PIPELINE_STAGES.map((s) => {
-    // 评分关闭时该阶段不执行，置灰以反映真实链路
-    const dimmed = s.key === 'risk_scoring' && !configForm.enabled
-    const tagType: 'primary' | 'info' | 'warning' =
-      s.source === '本页配置' ? 'primary' : s.source === '代码固定' ? 'info' : 'warning'
-    return {
-      ...s,
-      dimmed,
-      tagType: dimmed ? 'info' : tagType,
-      description: dimmed ? `${s.description}（当前已关闭，本阶段跳过）` : s.description
-    }
-  })
-)
+const pipelineStages = computed(() => {
+  // 评分页不再展示流水线，该代码可以删除
+  // 流水线配置已移至「默认处置」页面
+  return []
+})
 
 type DispositionBranch = {
   key: 'disposition_suspect' | 'disposition_hostile'

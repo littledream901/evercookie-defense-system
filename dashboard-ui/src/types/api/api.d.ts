@@ -917,6 +917,27 @@ declare namespace Api {
       disposition: DecisionDisposition
     }
 
+    /** 流水线配置（决策流水线各阶段开关） */
+    interface PipelineConfig {
+      siteId: number
+      whitelistEnabled: boolean
+      clockEnabled: boolean
+      threatIntelEnabled: boolean
+      securityEnabled: boolean
+      rulesEnabled: boolean
+      scoringEnabled: boolean
+    }
+
+    /** 流水线配置更新载荷 */
+    interface PipelineConfigPayload {
+      whitelistEnabled: boolean
+      clockEnabled: boolean
+      threatIntelEnabled: boolean
+      securityEnabled: boolean
+      rulesEnabled: boolean
+      scoringEnabled: boolean
+    }
+
     /** 单一接入来源（sdk / adapter）的实测指标 */
     interface IngressStat {
       ingress: string

@@ -56,11 +56,24 @@
       </ElTabPane>
     </ElTabs>
 
+    <!-- 流水线配置 -->
+    <template v-if="(activeTab === 'global') || (activeTab === 'site' && selectedSiteId)">
+      <PipelineConfigPanel
+        v-model="pipelineConfig"
+        :mode="activeTab"
+        :inherit-global="activeTab === 'site' && !hasSitePipelineConfig"
+        :loading="pipelineLoading"
+        :disabled="saving"
+        class="mb-4"
+        @reset="resetPipelineConfig"
+      />
+    </template>
+
     <!-- 处置编辑器（全局/站点共用） -->
     <ElCard shadow="never" class="mb-4">
       <template #header>
         <div class="flex items-center justify-between">
-          <span>处置策略</span>
+          <span>默认处置策略</span>
           <span class="text-xs text-g-500">
             该机制将判定为
             <ElTag size="small" :type="verdictTag">{{ verdictLabel }}</ElTag>
@@ -188,11 +201,16 @@ import {
   verdictForMechanism
 } from '@/constants/disposition'
 import RotationPoolEditor from '@/components/RotationPoolEditor.vue'
+import PipelineConfigPanel from './components/PipelineConfigPanel.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   fetchGetGlobalDefaultDisposition, fetchPutGlobalDefaultDisposition, fetchResetGlobalDefaultDisposition,
   fetchGetDefaultDisposition, fetchPutDefaultDisposition, fetchResetDefaultDisposition
 } from '@/api/default-disposition'
+import {
+  fetchGetGlobalPipelineConfig, fetchPutGlobalPipelineConfig,
+  fetchGetPipelineConfig, fetchPutPipelineConfig
+} from '@/api/pipeline-config'
 import { fetchGetAllSites } from '@/api/apps'
 import { fetchGetPageResourceList } from '@/api/page-resources'
 
@@ -211,6 +229,11 @@ const loadError = ref('')
 
 // 全局配置（用于站点继承展示）
 const globalMechanism = ref('pass')
+
+// 流水线配置
+const pipelineConfig = ref<Api.Fangyu.PipelineConfigPayload | null>(null)
+const hasSitePipelineConfig = ref(false)
+const pipelineLoading = ref(false)
 
 const canOperate = computed(() => activeTab.value === 'global' || !!selectedSiteId.value)
 
@@ -300,6 +323,53 @@ function applyDisposition(d: Api.Fangyu.Disposition) {
   }
 }
 
+async function loadPipelineConfig() {
+  pipelineLoading.value = true
+  hasSitePipelineConfig.value = false
+  try {
+    if (activeTab.value === 'global') {
+      const cfg = await fetchGetGlobalPipelineConfig()
+      pipelineConfig.value = cfg ? {
+        whitelistEnabled: cfg.whitelistEnabled,
+        clockEnabled: cfg.clockEnabled,
+        threatIntelEnabled: cfg.threatIntelEnabled,
+        securityEnabled: cfg.securityEnabled,
+        rulesEnabled: cfg.rulesEnabled,
+        scoringEnabled: cfg.scoringEnabled
+      } : null
+    } else {
+      if (!selectedSiteId.value) return
+      const cfg = await fetchGetPipelineConfig(selectedSiteId.value)
+      if (cfg) {
+        hasSitePipelineConfig.value = true
+        pipelineConfig.value = {
+          whitelistEnabled: cfg.whitelistEnabled,
+          clockEnabled: cfg.clockEnabled,
+          threatIntelEnabled: cfg.threatIntelEnabled,
+          securityEnabled: cfg.securityEnabled,
+          rulesEnabled: cfg.rulesEnabled,
+          scoringEnabled: cfg.scoringEnabled
+        }
+      } else {
+        // 继承全局
+        const globalCfg = await fetchGetGlobalPipelineConfig()
+        pipelineConfig.value = globalCfg ? {
+          whitelistEnabled: globalCfg.whitelistEnabled,
+          clockEnabled: globalCfg.clockEnabled,
+          threatIntelEnabled: globalCfg.threatIntelEnabled,
+          securityEnabled: globalCfg.securityEnabled,
+          rulesEnabled: globalCfg.rulesEnabled,
+          scoringEnabled: globalCfg.scoringEnabled
+        } : null
+      }
+    }
+  } catch (err) {
+    console.error('加载流水线配置失败:', err)
+  } finally {
+    pipelineLoading.value = false
+  }
+}
+
 async function loadConfig() {
   loadError.value = ''
   hasSiteConfig.value = false
@@ -336,6 +406,8 @@ async function loadConfig() {
       console.error('加载默认处置失败:', err)
     }
   }
+  
+  await loadPipelineConfig()
 }
 
 async function onTabChange() {
@@ -356,8 +428,8 @@ async function saveConfig() {
 
   const scopeText = activeTab.value === 'global' ? '全局' : `站点 ${selectedSiteId.value}`
   const confirmed = await ElMessageBox.confirm(
-    `保存后 ${scopeText} 的默认处置将同步到网关节点，穿透前置阶段的请求将按此兜底。确认保存？`,
-    '保存默认处置',
+    `保存后 ${scopeText} 的默认处置和流水线配置将同步到网关节点。确认保存？`,
+    '保存配置',
     { confirmButtonText: '保存', cancelButtonText: '取消', type: 'warning' }
   ).catch(() => false)
   if (!confirmed) return
@@ -367,16 +439,69 @@ async function saveConfig() {
     if (activeTab.value === 'global') {
       await fetchPutGlobalDefaultDisposition({ disposition })
       globalMechanism.value = disposition.mechanism
+      
+      // 保存流水线配置
+      if (pipelineConfig.value) {
+        await fetchPutGlobalPipelineConfig(pipelineConfig.value)
+      }
     } else {
       if (!selectedSiteId.value) return
       await fetchPutDefaultDisposition(selectedSiteId.value, { disposition })
       hasSiteConfig.value = true
+      
+      // 保存流水线配置
+      if (pipelineConfig.value) {
+        await fetchPutPipelineConfig(selectedSiteId.value, pipelineConfig.value)
+        hasSitePipelineConfig.value = true
+      }
     }
-    ElMessage.success('默认处置已保存')
+    ElMessage.success('配置已保存')
   } catch (e: any) {
     ElMessage.error('保存失败：' + (e?.message || '未知错误'))
   } finally {
     saving.value = false
+  }
+}
+
+async function resetPipelineConfig() {
+  const scopeText = activeTab.value === 'global' ? '全局' : `站点 ${selectedSiteId.value}`
+  const message = activeTab.value === 'global'
+    ? '将恢复全局流水线配置为默认值（全部启用）。'
+    : '将删除当前站点的流水线配置，站点回退使用全局配置。'
+
+  const confirmed = await ElMessageBox.confirm(
+    message,
+    `重置${scopeText}流水线配置`,
+    { confirmButtonText: '确认', cancelButtonText: '取消', type: 'warning' }
+  ).catch(() => false)
+  if (!confirmed) return
+
+  pipelineLoading.value = true
+  try {
+    // 设置为默认值（全部启用）
+    pipelineConfig.value = {
+      whitelistEnabled: true,
+      clockEnabled: true,
+      threatIntelEnabled: true,
+      securityEnabled: true,
+      rulesEnabled: true,
+      scoringEnabled: true
+    }
+    
+    // 保存默认配置到后端
+    if (activeTab.value === 'global') {
+      await fetchPutGlobalPipelineConfig(pipelineConfig.value)
+    } else {
+      if (!selectedSiteId.value) return
+      await fetchPutPipelineConfig(selectedSiteId.value, pipelineConfig.value)
+    }
+    
+    ElMessage.success('流水线配置已重置')
+    await loadPipelineConfig()
+  } catch (e: any) {
+    ElMessage.error('重置失败：' + (e?.message || '未知错误'))
+  } finally {
+    pipelineLoading.value = false
   }
 }
 
