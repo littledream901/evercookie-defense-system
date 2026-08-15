@@ -489,11 +489,14 @@ class SecurityPolicyModel(Base, TimestampMixin):
     __tablename__ = "biz_security_policy"
     __table_args__ = (
         UniqueConstraint("site_id", name="uk_security_policy_site"),
-        ForeignKey("biz_site.id", name="fk_security_policy_site", ondelete="CASCADE"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    site_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    site_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("biz_site.id", name="fk_security_policy_site", ondelete="CASCADE"),
+        nullable=False,
+    )
     enabled: Mapped[bool] = mapped_column(Boolean, server_default="1", nullable=False)
 
     # 威胁情报配置

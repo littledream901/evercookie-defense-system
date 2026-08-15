@@ -23,7 +23,7 @@ def upgrade() -> None:
     op.create_table(
         'biz_security_policy',
         sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
-        sa.Column('site_id', sa.Integer(), nullable=False),
+        sa.Column('site_id', sa.BigInteger(), nullable=False),
         sa.Column('enabled', sa.Boolean(), nullable=False, server_default='1'),
         
         # 威胁情报配置
