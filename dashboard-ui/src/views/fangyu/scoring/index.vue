@@ -317,47 +317,6 @@
             </template>
           </ElAlert>
 
-          <!-- 决策流水线 -->
-          <ElCard shadow="never" class="mb-4 shrink-0">
-            <template #header>
-              <div class="flex items-center gap-2">
-                <span>决策流水线</span>
-                <ElTooltip placement="top">
-                  <template #content>
-                    访客请求自上而下逐阶段流过，任一阶段命中即返回处置，后续阶段不再执行。<br />
-                    「配置来源」标明该阶段受什么控制——只有风险评分能在本页调整。
-                  </template>
-                  <ElIcon class="text-g-400"><QuestionFilled /></ElIcon>
-                </ElTooltip>
-              </div>
-            </template>
-            <div class="flex flex-col gap-1.5">
-              <div
-                v-for="(stage, idx) in pipelineStages"
-                :key="stage.key"
-                class="flex items-start gap-3 rounded border px-3 py-2"
-                :class="stage.dimmed ? 'border-g-200 bg-g-50' : 'border-g-200'"
-              >
-                <span
-                  class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs"
-                  :class="stage.dimmed ? 'bg-g-200 text-g-500' : 'bg-primary text-white'"
-                >{{ idx + 1 }}</span>
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-center gap-2">
-                    <span class="text-sm font-medium" :class="stage.dimmed ? 'text-g-400' : 'text-g-800'">
-                      {{ stage.label }}
-                    </span>
-                    <ElTag size="small" :type="stage.tagType">{{ stage.source }}</ElTag>
-                    <span v-if="stage.terminal" class="text-xs text-g-400">命中即返回</span>
-                  </div>
-                  <div class="mt-0.5 text-xs" :class="stage.dimmed ? 'text-g-400' : 'text-g-500'">
-                    {{ stage.description }}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </ElCard>
-
           <ElRow :gutter="16" class="shrink-0 items-stretch">
              <!-- 基础配置 -->
              <ElCol :span="12" class="flex flex-col">
@@ -572,12 +531,6 @@ const configForm = reactive<{
   disposition_suspect: null,
   disposition_hostile: null,
   weights: {}
-})
-
-const pipelineStages = computed(() => {
-  // 评分页不再展示流水线，该代码可以删除
-  // 流水线配置已移至「默认处置」页面
-  return []
 })
 
 type DispositionBranch = {
