@@ -164,12 +164,17 @@ export function optionLabel(fieldValue: string, option: string): string {
   return text ? `${text} (${option})` : option
 }
 
-/** 空值时会命中的否定类操作符，用于给 nullable 字段出风险提示 */
+/** 
+ * 空值时会命中的否定类操作符，用于给 nullable 字段出风险提示
+ * 
+ * not_contains 已排除：后端实现在空值时返回 False（不命中），
+ * 而非像其他否定操作符那样返回 True（命中）。
+ * 参见 operators.py:102-112 的特殊处理逻辑。
+ */
 export const NEGATIVE_OPS = new Set([
   'neq',
   'not_in',
   'not_in_ci',
-  'not_contains',
   'asn_not_in',
   'cidr_list_not_in'
 ])
